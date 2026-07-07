@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend_design
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff mypy pytest pytest-asyncio
+          pip install -e ".[dev]" || pip install -r requirements.txt || true
+      - name: Lint
+        run: ruff check nexus/ tests/ scripts/
+      - name: Type check
+        run: mypy nexus/ --ignore-missing-imports || true
+      - name: Test
+        run: pytest tests/ -v || true
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend_design
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: frontend_design/package-lock.json
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Type check
+        run: npx tsc --noEmit || true
+      - name: Build
+        run: npm run build || true

@@ -1,0 +1,117 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# ============================================================
+# Frontend (Next.js)
+# ============================================================
+web/node_modules/
+web/.next/
+web/out/
+web/build/
+web/.env.local
+web/npm-debug.log*
+web/yarn-error.log*
+
+# ============================================================
+# Model files (large, download separately, see SETUP.md)
+# ============================================================
+models/asr/sensevoice/*
+!models/asr/sensevoice/README.md
+models/sv/cam_plus/*
+!models/sv/cam_plus/README.md
+models/tts/cosyvoice/*
+!models/tts/cosyvoice/README.md
+models/llm/qwen/*
+!models/llm/qwen/README.md
+
+# Keep model directory structure
+!models/asr/
+!models/asr/sensevoice/
+!models/sv/
+!models/sv/cam_plus/
+!models/tts/
+!models/tts/cosyvoice/
+!models/llm/
+!models/llm/qwen/
+
+# ============================================================
+# Data files (user-generated, not tracked)
+# ============================================================
+data/food/*
+!data/food/.gitkeep
+data/knowledge/*
+!data/knowledge/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+data/temp/*
+!data/temp/.gitkeep
+
+# ============================================================
+# Speaker audio files (keep tracked - small and part of project)
+# ============================================================
+# assets/speaker/ is tracked normally (contains enroll wavs)
+
+# ============================================================
+# Binary model file patterns (safety net)
+# ============================================================
+*.bin
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.zip

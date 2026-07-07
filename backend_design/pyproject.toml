@@ -1,0 +1,87 @@
+[project]
+name = "nexus-cockpit"
+version = "1.0.0"
+description = "NexusCockpit — Enterprise-grade Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "NexusCockpit Team" }]
+
+dependencies = [
+    # --- Web Framework ---
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
+    "websockets>=12.0",
+
+    # --- LLM / Agent ---
+    "openai>=1.12.0",
+    "langgraph>=0.1.0",
+    "langchain-core>=0.1.30",
+    "langchain-openai>=0.1.0",
+
+    # --- RAG / Vector Store ---
+    "pymilvus>=2.4.0",
+    "neo4j>=5.18.0",
+
+    # --- Middleware ---
+    "redis>=5.0.0",
+    "celery>=5.3.0",
+    "kombu>=5.3.0",
+
+    # --- Config / Validation ---
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.1.0",
+    "python-dotenv>=1.0.0",
+
+    # --- Observability ---
+    "langfuse>=2.27.0",
+    "prometheus-client>=0.20.0",
+    "structlog>=24.1.0",
+
+    # --- Auth ---
+    "pyjwt>=2.8.0",
+    "passlib[bcrypt]>=1.7.4",
+
+    # --- Audio / ASR / TTS ---
+    "funasr>=1.0.27",
+    "modelscope>=1.11.0",
+    "torchaudio>=2.2.0",
+
+    # --- Utils ---
+    "httpx>=0.27.0",
+    "tenacity>=8.2.0",
+    "tiktoken>=0.6.0",
+    "tavily-python>=0.3.5",
+    "duckduckgo-search>=4.0.0",
+    "orjson>=3.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.27.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nexus*"]
