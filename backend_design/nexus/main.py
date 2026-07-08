@@ -115,14 +115,14 @@ async def lifespan(app: FastAPI):
     app.state.langfuse = langfuse_monitor
 
     # --- 8. 初始化 Agent 工作流 (核心!) ---
-    # Agent 图是整个系统的"大脑"，包含 Planner-Executor-Responder-Reviewer 四个阶段
+    # v2.0: Supervisor + 5 专家 Agent 多智能体架构
     try:
-        from nexus.agent.graph import AgentGraph
+        from nexus.agent.supervisor_graph import SupervisorGraph
         from nexus.intent.router import IntentRouterService
         from nexus.memory.manager import MemoryManager
         from nexus.skills.registry import SkillRegistry
 
-        # 技能注册中心: 管理所有车载/非车载技能
+        # 技能注册中心: 管理所有车载/非车载技能（v2.0 装饰器自动发现）
         skill_registry = SkillRegistry(graph_store=graph_store, vehicle_adapter=vehicle_adapter)
         # 记忆管理器: 管理用户短期/长期记忆
         memory_manager = MemoryManager(vector_store, graph_store)
@@ -132,17 +132,49 @@ async def lifespan(app: FastAPI):
             tool_catalog=skill_registry.get_all_tools(),
         )
 
-        # Agent 图: 串联所有组件的 LangGraph 工作流
-        agent_graph = AgentGraph(
+        # v2.0: SqliteSaver checkpoint 持久化
+        checkpoint_saver = None
+        try:
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+            import sqlite3
+            import os
+            db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+            # 使用同步 SQLite 连接（LangGraph 会在线程池中执行）
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            checkpoint_saver = AsyncSqliteSaver(conn)
+            await checkpoint_saver.setup()
+            logger.info(f"SqliteSaver checkpoint initialized at {db_path}")
+        except ImportError:
+            logger.warning("langgraph-checkpoint-sqlite not installed, checkpoint disabled")
+        except Exception as e:
+            logger.warning(f"Checkpoint initialization failed (non-fatal): {e}")
+
+        # v2.0: Supervisor 多智能体工作流
+        agent_graph = SupervisorGraph(
             intent_router=intent_router,
             memory_manager=memory_manager,
             skill_registry=skill_registry,
+            checkpoint_saver=checkpoint_saver,
         )
+
+        # v2.0: Cherry 知识库 + 统一检索器
+        try:
+            from nexus.rag.cherry_kb import CherryKnowledgeBase
+            from nexus.rag.unified_retriever import UnifiedRetriever
+            cherry_kb = CherryKnowledgeBase(embedding_service)
+            cherry_kb.connect(getattr(vector_store, "_client", None))
+            app.state.cherry_kb = cherry_kb
+            logger.info("Cherry KnowledgeBase initialized")
+        except Exception as e:
+            logger.warning(f"Cherry KB init failed (non-fatal): {e}")
+            app.state.cherry_kb = None
 
         app.state.skill_registry = skill_registry
         app.state.memory_manager = memory_manager
         app.state.agent_graph = agent_graph
-        logger.info("Agent graph initialized")
+        app.state.checkpoint_saver = checkpoint_saver
+        logger.info("Supervisor graph initialized (v2.0)")
     except Exception as e:
         # Agent 初始化失败不阻止服务启动，但聊天功能不可用
         logger.error(f"Agent graph initialization failed: {e}")
@@ -169,6 +201,13 @@ async def lifespan(app: FastAPI):
         await app.state.embedding_service.close()
     if hasattr(app.state, "langfuse") and app.state.langfuse:
         app.state.langfuse.flush()
+    if hasattr(app.state, "checkpoint_saver") and app.state.checkpoint_saver:
+        try:
+            # SqliteSaver 连接通过 conn 属性关闭
+            if hasattr(app.state.checkpoint_saver, "conn"):
+                app.state.checkpoint_saver.conn.close()
+        except Exception:
+            pass
     logger.info("NexusCockpit stopped")
 
 
@@ -183,7 +222,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="NexusCockpit",
         description="Enterprise Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP",
-        version="1.0.0",
+        version="2.0.0",
         lifespan=lifespan,
     )
 

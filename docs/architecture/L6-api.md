@@ -73,10 +73,12 @@ POST /chat/stream
     "user_id": "u1",
     "stream": true
 }
-→ data: {"node": "planner", "data": {"intent": "weather"}}
-→ data: {"node": "responder", "data": {"chunk": "今天"}}
-→ data: {"node": "responder", "data": {"chunk": "天气"}}
-→ data: [DONE]
+→ data: {"type": "intent", "data": {"intent": "weather", "source": "llm"}}
+→ data: {"type": "experts", "data": {"active": ["chat_expert"]}}
+→ data: {"type": "action", "data": {"skill": "web_search", "status": "ok"}}
+→ data: {"type": "chunk", "data": {"text": "今天"}}
+→ data: {"type": "chunk", "data": {"text": "天气"}}
+→ data: {"type": "done", "data": {"response": "今天天气..."}}
 ```
 
 ### routes/vehicle.py — 车控 API

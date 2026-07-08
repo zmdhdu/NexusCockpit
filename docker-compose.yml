@@ -71,9 +71,10 @@ services:
       - "7474:7474"
       - "7687:7687"
 
-  # --- Redis (Cache + Rate Limit + PubSub) ---
+  # --- Redis Stack (Cache + Vector Search + Rate Limit + PubSub) ---
+  # v2.0: 升级为 redis-stack-server，支持 RediSearch + VECTOR 向量索引
   redis:
-    image: redis:7.2-alpine
+    image: redis/redis-stack-server:7.2.0-v4
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data

@@ -1,6 +1,18 @@
 # NexusCockpit 项目开发进展与架构说明
 
-> 最后更新 2026-07-08
+> 最后更新 2026-07-08 (v2.0)
+>
+> ---
+>
+> ## v2.0 架构升级
+>
+> v2.0 将 v1.0 的线性 Planner→Executor→Responder→Reviewer 升级为 **Supervisor + 5 Expert Agents** 架构：
+> - Supervisor 统一调度，5 个专家并行执行
+> - 新增 12 个技能（总计 21 个）
+> - RAG 三路融合检索 + Rerank 重排
+> - Redis Stack KNN 语义缓存
+> - 前端 HUD 科幻风升级（3D 车型 + 实时图表 + 动效）
+>
 
 ---
 
@@ -11,13 +23,13 @@
 | 阶段 | 状态 | 完成度 | 说明 |
 |------|------|--------|------|
 | 项目初始化与架构设计 | ✅ 已完成 | 100% | 七层架构设计、目录结构、文档体系 |
-| 后端核心代码实现 | ✅ 已完成 | 95% | L0-L7 全部模块代码就位 |
-| 前端界面实现 | ✅ 已完成 | 90% | 4 个核心页面已完成，待联调微调 |
+| 后端核心代码实现 | ✅ 已完成 | 100% | L0-L7 全部模块代码就位 (v2.0 Supervisor+Experts) |
+| 前端界面实现 | ✅ 已完成 | 95% | HUD 科幻风升级，4 页面 + 3D 模型 + 实时图表 |
 | 基础设施 (Docker) | ✅ 已完成 | 100% | Milvus/Neo4j/Redis/RabbitMQ/MySQL/Prometheus/Grafana |
 | OSS 对象存储集成 | ✅ 已完成 | 100% | 阿里云 OSS 已接入，支持上传/下载/公开读 |
 | 工程化配置 | ✅ 已完成 | 100% | Makefile/pre-commit/CI/CD/.gitignore |
 | 前后端分离 | ✅ 已完成 | 100% | backend_design/ 与 frontend_design/ 独立 |
-| Skills 体系 | ✅ 已完成 | 100% | 9 个 skill 已迁移到 .catpaw/skills/ |
+| Skills 体系 | ✅ 已完成 | 100% | 8 个 catpaw skill + 21 个业务技能 |
 | 测试文档 | ✅ 已完成 | 100% | VERIFICATION.md + TESTING.md |
 | 模型下载与部署 | ⏳ 待执行 | 0% | 需用户按 SETUP.md 下载 |
 | API Key 配置 | ⏳ 待执行 | 0% | 需用户填入 ARK_API_KEY 等 |
@@ -39,11 +51,14 @@
 | 向量存储 | `backend_design/nexus/rag/vector_store.py` | ✅ | Milvus HNSW |
 | 图谱存储 | `backend_design/nexus/rag/graph_store.py` | ✅ | Neo4j |
 | 意图路由 | `backend_design/nexus/intent/` | ✅ | 启发式 + LLM 双路 |
-| 技能系统 | `backend_design/nexus/skills/` | ✅ | 9 个技能 + 编排器 |
+| 技能系统 | `backend_design/nexus/skills/` | ✅ | 21 个技能 (v1.0: 9 + v2.0: 12) + 装饰器注册 |
 | 车控适配 | `backend_design/nexus/vehicle/` | ✅ | Mock/HTTP/MCP 三模式 |
-| Agent 层 | `backend_design/nexus/agent/` | ✅ | Planner-Executor-Responder-Reviewer |
-| 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 |
-| 语义缓存 | `backend_design/nexus/middleware/redis_cache.py` | ✅ | Redis + Embedding 相似度 |
+| Agent 层 | `backend_design/nexus/agent/` | ✅ | v2.0: SupervisorGraph + 5 Expert Agents |
+| 专家 Agent | `backend_design/nexus/agent/experts/` | ✅ | v2.0: Vehicle/Nav/Lifestyle/Health/Chat |
+| Prompt 模板 | `backend_design/nexus/prompts/` | ✅ | v2.0: 外置 Prompt 管理 (5 个模板) |
+| 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 (tiktoken 精准计数) |
+| 语义缓存 | `backend_design/nexus/middleware/redis_cache.py` | ✅ | v2.0: RediSearch KNN + 副作用隔离 |
+| RAG 检索 | `backend_design/nexus/rag/` | ✅ | v2.0: 三路融合+Rerank+CherryKB |
 | JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
 | 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis Lua 脚本原子化滑动窗口 |
 | 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | RabbitMQ/Celery |
@@ -52,7 +67,7 @@
 | API 路由 | `backend_design/nexus/api/routes/` | ✅ | chat/vehicle/admin/health |
 | WebSocket | `backend_design/nexus/api/websocket.py` | ✅ | 实时流式 |
 | MCP 网关 | `backend_design/nexus/mcp/` | ✅ | MCP 协议适配器 |
-| 数据模型 | `backend_design/nexus/models/` | ✅ | Pydantic schemas + AgentState |
+| 数据模型 | `backend_design/nexus/models/` | ✅ | v2.0: TypedDict SupervisorState + Pydantic schemas |
 | 可观测性 | `backend_design/nexus/observability/` | ✅ | Prometheus + Langfuse |
 | 测试用例 | `backend_design/tests/` | ✅ | test_api + test_core |
 
@@ -60,10 +75,10 @@
 
 | 页面 | 路由 | 状态 | 功能 |
 |------|------|------|------|
-| 仪表盘 | `/dashboard` | ✅ | 统计卡片、服务状态、缓存统计 |
+| 仪表盘 | `/dashboard` | ✅ | v2.0 HUD: 3D 车型 + Recharts 实时图表 + 统计卡片 |
 | 语音助手 | `/chat` | ✅ | 流式聊天、意图标签、Markdown 渲染、可取消 |
 | 车控面板 | `/vehicle` | ✅ | 空调/车窗/座椅/媒体/导航/状态 6 卡片 |
-| 设置 | `/settings` | ✅ | API 密钥/模型配置/数据库状态 |
+| 设置 | `/settings` | ✅ | v2.0: API 密钥/模型配置/数据库状态 (Framer Motion 动效) |
 
 ### 前端工程化改进 (v1.0)
 
@@ -78,7 +93,17 @@
 | 状态持久化 | ✅ | Zustand persist 中间件，刷新不丢对话 |
 | 离线标记 | ✅ | VehiclePanel 后端不可达时显示"离线"提示 |
 | CVA 按钮 | ✅ | class-variance-authority 类型安全变体 |
-| 依赖清理 | ✅ | 移除 4 个未使用依赖 (react-query/recharts/framer-motion/date-fns) |
+| 依赖清理 | ✅ | 移除 4 个未使用依赖 (react-query/date-fns) |
+
+### 前端 v2.0 HUD 升级
+
+| 改进项 | 状态 | 说明 |
+|--------|------|------|
+| 3D 车型 | ✅ | Three.js 渲染车辆 3D 模型，支持旋转交互 |
+| 实时图表 | ✅ | Recharts 数据可视化（雷达图/折线图/仪表盘） |
+| 动效系统 | ✅ | Framer Motion 页面过渡 + 组件入场动画 |
+| HUD 科技风 | ✅ | 全局深色赛博风、霓虹边框、玻璃拟态 |
+| 车控 3D | ✅ | vehicle-3d.tsx 组件，3D 模型 + 车控指令联动 |
 
 ---
 
@@ -114,16 +139,16 @@
 │ │(Redis)   ││(Lua滑动) ││(RabbitMQ)│                              │
 │ └──────────┘└──────────┘└──────────┘                              │
 ├─────────────────────────────────────────────────────────────────────┤
-│ L4 Agent 层 (Multi-Agent Workflow)                                  │
+│ L4 Agent 层 (v2.0 Supervisor + Experts)                                │
 │ ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐        │
-│ │Planner   │──▶│ Executor │──▶│Responder │──▶│ Reviewer │        │
-│ │(规划)    │   │(执行)    │   │(响应)    │   │(评审)    │        │
+│ │Supervisor│──▶│ Experts  │──▶│Responder │──▶│ Reviewer │        │
+│ │(调度)    │   │(5 并行)  │   │(汇总)    │   │(评审)    │        │
 │ └──────────┘   └────┬─────┘   └──────────┘   └──────────┘        │
 │                      │                                             │
 │ L3 服务层            │                                             │
 │ ┌──────┐┌──────┐┌──┴──────┐┌──────┐┌──────┐┌──────┐             │
 │ │ASR   ││TTS   ││Skills   ││Intent││Memory││Vehicle│             │
-│ │(语音)││(合成)││(9技能)  ││(路由)││(记忆)││(车控) │             │
+│ │(语音)││(合成)││(21技能) ││(路由)││(记忆)││(车控) │             │
 │ └──────┘└──────┘└─────────┘└──────┘└──────┘└──────┘             │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L2 数据层                                                           │
@@ -163,12 +188,12 @@
                                       │ ┌──────────────┐
                                       │ │ Agent Graph  │
                                       │ │              │
-                                      │ │ 1. Planner   │
-                                      │ │    (意图识别) │
+                                      │ │ 1. Supervisor  │
+                                      │ │    (意图+分派) │
                                       │ │       │      │
                                       │ │       ▼      │
-                                      │ │ 2. Executor  │
-                                      │ │    (技能调用) │
+                                      │ │ 2. Experts    │
+                                      │ │   (5 并行)    │
                                       │ │    ┌────────┐│
                                       │ │    │Climate ││
                                       │ │    │Skill   ││
@@ -201,7 +226,14 @@ NexusCockpit/
 │   │   ├── config.py               # 配置中心 (自动定位 .env)
 │   │   ├── main.py                 # FastAPI 入口
 │   │   ├── api/                    # REST API + WebSocket
-│   │   ├── agent/                  # Multi-Agent 工作流
+│   │   ├── agent/                  # v2.0: Supervisor + 5 Expert Agents
+│   │   │   ├── supervisor_graph.py # v2.0 编排核心
+│   │   │   ├── experts/            # v2.0 专家 Agent (vehicle/nav/lifestyle/health/chat)
+│   │   │   ├── graph.py           # [DEPRECATED] v1.0 AgentGraph
+│   │   │   ├── planner.py         # [DEPRECATED] v1.0
+│   │   │   ├── responder.py       # v1.0 复用
+│   │   │   └── reviewer.py        # v1.0 复用
+│   │   ├── prompts/                # v2.0: 外置 Prompt 模板
 │   │   ├── asr/                    # 语音识别引擎
 │   │   ├── tts/                    # 语音合成引擎
 │   │   ├── core/                   # 核心组件 (日志/异常/熔断/OSS)
@@ -211,8 +243,8 @@ NexusCockpit/
 │   │   ├── middleware/             # 中间件 (缓存/限流/队列)
 │   │   ├── models/                 # 数据模型
 │   │   ├── observability/          # 可观测性
-│   │   ├── rag/                    # RAG 检索
-│   │   ├── skills/                 # 技能系统
+│   │   ├── rag/                    # v2.0: 三路融合检索 + Rerank + CherryKB
+│   │   ├── skills/                 # v2.0: 21 个技能 + 装饰器注册
 │   │   └── vehicle/                # 车控适配器
 │   ├── tests/                      # 测试用例
 │   ├── scripts/                    # 初始化脚本

@@ -141,10 +141,10 @@ async def ws_chat(websocket: WebSocket):
                     await websocket.send_json({"error": str(e)})
                     continue
 
-            # 构建 Agent 状态
-            from nexus.models.state import AgentState
+            # 构建 v2.0 SupervisorState
+            from nexus.models.state import create_initial_state
 
-            # 优先从 SessionStore 加载历史
+            # 优先从 SessionStore 加载历史 (from main L5 fix)
             session_key = session_id or user_id
             session_store = getattr(app.state, "session_store", None)
             if session_store:
@@ -152,7 +152,7 @@ async def ws_chat(websocket: WebSocket):
             else:
                 history = app.state.session_histories.get(session_key, [])
 
-            state = AgentState(
+            state = create_initial_state(
                 user_input=text,
                 user_id=user_id,
                 session_id=session_id,
@@ -161,66 +161,18 @@ async def ws_chat(websocket: WebSocket):
 
             start = time.perf_counter()
 
-            # 流式执行
+            # v2.0 流式执行（使用 stream_with_events）
             try:
-                # Phase 1: 规划
-                state = await app.state.agent_graph.planner.plan(state)
-
-                # 发送意图事件
-                if state.intent:
-                    await websocket.send_json({
-                        "type": "intent",
-                        "data": {"intent": state.intent.get("Route_Source", "")},
-                    })
-
-                # Phase 2: 澄清分支
-                if state.need_clarification and state.clarification_prompt:
-                    await websocket.send_json({
-                        "type": "chunk",
-                        "data": {"chunk": state.clarification_prompt},
-                    })
-                    state.final_response = state.clarification_prompt
-                    await app.state.agent_graph.reviewer.review(state)
-
-                # Phase 3: 执行技能 + 流式响应
-                else:
-                    state = await app.state.agent_graph.executor.execute(state)
-
-                    # 发送技能动作事件
-                    if state.skill_action:
-                        await websocket.send_json({
-                            "type": "action",
-                            "data": {"action": state.skill_action},
-                        })
-
-                    # 流式输出
-                    async for chunk in app.state.agent_graph.responder.stream_respond(state):
-                        await websocket.send_json({
-                            "type": "chunk",
-                            "data": {"chunk": chunk},
-                        })
-
-                    # 审查后处理
-                    await app.state.agent_graph.reviewer.review(state)
+                async for event in app.state.agent_graph.stream_with_events(state):
+                    await websocket.send_json(event)
 
                 latency = round((time.perf_counter() - start) * 1000, 2)
 
-                # 确保 final_response 不为空
-                final_response = state.final_response or "抱歉，处理超时，请重试。"
-                await websocket.send_json({
-                    "type": "done",
-                    "data": {
-                        "response": final_response,
-                        "latency_ms": latency,
-                        "intent": state.intent.get("Route_Source", "") if state.intent else "",
-                        "action": state.skill_action or "",
-                    },
-                })
-
-                # 更新会话历史 (优先使用 SessionStore)
+                # 更新会话历史 (优先使用 SessionStore, from main L5 fix)
+                state_history = state.get("history", [])
                 if session_store:
-                    await session_store.async_set(session_key, state.history)
-                app.state.session_histories[session_key] = state.history[-20:]
+                    await session_store.async_set(session_key, state_history)
+                app.state.session_histories[session_key] = state_history[-20:]
 
             except Exception as e:
                 logger.error(f"WS agent error: {e}")

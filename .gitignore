@@ -78,6 +78,8 @@ models/tts/cosyvoice/*
 !models/tts/cosyvoice/README.md
 models/llm/qwen/*
 !models/llm/qwen/README.md
+# Ignore entire bge-reranker-v2-m3 model directory (contains .git from HuggingFace clone + 2.1GB model weights)
+models/reranker/bge-reranker-v2-m3/
 
 # Keep model directory structure
 !models/asr/
@@ -88,6 +90,7 @@ models/llm/qwen/*
 !models/tts/cosyvoice/
 !models/llm/
 !models/llm/qwen/
+!models/reranker/
 
 # ============================================================
 # Data files (user-generated, not tracked)

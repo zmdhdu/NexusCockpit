@@ -31,11 +31,13 @@ export interface ChatResponse {
 
 /** 流式事件类型 */
 export interface StreamEvent {
-  type: string;     // 事件类型: chunk / intent / action / done / error
+  type: string;     // 事件类型: chunk / intent / action / experts / done / error
   data?: {
     chunk?: string;        // 文本块 (type=chunk)
     intent?: string;       // 意图名称 (type=intent)
+    source?: string;       // 意图来源 (type=intent)
     action?: string;       // 技能动作 (type=action)
+    experts?: string[];    // 专家列表 (type=experts, v2.0)
     response?: string;     // 完整回复 (type=done)
     latency_ms?: number;   // 延迟 (type=done)
     message?: string;      // 错误信息 (type=error)
@@ -108,4 +110,24 @@ export interface CacheStats {
   misses: number;      // 未命中次数
   hit_rate: number;    // 命中率 (%)
   size: number;        // 缓存大小
+  index_ready?: boolean; // RediSearch 索引是否就绪 (v2.0)
+}
+
+// ============================================================
+// v2.0 新增类型
+// ============================================================
+
+/** 专家状态 */
+export interface ExpertStatus {
+  name: string;         // 专家名称
+  active: boolean;      // 是否活跃
+  latency_ms?: number;  // 执行延迟
+}
+
+/** 知识库统计 */
+export interface KBStats {
+  connected: boolean;
+  collection?: string;
+  total_docs?: number;
+  error?: string;
 }
