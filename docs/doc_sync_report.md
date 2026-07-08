@@ -1,6 +1,6 @@
 # 文档同步检查报告
 
-> 检查时间: 2026-07-08 22:07:09
+> 检查时间: 2026-07-08 22:11:55
 
 ## 检查概要
 
@@ -15,12 +15,12 @@
 
 | 文件路径 |
 |----------|
-| `backend_design/nexus/api/routes/auth.py` |
+| `.catpaw/skills/doc-sync/doc_mapping.yaml` |
 
 ## 已检查且一致的文档
 
 - ✅ docs/PROGRESS.md
-- ✅ docs/architecture/L6-api.md
+- ✅ docs/architecture/README.md
 
 ## 文档同步完成摘要
 

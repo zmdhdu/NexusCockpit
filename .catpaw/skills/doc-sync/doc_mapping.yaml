@@ -207,8 +207,10 @@ mappings:
       - "docs/architecture/README.md"
       - "docs/PROGRESS.md"
     check_items:
-      - "Skills 清单表格是否包含所有 skill 目录"
+      - "Skills 清单表格是否包含所有 skill 目录（当前应为 9 个）"
       - "新增 skill 是否在 architecture/README.md 中登记"
+      - "post-code-guardian 的子技能引用路径是否正确（code-review/code-doc/doc-sync）"
+      - "Agent.md 中的技能目录树是否包含所有 skill"
 
 # ============================================================
 # 特殊规则: 规划文档不做同步检查

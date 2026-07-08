@@ -91,7 +91,9 @@ NexusCockpit/
 │   ├── code-review/                 # 代码审查
 │   ├── change-impact-report/        # 变更影响评估
 │   ├── rapid-dev/                   # 快速开发
-│   └── beginner-code-comment/       # 小白代码注释
+│   ├── beginner-code-comment/       # 小白代码注释
+│   ├── doc-sync/                    # 文档同步检查
+│   └── post-code-guardian/          # 代码修改后自动编排守护 (code-review→code-doc→doc-sync)
 │
 ├── docs/                            # ===== 文档中心 =====
 │   ├── architecture/                # 架构文档 (L0-L7)
@@ -166,3 +168,52 @@ NexusCockpit/
 | 修改 MCP 网关 | `backend_design/nexus/mcp/gateway.py` |
 | 修改基础设施 | `docker-compose.yml` + `config/` |
 | 修改 AI 技能 | `.catpaw/skills/` |
+
+## 代码修改后的质量保障流程（强制执行）
+
+> **每次修改代码后，必须依次执行以下三个技能，确保代码质量、注释、文档三方一致。**
+
+```
+代码修改完成
+     │
+     ▼
+┌──────────────────────────────────────────────────────┐
+│  post-code-guardian (编排器)                          │
+│  技能路径: .catpaw/skills/post-code-guardian/SKILL.md │
+├──────────────────────────────────────────────────────┤
+│                                                      │
+│  Step 1: code-review   (.catpaw/skills/code-review/)  │
+│          → 检测 bug / 安全漏洞 / 性能问题              │
+│          → 发现 Critical/Warning → 立即修复            │
+│                                                      │
+│  Step 2: code-doc      (.catpaw/skills/code-doc/)     │
+│          → 为新增/修改的函数补充 docstring             │
+│          → 为复杂逻辑添加行内注释                      │
+│                                                      │
+│  Step 3: doc-sync      (.catpaw/skills/doc-sync/)     │
+│          → 检查 .md 文档与代码是否一致                 │
+│          → 自动更新过期文档                            │
+│          → 也可运行: python .catpaw/skills/doc-sync/  │
+│             check_doc_sync.py --all                   │
+│                                                      │
+│  Step 4: 汇总输出守护报告                              │
+└──────────────────────────────────────────────────────┘
+     │
+     ▼
+  质量闭环完成，可执行 git commit
+```
+
+### 技能说明
+
+| 技能 | 路径 | 作用 | 触发时机 |
+|------|------|------|----------|
+| `post-code-guardian` | `.catpaw/skills/post-code-guardian/` | 编排器，依次调度下面三个子技能 | 代码修改完成后自动触发 |
+| `code-review` | `.catpaw/skills/code-review/` | 静态分析、安全扫描、性能审查 | post-code-guardian Step 1 |
+| `code-doc` | `.catpaw/skills/code-doc/` | 生成 docstring、补充行内注释 | post-code-guardian Step 2 |
+| `doc-sync` | `.catpaw/skills/doc-sync/` | 检查并同步 .md 文档与代码一致性 | post-code-guardian Step 3 |
+
+### 调度顺序的必要性
+
+1. **code-review 必须最先**：修复 bug 可能改变代码结构，后续步骤需基于修复后的代码
+2. **code-doc 在 code-review 之后**：确保注释针对的是最终版代码，避免注释与代码不一致
+3. **doc-sync 最后执行**：前两步可能修改了函数签名/新增了文件，doc-sync 需要检查最终状态
