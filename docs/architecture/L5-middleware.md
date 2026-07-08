@@ -5,9 +5,10 @@
 ## 职责
 
 提供横切关注点的基础设施：
-- **语义缓存** — Redis 向量搜索实现语义级缓存
-- **限流器** — Redis 滑动窗口限流
+- **语义缓存** — Redis 向量搜索实现语义级缓存（含副作用隔离）
+- **限流器** — Redis Lua 脚本原子化滑动窗口限流
 - **任务队列** — Celery + RabbitMQ 异步任务
+- **会话存储** — Redis 持久化会话历史（降级内存回退）
 
 ## 语义缓存 (redis_cache.py)
 
@@ -22,12 +23,12 @@ hit = await cache.get(query="把空调调到24度", user_id="u1")
 if hit:
     return hit["response"]  # 缓存命中
 
-# 写入缓存
+# 写入缓存 — 有副作用的响应（如车控指令）禁止缓存
 await cache.set(
     query="把空调调到24度",
-    response="好的，已为您将空调调到24度",
+    response={"response": "好的，已为您将空调调到24度"},
     user_id="u1",
-    ttl=3600,
+    has_side_effect=False,  # 车控指令必须设为 True，防止缓存命中后不执行
 )
 ```
 
@@ -65,9 +66,36 @@ if not allowed:
 
 ### 工作原理
 
-- 基于 Redis ZSET 的滑动窗口算法
+- 基于 Redis Lua 脚本的**原子化**滑动窗口算法
+- Lua 脚本确保 ZADD + ZCARD + ZREMRANGEBYSCORE 在单次 Redis 调用中原子执行
+- 避免非原子操作导致的超限请求污染计数问题
 - 每个 `user_id` 独立计数
 - 超出限制返回 `False`
+
+## 会话存储 (session_store.py)
+
+```python
+from nexus.middleware.session_store import SessionStore
+
+store = SessionStore()
+await store.connect()
+
+# 读取会话历史
+history = await store.async_get("user_123")
+
+# 写入会话历史
+await store.async_set("user_123", [
+    {"role": "user", "content": "打开空调"},
+    {"role": "assistant", "content": "已为您打开空调"},
+])
+```
+
+### 工作原理
+
+- Redis 持久化存储会话历史，支持多实例部署
+- Redis 不可用时自动降级为内存 dict 存储
+- 每个会话以 `session:{user_id}` 为 key 存储在 Redis
+- `async_close()` 在应用关闭时清理连接
 
 ## 任务队列 (task_queue.py)
 

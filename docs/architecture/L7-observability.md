@@ -13,8 +13,16 @@
 ## 追踪 (langfuse.py)
 
 ```python
-from nexus.observability.langfuse import trace_llm, trace_agent
+from nexus.observability.langfuse import LangfuseMonitor, trace_llm, trace_agent
 
+# API 层创建 trace (在 chat.py 中)
+monitor = LangfuseMonitor()
+trace = monitor.start_trace(user_id="u1", input_text="打开空调")
+span = monitor.start_span(trace_id=trace.id, name="planner")
+monitor.end_observation(span, output=result)
+monitor.end_trace(trace, output=response)
+
+# Agent 层装饰器追踪
 @trace_agent(name="planner")
 async def plan(input: str):
     ...
@@ -28,6 +36,7 @@ async def call_llm(prompt: str):
 
 | 追踪点 | 说明 |
 |--------|------|
+| API 入口 | chat.py 创建顶层 trace，贯穿整个请求生命周期 |
 | Agent 节点 | Planner / Executor / Responder / Reviewer |
 | LLM 调用 | 每次 LLM API 调用的输入/输出/延迟 |
 | RAG 检索 | 向量搜索 + 图谱查询 |

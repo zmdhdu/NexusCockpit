@@ -111,7 +111,7 @@
 │ L5 中间件层          │           │           │                      │
 │ ┌──────────┐┌──────────┐┌──────────┐                              │
 │ │语义缓存  ││限流器    ││任务队列  │                              │
-│ │(Redis)   ││(令牌桶)  ││(RabbitMQ)│                              │
+│ │(Redis)   ││(Lua滑动) ││(RabbitMQ)│                              │
 │ └──────────┘└──────────┘└──────────┘                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L4 Agent 层 (Multi-Agent Workflow)                                  │
@@ -238,7 +238,9 @@ NexusCockpit/
 │   ├── code-review/                # 代码审查
 │   ├── change-impact-report/       # 变更影响评估
 │   ├── rapid-dev/                  # 快速开发
-│   └── beginner-code-comment/      # 小白代码注释
+│   ├── beginner-code-comment/      # 小白代码注释
+│   ├── doc-sync/                   # 文档同步检查
+│   └── post-code-guardian/         # 代码修改后自动编排守护
 │
 ├── docs/                           # 文档中心
 │   ├── architecture/               # L0-L7 架构文档

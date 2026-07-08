@@ -201,7 +201,12 @@ def check_file_existence(doc_path: str, code_files: List[str], project_root: Pat
 
 
 def check_new_files_registered(doc_path: str, code_files: List[str], project_root: Path) -> List[DocIssue]:
-    """检查新增的源码文件是否在文档中登记。"""
+    """检查新增的源码文件是否在文档中登记。
+
+    支持两种登记粒度（与 check_progress_modules 一致）：
+    - 文件级: `backend_design/nexus/config.py`
+    - 目录级: `backend_design/nexus/agent/`
+    """
     issues = []
 
     full_path = project_root / doc_path
@@ -210,6 +215,9 @@ def check_new_files_registered(doc_path: str, code_files: List[str], project_roo
 
     content = full_path.read_text(encoding="utf-8")
 
+    # 预提取文档中所有目录级注册
+    dir_registrations = set(re.findall(r'`(backend_design/nexus/[^`]+/)', content))
+
     # 找出新增的 .py 文件
     new_py_files = [f for f in code_files if f.endswith(".py")]
 
@@ -217,17 +225,28 @@ def check_new_files_registered(doc_path: str, code_files: List[str], project_roo
         # 提取文件名（不含路径）
         filename = os.path.basename(py_file)
 
-        # 检查文档中是否提到了这个文件名
-        if filename not in content:
-            # 检查是否在 PROGRESS.md 或 architecture README 中
-            if doc_path in ("docs/PROGRESS.md", "docs/architecture/README.md"):
-                issues.append(DocIssue(
-                    severity="Warning",
-                    doc_path=doc_path,
-                    description=f"新增文件未在文档中登记: {py_file}",
-                    code_file=py_file,
-                    suggestion=f"在 {doc_path} 中补充 {filename} 的登记信息",
-                ))
+        # 检查文件名是否出现
+        if filename in content or py_file in content:
+            continue
+
+        # 检查父目录是否已注册（目录级登记覆盖子文件）
+        registered = False
+        for reg_dir in dir_registrations:
+            if py_file.startswith(reg_dir):
+                registered = True
+                break
+        if registered:
+            continue
+
+        # 检查是否在 PROGRESS.md 或 architecture README 中
+        if doc_path in ("docs/PROGRESS.md", "docs/architecture/README.md"):
+            issues.append(DocIssue(
+                severity="Warning",
+                doc_path=doc_path,
+                description=f"新增文件未在文档中登记: {py_file}",
+                code_file=py_file,
+                suggestion=f"在 {doc_path} 中补充 {filename} 的登记信息",
+            ))
 
     return issues
 

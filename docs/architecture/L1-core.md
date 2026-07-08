@@ -9,6 +9,8 @@
 - **结构化日志** — 基于 structlog 的 JSON 日志
 - **异常体系** — 统一的异常分类和处理
 - **熔断器** — 保护云端 API 调用的稳定性
+- **JWT 认证** — 令牌签发、验证、依赖注入
+- **OSS 对象存储** — 阿里云 OSS 上传/下载/签名 URL
 
 ## 模块清单
 
@@ -75,6 +77,41 @@ breaker = CircuitBreaker(name="llm_api", threshold=5, timeout=60)
 async def call_llm(prompt: str) -> str:
     ...
 ```
+
+### core/auth.py — JWT 认证
+
+```python
+from nexus.core.auth import create_access_token, get_current_user
+from fastapi import Depends
+
+# 签发令牌
+token = create_access_token(data={"sub": "admin"})
+
+# 在路由中强制认证
+@router.post("/command")
+async def command(user: str = Depends(get_current_user)):
+    ...
+```
+
+- 基于 `python-jose` 实现 JWT 签发和验证
+- `get_current_user` 作为 FastAPI 依赖注入，自动校验 Bearer Token
+- 支持 `HTTPBearer` 自动提取 Authorization Header
+- 未配置 JWT_SECRET 时，认证降级为直通（开发模式）
+
+### core/oss.py — OSS 对象存储
+
+```python
+from nexus.core.oss import OSSStorage
+
+oss = OSSStorage()
+oss.connect()
+url = oss.upload("file.txt", data=b"...")  # 上传并返回公开读 URL
+oss.download("file.txt")                    # 下载文件内容
+signed = oss.sign_url("file.txt", expires=3600)  # 生成签名 URL
+```
+
+- 阿里云 OSS 封装，支持上传/下载/签名 URL
+- 自动从 config 读取 OSS 配置（bucket/endpoint/access_key）
 
 ## 设计原则
 

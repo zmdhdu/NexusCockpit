@@ -108,20 +108,48 @@ async for event in agent.stream("今天天气怎么样", user_id="u1"):
 ## Agent State
 
 ```python
-class AgentState(TypedDict):
-    user_input: str              # 用户输入
-    user_id: str                 # 用户 ID
-    intent: Optional[str]        # 识别的意图
-    confidence: float            # 意图置信度
-    needs_clarification: bool    # 是否需要澄清
-    plan: Optional[list]         # 执行计划
-    memory_context: Optional[str]# 记忆上下文
-    execution_result: Optional[dict]  # 执行结果
-    response: Optional[str]      # 最终响应
-    review_passed: bool          # 审查是否通过
-    error: Optional[str]         # 错误信息
-    metadata: dict               # 元数据 (trace_id, latency 等)
+@dataclass
+class AgentState:
+    """LangGraph 工作流共享状态。"""
+    # 输入
+    user_input: str = ""
+    user_id: str = "default"
+    session_id: str = ""
+
+    # 记忆召回
+    recalled_memories: List[str] = field(default_factory=list)
+    memory_str: str = ""
+
+    # 意图路由
+    intent: Dict[str, Any] = field(default_factory=dict)
+    intent_source: str = ""
+    need_clarification: bool = False
+    clarification_prompt: str = ""
+
+    # 技能执行
+    skill_result: Any = None          # DispatchResult
+    skill_handled: bool = False
+    skill_action: str = ""
+    search_context: str = ""
+    # 副作用标记: 车控等操作会修改车辆状态，此类响应禁止写入语义缓存
+    has_side_effect: bool = False
+
+    # LLM 对话
+    history: List[Dict[str, str]] = field(default_factory=list)
+    running_summary: str = ""
+    llm_response: str = ""
+
+    # 最终输出
+    final_response: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # 可观测性
+    trace_id: str = ""
+    span_ids: Dict[str, str] = field(default_factory=dict)
+    latency_ms: float = 0.0
 ```
+
+> **注意**: `has_side_effect` 字段是 v1.0 安全修复新增的关键标志。当 Executor 执行车控指令时设为 `True`，chat.py 会据此跳过缓存写入，防止"打开空调"命中缓存后车控不执行的安全事故。
 
 ## 设计原则
 

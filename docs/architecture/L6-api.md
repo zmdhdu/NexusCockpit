@@ -39,13 +39,21 @@
 ```python
 from nexus.main import app
 
-# 应用生命周期:
-# 1. 加载配置
+# 应用生命周期 (lifespan):
+# 1. 加载配置 + 初始化日志 + 初始化 Prometheus 指标
 # 2. 初始化 Embedding 服务
-# 3. 连接 Milvus / Neo4j
-# 4. 构建车控适配器
-# 5. 连接 Redis (缓存 + 限流)
-# 6. 初始化 Agent 工作流
+# 3. 连接 Milvus 向量存储
+# 4. 连接 Neo4j 图谱存储
+# 5. 构建车控适配器 (mock/http/mcp)
+# 6. 初始化 OSS 对象存储
+# 7. 连接 Redis 语义缓存
+# 8. 初始化限流器 (Lua 脚本原子化)
+# 9. 初始化会话历史存储 (SessionStore, Redis 持久化)
+# 10. 初始化 Langfuse 追踪监控器
+# 11. 初始化 Agent 工作流 (SkillRegistry + MemoryManager + IntentRouter + AgentGraph)
+#
+# 注册路由: health / chat / vehicle / auth / admin / ws
+# 注册异常处理器: RateLimitError(429) / AuthError(401) / NexusError(500)
 ```
 
 ### routes/chat.py — 聊天 API
