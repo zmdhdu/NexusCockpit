@@ -17,7 +17,7 @@
 | OSS 对象存储集成 | ✅ 已完成 | 100% | 阿里云 OSS 已接入，支持上传/下载/公开读 |
 | 工程化配置 | ✅ 已完成 | 100% | Makefile/pre-commit/CI/CD/.gitignore |
 | 前后端分离 | ✅ 已完成 | 100% | backend_design/ 与 frontend_design/ 独立 |
-| Skills 体系 | ✅ 已完成 | 100% | 6 个 skill 已迁移到 .catpaw/skills/ |
+| Skills 体系 | ✅ 已完成 | 100% | 8 个 skill 已迁移到 .catpaw/skills/ |
 | 测试文档 | ✅ 已完成 | 100% | VERIFICATION.md + TESTING.md |
 | 模型下载与部署 | ⏳ 待执行 | 0% | 需用户按 SETUP.md 下载 |
 | API Key 配置 | ⏳ 待执行 | 0% | 需用户填入 ARK_API_KEY 等 |
@@ -44,10 +44,15 @@
 | Agent 层 | `backend_design/nexus/agent/` | ✅ | Planner-Executor-Responder-Reviewer |
 | 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 |
 | 语义缓存 | `backend_design/nexus/middleware/redis_cache.py` | ✅ | Redis + Embedding 相似度 |
-| 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis 令牌桶 |
+| JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
+| 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis Lua 脚本原子化滑动窗口 |
 | 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | RabbitMQ/Celery |
+| 会话存储 | `backend_design/nexus/middleware/session_store.py` | ✅ | Redis 持久化 + 内存回退 |
+| 认证路由 | `backend_design/nexus/api/routes/auth.py` | ✅ | POST /auth/token 令牌签发 |
 | API 路由 | `backend_design/nexus/api/routes/` | ✅ | chat/vehicle/admin/health |
 | WebSocket | `backend_design/nexus/api/websocket.py` | ✅ | 实时流式 |
+| MCP 网关 | `backend_design/nexus/mcp/` | ✅ | MCP 协议适配器 |
+| 数据模型 | `backend_design/nexus/models/` | ✅ | Pydantic schemas + AgentState |
 | 可观测性 | `backend_design/nexus/observability/` | ✅ | Prometheus + Langfuse |
 | 测试用例 | `backend_design/tests/` | ✅ | test_api + test_core |
 

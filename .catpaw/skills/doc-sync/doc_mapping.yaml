@@ -1,0 +1,226 @@
+# ============================================================
+# NexusCockpit 代码-文档映射表 (Code-Doc Mapping)
+# ============================================================
+# 用途: doc-sync skill 根据此映射表，在代码变更后自动定位需检查的文档
+# 维护: 新增代码模块或文档时，同步更新此映射表
+# 格式:
+#   code_path   — 精确文件路径匹配
+#   code_prefix  — 目录前缀匹配（匹配该目录下所有文件）
+#   docs         — 关联的文档文件列表（相对于项目根目录）
+#   check_items  — 需要检查的具体维度（可选，用于精细化检查）
+# ============================================================
+
+mappings:
+  # ============================================================
+  # L0 基础设施层
+  # ============================================================
+  - code_prefix: "backend_design/nexus/main.py"
+    docs:
+      - "docs/architecture/L6-api.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "路由注册清单是否与 include_router 一致"
+      - "lifespan 初始化组件清单是否完整"
+      - "异常处理器列表是否与代码一致"
+
+  - code_path: "docker-compose.yml"
+    docs:
+      - "docs/architecture/L0-infrastructure.md"
+      - "docs/deployment/SETUP.md"
+
+  - code_prefix: "config/"
+    docs:
+      - "docs/architecture/L0-infrastructure.md"
+      - "docs/deployment/SETUP.md"
+
+  # ============================================================
+  # L1 核心层 (core/)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/core/"
+    docs:
+      - "docs/architecture/L1-core.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "模块清单是否包含所有 core/ 下的 .py 文件"
+      - "异常类继承体系是否与 exceptions.py 一致"
+      - "auth.py 中的认证流程描述是否与代码一致"
+
+  - code_path: "backend_design/nexus/config.py"
+    docs:
+      - "docs/architecture/L1-core.md"
+      - "docs/deployment/SETUP.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "配置类清单是否与 AppConfig 中的子配置一致"
+      - ".env 变量清单是否与 config.py 中的 validation_alias 一致"
+
+  # ============================================================
+  # L2 数据层 (rag/ + memory/)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/rag/"
+    docs:
+      - "docs/architecture/L2-data.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "Embedding/VectorStore/GraphStore/Retriever 模块描述是否与代码一致"
+      - "检索流程描述是否与 retriever.py 中的 RRF 融合逻辑一致"
+
+  - code_prefix: "backend_design/nexus/memory/"
+    docs:
+      - "docs/architecture/L2-data.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "记忆管理器 API 是否与 manager.py 一致"
+      - "冲突检测逻辑描述是否与 conflict.py 一致"
+
+  # ============================================================
+  # L3 服务层 (asr/ + tts/ + skills/ + vehicle/ + intent/)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/asr/"
+    docs:
+      - "docs/architecture/L3-service.md"
+      - "docs/PROGRESS.md"
+
+  - code_prefix: "backend_design/nexus/tts/"
+    docs:
+      - "docs/architecture/L3-service.md"
+      - "docs/PROGRESS.md"
+
+  - code_prefix: "backend_design/nexus/skills/"
+    docs:
+      - "docs/architecture/L3-service.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "技能清单是否与 SkillRegistry 中注册的技能一致"
+      - "技能数量是否与实际注册数一致（当前应为 9 个）"
+
+  - code_prefix: "backend_design/nexus/vehicle/"
+    docs:
+      - "docs/architecture/L3-service.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "适配器类型 (mock/http/mcp) 描述是否与 factory.py 一致"
+
+  - code_prefix: "backend_design/nexus/intent/"
+    docs:
+      - "docs/architecture/L4-agent.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "三级路由策略描述是否与 router.py 一致"
+
+  - code_prefix: "backend_design/nexus/mcp/"
+    docs:
+      - "docs/architecture/L3-service.md"
+      - "docs/PROGRESS.md"
+
+  # ============================================================
+  # L4 Agent 层 (agent/)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/agent/"
+    docs:
+      - "docs/architecture/L4-agent.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "四阶段 Agent 流程描述是否与 graph.py 一致"
+      - "AgentState 字段清单是否与 state.py 一致"
+      - "has_side_effect 字段是否在文档中说明"
+
+  # ============================================================
+  # L5 中间件层 (middleware/)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/middleware/"
+    docs:
+      - "docs/architecture/L5-middleware.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "语义缓存的 set() 方法签名是否包含 has_side_effect 参数"
+      - "限流器是否描述了 Lua 脚本原子化方案"
+      - "SessionStore 模块是否在文档中登记"
+      - "TaskQueue 任务清单是否与 task_queue.py 中的 @celery_app.task 一致"
+
+  # ============================================================
+  # L6 API 层 (api/ + main.py)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/api/"
+    docs:
+      - "docs/architecture/L6-api.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "路由清单表格是否包含所有 @router 装饰的端点"
+      - "JWT 认证说明是否与 auth.py 实现一致"
+      - "SSE 心跳/断开检测机制是否在文档中说明"
+      - "WebSocket 认证 + 心跳机制是否在文档中说明"
+      - "/auth/token 路由是否在路由清单中"
+
+  # ============================================================
+  # L7 可观测性层 (observability/)
+  # ============================================================
+  - code_prefix: "backend_design/nexus/observability/"
+    docs:
+      - "docs/architecture/L7-observability.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "Langfuse 接入说明是否描述了 API 层 trace 创建"
+      - "Prometheus 指标清单是否与 metrics.py 中的 Counter/Histogram 一致"
+
+  # ============================================================
+  # 前端代码
+  # ============================================================
+  - code_prefix: "frontend_design/src/"
+    docs:
+      - "frontend_design/README.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "页面清单是否与 app/ 目录下的 page.tsx 一致"
+      - "组件清单是否与 components/ 目录一致"
+
+  - code_path: "frontend_design/package.json"
+    docs:
+      - "frontend_design/README.md"
+      - "docs/architecture/structure.md"
+    check_items:
+      - "依赖列表是否与 package.json 中的 dependencies 一致"
+
+  # ============================================================
+  # 依赖与配置文件
+  # ============================================================
+  - code_path: "backend_design/requirements.txt"
+    docs:
+      - "docs/deployment/SETUP.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "安装步骤中列出的依赖是否与 requirements.txt 一致"
+
+  # ============================================================
+  # 模型目录
+  # ============================================================
+  - code_prefix: "models/"
+    docs:
+      - "docs/deployment/SETUP.md"
+      - "docs/PROGRESS.md"
+
+  # ============================================================
+  # Skill 文件自身
+  # ============================================================
+  - code_prefix: ".catpaw/skills/"
+    docs:
+      - "docs/architecture/README.md"
+      - "docs/PROGRESS.md"
+    check_items:
+      - "Skills 清单表格是否包含所有 skill 目录"
+      - "新增 skill 是否在 architecture/README.md 中登记"
+
+# ============================================================
+# 特殊规则: 规划文档不做同步检查
+# ============================================================
+# 以下文档描述的是未来目标/设计方案，不应与当前代码"对齐":
+#   - docs/architecture/v2.0_improve.md
+#   - docs/architecture/vehicle_agent_improvement_plan.md
+#   - docs/architecture/vehicle_agent_architecture_landing.md
+#   - docs/architecture/gap_analysis.md
+# 这些文档仅在内容引用了具体代码行号时才需要检查行号是否漂移
+skip_docs:
+  - "docs/architecture/v2.0_improve.md"
+  - "docs/architecture/vehicle_agent_improvement_plan.md"
+  - "docs/architecture/vehicle_agent_architecture_landing.md"
+  - "docs/architecture/gap_analysis.md"

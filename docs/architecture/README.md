@@ -164,9 +164,11 @@ make monitor               # Grafana → http://localhost:3001
 |-------|------|------|
 | `code-review` | `.catpaw/skills/code-review/` | 代码质量检测、安全漏洞扫描 |
 | `code-doc` | `.catpaw/skills/code-doc/` | 代码注释生成、docstring |
+| `beginner-code-comment` | `.catpaw/skills/beginner-code-comment/` | 面向小白的逐行代码注释 |
 | `rapid-dev` | `.catpaw/skills/rapid-dev/` | 快速开发脚手架 |
 | `change-impact-report` | `.catpaw/skills/change-impact-report/` | 变更影响评估报告 |
 | `fronted-design` | `.catpaw/skills/fronted-design/` | 前端页面/组件设计 |
+| `doc-sync` | `.catpaw/skills/doc-sync/` | 代码修改后自动检查文档一致性并同步更新 |
 
 ## 技术栈覆盖（V2 完整版）
 

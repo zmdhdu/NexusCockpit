@@ -15,15 +15,20 @@
 
 | 路由 | 方法 | 说明 |
 |------|------|------|
+| `/` | GET | 根路径重定向到 /docs |
 | `/health` | GET | 健康检查 |
 | `/chat` | POST | 文本对话 (非流式) |
-| `/chat/stream` | POST | 文本对话 (SSE 流式) |
-| `/vehicle/command` | POST | 车控命令 |
-| `/vehicle/status` | GET | 车辆状态查询 |
-| `/admin/skills` | GET | 技能列表 |
-| `/admin/cache/stats` | GET | 缓存统计 |
-| `/admin/sessions` | GET | 会话列表 |
-| `/ws/chat` | WS | WebSocket 实时通信 |
+| `/chat/stream` | POST | 文本对话 (SSE 流式，含心跳+断开检测) |
+| `/vehicle/command` | POST | 车控命令 (JWT 认证) |
+| `/vehicle/status` | GET | 车辆状态查询 (JWT 认证) |
+| `/auth/token` | POST | JWT 令牌签发 |
+| `/auth/me` | GET | 当前用户信息 (JWT 认证) |
+| `/admin/skills` | GET | 技能列表 (JWT 认证) |
+| `/admin/cache/stats` | GET | 缓存统计 (JWT 认证) |
+| `/admin/cache/clear` | POST | 清空缓存 (JWT 认证) |
+| `/admin/sessions` | GET | 会话列表 (JWT 认证) |
+| `/admin/memory/{user_id}` | GET | 用户记忆查询 (JWT 认证) |
+| `/ws/chat` | WS | WebSocket 实时通信 (JWT via query param) |
 | `/metrics` | GET | Prometheus 指标 |
 | `/docs` | GET | Swagger 文档 |
 
@@ -92,19 +97,46 @@ GET /health
 }
 ```
 
+### routes/auth.py — 认证接口
+
+```python
+# 获取 JWT 令牌
+POST /auth/token
+{
+    "username": "admin",
+    "password": "******"
+}
+{
+    "access_token": "eyJ...",
+    "token_type": "bearer",
+    "expires_in": 3600
+}
+
+# 查看当前用户
+GET /auth/me
+Authorization: Bearer eyJ...
+{
+    "username": "admin"
+}
+```
+
 ### routes/admin.py — 管理接口
 
-提供缓存统计、会话管理、技能列表等管理端点。
+提供缓存统计/清空、会话管理、技能列表、用户记忆查询等管理端点。所有端点均需 JWT 认证。
 
 ### websocket.py — WebSocket 接口
 
+WebSocket 连接需通过 query 参数传递 JWT 令牌进行认证，并支持心跳机制检测连接健康状态。
+
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws/chat");
+// 连接时携带 JWT
+const ws = new WebSocket("ws://localhost:8000/ws/chat?token=eyJ...");
 ws.send(JSON.stringify({text: "导航到上海虹桥", user_id: "u1"}));
 ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     console.log(data);
 };
+// 心跳: 服务端定期发送 ping，客户端需回复 pong
 ```
 
 ## 中间件
