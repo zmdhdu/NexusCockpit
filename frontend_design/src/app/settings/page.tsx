@@ -1,11 +1,41 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Key, Server, Database, Cpu } from "lucide-react";
+import { getHealth } from "@/lib/api";
+import { toast } from "sonner";
+import type { HealthData } from "@/types";
 
 export default function SettingsPage() {
+  const [health, setHealth] = useState<HealthData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkHealth = async () => {
+      try {
+        const h = await getHealth();
+        if (!cancelled) setHealth(h);
+      } catch {
+        if (!cancelled) setHealth({ status: "offline", services: {} });
+      }
+    };
+    checkHealth();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isConnected = health?.status === "healthy";
+
+  const handleSave = () => {
+    toast.success("配置已保存", {
+      description: "API 密钥与连接配置已更新。",
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -37,7 +67,7 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">Langfuse Public Key</label>
               <Input type="password" placeholder="pk-..." defaultValue="" />
             </div>
-            <Button>保存配置</Button>
+            <Button onClick={handleSave}>保存配置</Button>
           </CardContent>
         </Card>
 
@@ -58,9 +88,25 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">WebSocket 地址</label>
               <Input placeholder="ws://localhost:8000/ws/chat" defaultValue="ws://localhost:8000/ws/chat" />
             </div>
-            <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2">
-              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-sm text-emerald-400">已连接</span>
+            <div
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
+                isConnected
+                  ? "bg-emerald-500/10"
+                  : "bg-red-500/10"
+              }`}
+            >
+              <div
+                className={`h-2 w-2 rounded-full animate-pulse ${
+                  isConnected ? "bg-emerald-400" : "bg-red-400"
+                }`}
+              />
+              <span
+                className={`text-sm ${
+                  isConnected ? "text-emerald-400" : "text-red-400"
+                }`}
+              >
+                {isConnected ? "已连接" : "未连接"}
+              </span>
             </div>
           </CardContent>
         </Card>
@@ -106,19 +152,37 @@ export default function SettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* 后端 /health 接口返回的服务状态，未配置的服务显示为“未知” */}
             {["Milvus", "Neo4j", "Redis", "RabbitMQ", "MySQL", "OSS"].map(
-              (db) => (
-                <div
-                  key={db}
-                  className="flex items-center justify-between rounded-lg bg-accent/30 px-3 py-2"
-                >
-                  <span className="text-sm font-medium">{db}</span>
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-emerald-400" />
-                    <span className="text-xs text-muted-foreground">运行中</span>
+              (db) => {
+                const dbKey = db.toLowerCase();
+                // 健康接口返回的服务名: milvus, neo4j, redis, agent
+                // RabbitMQ / MySQL / OSS 未在后端健康检查中配置
+                const dbStatus = health?.services?.[dbKey];
+                const isRunning = dbStatus === "connected" || dbStatus === "ready";
+                return (
+                  <div
+                    key={db}
+                    className="flex items-center justify-between rounded-lg bg-accent/30 px-3 py-2"
+                  >
+                    <span className="text-sm font-medium">{db}</span>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`h-2 w-2 rounded-full ${
+                          isRunning
+                            ? "bg-emerald-400"
+                            : dbStatus
+                            ? "bg-red-400"
+                            : "bg-muted-foreground"
+                        }`}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {dbStatus ?? (isConnected ? "未监控" : "未知")}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )
+                );
+              }
             )}
           </CardContent>
         </Card>

@@ -46,7 +46,9 @@ async def vehicle_command(request: Request, body: VehicleCommandRequest):
 
 @router.get("/status")
 async def vehicle_status(request: Request):
-    """获取车辆当前状态 (空调、车窗、媒体等)。
+    """获取车辆当前状态 (空调、车窗、座椅、媒体、导航、车况)。
+
+    返回扁平的车辆状态对象，前端可直接使用。
 
     Returns:
         包含车辆各子系统状态的字典
@@ -54,8 +56,5 @@ async def vehicle_status(request: Request):
     app = request.app
     adapter = app.state.vehicle_adapter
     result = adapter.vehicle_status()
-    return {
-        "success": result.success,
-        "message": result.message,
-        "data": result.data,
-    }
+    # 返回扁平结构，前端 VehicleStatus 类型直接匹配
+    return result.data

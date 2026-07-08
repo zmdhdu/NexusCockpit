@@ -42,6 +42,33 @@ async def get_user_memory(request: Request, user_id: str):
     return MemoryResponse(user_id=user_id, memories=memories, profile=profile)
 
 
+@router.get("/cache/stats")
+async def cache_stats(request: Request):
+    """获取语义缓存统计信息（命中/未命中/命中率/大小）。"""
+    app = request.app
+    if not hasattr(app.state, "semantic_cache") or not app.state.semantic_cache:
+        return {"hits": 0, "misses": 0, "hit_rate": 0, "size": 0}
+
+    cache = app.state.semantic_cache
+
+    # 优先调用 cache.stats() 方法
+    stats_fn = getattr(cache, "stats", None)
+    if stats_fn and callable(stats_fn):
+        result = stats_fn()
+        if hasattr(result, "__await__"):
+            result = await result
+        if isinstance(result, dict):
+            return result
+
+    # 手动计算统计（兼容无 stats 方法的缓存实现）
+    hits = getattr(cache, "hit_count", 0) or 0
+    misses = getattr(cache, "miss_count", 0) or 0
+    total = hits + misses
+    hit_rate = round(hits / total * 100, 1) if total > 0 else 0
+    size = getattr(cache, "size", 0) or 0
+    return {"hits": hits, "misses": misses, "hit_rate": hit_rate, "size": size}
+
+
 @router.post("/cache/clear")
 async def clear_cache(request: Request):
     """清空语义缓存"""

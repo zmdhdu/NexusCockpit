@@ -31,7 +31,7 @@ async def test_health(client):
     assert response.status_code == 200
     data = response.json()
     assert "status" in data
-    assert "components" in data
+    assert "services" in data
 
 
 @pytest.mark.asyncio
@@ -50,7 +50,8 @@ async def test_vehicle_status(client):
     response = await client.get("/vehicle/status")
     assert response.status_code == 200
     data = response.json()
-    assert "success" in data
+    # /vehicle/status 现在返回扁平的车辆状态对象
+    assert "climate" in data or "status" in data
 
 
 @pytest.mark.asyncio

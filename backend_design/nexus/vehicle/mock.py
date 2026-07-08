@@ -249,6 +249,7 @@ class MockVehicleBus(BaseVehicleAdapter):
         )
 
     def vehicle_status(self) -> VehicleCommandResult:
+        """返回完整车辆状态，包含所有子系统数据。"""
         summary = (
             f"胎压{self.status['tire_pressure']}，续航{self.status['range_km']}公里，"
             f"油量{self.status['fuel_percent']}%，电量{self.status['battery_percent']}%，"
@@ -257,7 +258,14 @@ class MockVehicleBus(BaseVehicleAdapter):
         return VehicleCommandResult(
             success=True,
             message=summary,
-            data={"status": dict(self.status)},
+            data={
+                "climate": dict(self.climate),
+                "windows": dict(self.windows),
+                "seats": dict(self.seats),
+                "media": dict(self.media),
+                "navigation": dict(self.navigation),
+                "status": dict(self.status),
+            },
         )
 
     def invoke_command(self, command_name: str, payload: Dict[str, Any]) -> VehicleCommandResult:

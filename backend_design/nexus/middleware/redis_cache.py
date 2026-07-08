@@ -50,6 +50,8 @@ class SemanticCache:
         self.embedding_service = embedding_service or EmbeddingService()
         self._redis: Optional[aioredis.Redis] = redis_client
         self._enabled = self.config.cache_enabled
+        self._hit_count = 0
+        self._miss_count = 0
 
     async def connect(self) -> None:
         """连接 Redis"""
@@ -120,6 +122,7 @@ class SemanticCache:
                 # 缓存命中
                 cache_data = await self._redis.hget(self.CACHE_PREFIX + best_key, "response")
                 if cache_data:
+                    self._hit_count += 1
                     logger.info(
                         f"Cache HIT: key={best_key}, similarity={best_score:.4f}"
                     )
@@ -128,6 +131,7 @@ class SemanticCache:
                     result["_cache_similarity"] = best_score
                     return result
 
+            self._miss_count += 1
             return None
         except Exception as e:
             logger.error(f"Cache get failed: {e}")
@@ -219,3 +223,33 @@ class SemanticCache:
     @property
     def is_enabled(self) -> bool:
         return self._enabled and self._redis is not None
+
+    @property
+    def hit_count(self) -> int:
+        """缓存命中次数"""
+        return self._hit_count
+
+    @property
+    def miss_count(self) -> int:
+        """缓存未命中次数"""
+        return self._miss_count
+
+    async def size(self) -> int:
+        """当前缓存条目数量"""
+        if not self._enabled or not self._redis:
+            return 0
+        try:
+            return await self._redis.hlen(self.META_KEY)
+        except Exception:
+            return 0
+
+    async def stats(self) -> Dict[str, Any]:
+        """返回缓存统计信息。"""
+        total = self._hit_count + self._miss_count
+        hit_rate = round(self._hit_count / total * 100, 1) if total > 0 else 0
+        return {
+            "hits": self._hit_count,
+            "misses": self._miss_count,
+            "hit_rate": hit_rate,
+            "size": await self.size(),
+        }

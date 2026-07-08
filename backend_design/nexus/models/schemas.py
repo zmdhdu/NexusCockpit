@@ -7,8 +7,7 @@ FastAPI 会根据这些模型自动生成 OpenAPI/Swagger 文档。
 
 from __future__ import annotations
 
-from dataclasses import field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +28,9 @@ class ChatResponse(BaseModel):
     latency_ms: float = Field(default=0.0, description="总延迟(毫秒)")
     metadata: Dict[str, Any] = Field(default_factory=dict)
     cache_hit: bool = Field(default=False)
+    intent: str = Field(default="", description="识别到的意图")
+    action: str = Field(default="", description="执行的技能动作")
+    trace_id: str = Field(default="", description="追踪 ID (用于 Langfuse)")
 
 
 class VoiceRequest(BaseModel):
@@ -65,7 +67,7 @@ class HealthResponse(BaseModel):
     """健康检查响应"""
     status: str = Field(default="healthy")
     version: str = Field(default="1.0.0")
-    components: Dict[str, str] = Field(default_factory=dict)
+    services: Dict[str, str] = Field(default_factory=dict, description="各服务组件状态")
 
 
 class SkillListResponse(BaseModel):

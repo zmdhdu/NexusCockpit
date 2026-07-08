@@ -1,23 +1,38 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Loader2, User, Bot } from "lucide-react";
+import { Send, Loader2, User, Bot, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { useChatStore, type Message } from "@/stores/chat-store";
-import { sendMessage, streamMessage } from "@/lib/api";
+import { useChatStore } from "@/stores/chat-store";
+import { sendMessage, streamMessage, StreamError } from "@/lib/api";
 import { cn, formatTime } from "@/lib/utils";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
+import type { Message } from "@/types";
 
 export function ChatWindow() {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const { messages, addMessage, updateMessage, isStreaming, setStreaming, userId } =
     useChatStore();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // 组件卸载时取消正在进行的流式请求
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -46,6 +61,13 @@ export function ChatWindow() {
     addMessage(assistantMsg);
     setStreaming(true);
 
+    // 取消上一次未完成的请求
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       let fullContent = "";
       let intent: string | undefined;
@@ -53,7 +75,10 @@ export function ChatWindow() {
 
       // Try streaming first
       try {
-        for await (const event of streamMessage({ text, user_id: userId, stream: true })) {
+        for await (const event of streamMessage(
+          { text, user_id: userId, stream: true },
+          controller.signal
+        )) {
           if (event.type === "chunk" && event.data?.chunk) {
             fullContent += event.data.chunk;
             updateMessage(assistantId, { content: fullContent, loading: false });
@@ -62,26 +87,75 @@ export function ChatWindow() {
           } else if (event.type === "action") {
             action = event.data?.action;
           } else if (event.type === "done") {
+            // 使用 done 事件中的完整回复（如有）覆盖累积内容
             if (event.data?.response) {
               fullContent = event.data.response;
             }
+            // 如果 done 事件携带了 intent/action，优先使用
+            if (event.data?.intent) intent = event.data.intent;
+            if (event.data?.action) action = event.data.action;
             updateMessage(assistantId, {
               content: fullContent,
               loading: false,
               intent,
               action,
             });
+          } else if (event.type === "error") {
+            const errMsg = event.data?.message || "未知错误";
+            toast.error("流式响应错误", { description: errMsg });
+            updateMessage(assistantId, {
+              content: fullContent || `抱歉，处理请求时出现错误：${errMsg}`,
+              loading: false,
+            });
           }
         }
-      } catch {
-        // Fallback to non-streaming
-        const resp = await sendMessage({ text, user_id: userId });
-        updateMessage(assistantId, {
-          content: resp.response,
-          loading: false,
-          intent: resp.intent,
-          action: resp.action,
-        });
+      } catch (streamErr) {
+        // 如果是被 abort 取消的，不做任何回退
+        if (streamErr instanceof DOMException && streamErr.name === "AbortError") {
+          return;
+        }
+
+        // 区分错误类型：
+        // - 404 / 不支持流式 → 回退到非流式
+        // - 其他错误（网络断开、401、500）→ 直接报错，不回退
+        const shouldFallback =
+          streamErr instanceof StreamError &&
+          (streamErr.status === 404 || streamErr.status === 501);
+
+        if (shouldFallback) {
+          // 回退到非流式请求
+          try {
+            const resp = await sendMessage({ text, user_id: userId });
+            updateMessage(assistantId, {
+              content: resp.response,
+              loading: false,
+              intent: resp.intent,
+              action: resp.action,
+            });
+          } catch (fallbackErr) {
+            toast.error("服务不可用", {
+              description: "无法连接到后端服务，请检查网络或后端状态。",
+            });
+            updateMessage(assistantId, {
+              content: "抱歉，服务暂时不可用，请稍后重试。",
+              loading: false,
+            });
+          }
+        } else {
+          // 网络错误、鉴权失败等 — 不回退，直接报错
+          const errorMsg =
+            streamErr instanceof StreamError && streamErr.status === 401
+              ? "鉴权失败，请检查 API Key 配置。"
+              : streamErr instanceof StreamError && streamErr.status >= 500
+              ? "后端服务异常，请稍后重试。"
+              : "网络连接异常，请检查网络后重试。";
+
+          toast.error("请求失败", { description: errorMsg });
+          updateMessage(assistantId, {
+            content: `抱歉，处理请求时出现错误：${errorMsg}`,
+            loading: false,
+          });
+        }
       }
     } catch (error) {
       updateMessage(assistantId, {
@@ -89,6 +163,15 @@ export function ChatWindow() {
         loading: false,
       });
     } finally {
+      setStreaming(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
       setStreaming(false);
     }
   };
@@ -164,6 +247,13 @@ export function ChatWindow() {
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <span className="text-muted-foreground">思考中...</span>
                   </div>
+                ) : msg.role === "assistant" ? (
+                  /* 使用 react-markdown 渲染助手回复，支持 GFM 语法 */
+                  <div className="prose prose-sm prose-invert max-w-none break-words [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_pre]:my-2 [&_code]:rounded [&_code]:bg-accent [&_code]:px-1 [&_code]:py-0.5">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
                 ) : (
                   msg.content
                 )}
@@ -195,17 +285,24 @@ export function ChatWindow() {
             disabled={isStreaming}
             className="flex-1 border-none bg-transparent focus-visible:ring-0"
           />
-          <Button
-            onClick={handleSend}
-            disabled={!input.trim() || isStreaming}
-            size="icon"
-          >
-            {isStreaming ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
+          {isStreaming ? (
+            <Button
+              onClick={handleStop}
+              size="icon"
+              variant="destructive"
+              title="停止生成"
+            >
+              <Square className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              size="icon"
+            >
               <Send className="h-4 w-4" />
-            )}
-          </Button>
+            </Button>
+          )}
         </div>
       </Card>
     </div>

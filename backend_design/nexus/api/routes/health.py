@@ -23,30 +23,30 @@ async def health_check(request: Request):
         HealthResponse 包含 status 和各组件状态
     """
     app = request.app
-    components = {}
+    services = {}
 
     # 检查各组件状态
     if hasattr(app.state, "vector_store"):
-        components["milvus"] = "connected" if app.state.vector_store and app.state.vector_store.is_connected else "disconnected"
+        services["milvus"] = "connected" if app.state.vector_store and app.state.vector_store.is_connected else "disconnected"
     else:
-        components["milvus"] = "not_configured"
+        services["milvus"] = "not_configured"
 
     if hasattr(app.state, "graph_store"):
-        components["neo4j"] = "connected" if app.state.graph_store and app.state.graph_store.driver else "disconnected"
+        services["neo4j"] = "connected" if app.state.graph_store and app.state.graph_store.driver else "disconnected"
     else:
-        components["neo4j"] = "not_configured"
+        services["neo4j"] = "not_configured"
 
     if hasattr(app.state, "semantic_cache"):
-        components["redis"] = "connected" if app.state.semantic_cache and app.state.semantic_cache.is_enabled else "disconnected"
+        services["redis"] = "connected" if app.state.semantic_cache and app.state.semantic_cache.is_enabled else "disconnected"
     else:
-        components["redis"] = "not_configured"
+        services["redis"] = "not_configured"
 
-    components["agent"] = "ready" if hasattr(app.state, "agent_graph") and app.state.agent_graph else "not_ready"
+    services["agent"] = "ready" if hasattr(app.state, "agent_graph") and app.state.agent_graph else "not_ready"
 
-    all_healthy = all(v in ("connected", "ready") for v in components.values())
+    all_healthy = all(v in ("connected", "ready") for v in services.values())
     status = "healthy" if all_healthy else "degraded"
 
-    return HealthResponse(status=status, version="1.0.0", components=components)
+    return HealthResponse(status=status, version="1.0.0", services=services)
 
 
 @router.get("/")

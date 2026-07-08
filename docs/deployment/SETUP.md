@@ -205,7 +205,7 @@ docker compose down -v
 pip install modelscope
 
 # 下载到指定目录
-modelscope download --model iic/Speech_LLM_Benchmark_ASR --local_dir ./models/asr/sensevoice
+modelscope download --model iic/SenseVoiceSmall --local_dir ./models/asr/sensevoice
 ```
 
 或使用 Python 脚本:
@@ -213,7 +213,7 @@ modelscope download --model iic/Speech_LLM_Benchmark_ASR --local_dir ./models/as
 ```python
 from modelscope.hub.snapshot_download import snapshot_download
 snapshot_download(
-    model_id="iic/Speech_LLM_Benchmark_ASR",
+    model_id="iic/SenseVoiceSmall",
     local_dir="./models/asr/sensevoice",
 )
 ```
@@ -351,7 +351,7 @@ cp .env.example .env
 ### 7.1 初始化 Milvus 向量库
 
 ```bash
-python -m scripts.init_milvus
+cd backend_design && python -m scripts.init_milvus
 ```
 
 这将创建以下 Collection:
@@ -361,7 +361,7 @@ python -m scripts.init_milvus
 ### 7.2 初始化 Neo4j 知识图谱
 
 ```bash
-python -m scripts.init_neo4j
+cd backend_design && python -m scripts.init_neo4j
 ```
 
 这将创建以下约束和索引:
@@ -374,7 +374,7 @@ python -m scripts.init_neo4j
 如果有食物数据 JSON 文件:
 
 ```bash
-python -m scripts.import_food_data --file ./data/food/food_list.json
+cd backend_design && python -m scripts.import_food_data --file ./data/food/food_list.json
 ```
 
 ---
@@ -384,19 +384,22 @@ python -m scripts.import_food_data --file ./data/food/food_list.json
 ### 8.1 开发模式 (热重载)
 
 ```bash
-python -m nexus.main
+# 注意: 必须在 backend_design 目录下执行
+cd backend_design && python -m nexus.main
 ```
+
+> 也可以使用 Makefile: `make dev` (自动 cd 到 backend_design)
 
 ### 8.2 使用 uvicorn
 
 ```bash
-uvicorn nexus.main:app --host 0.0.0.0 --port 8000 --reload
+cd backend_design && uvicorn nexus.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 8.3 生产模式
 
 ```bash
-uvicorn nexus.main:app --host 0.0.0.0 --port 8000 --workers 4
+cd backend_design && uvicorn nexus.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 ---

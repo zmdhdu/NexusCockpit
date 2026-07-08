@@ -11,39 +11,36 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getHealth, getCacheStats } from "@/lib/api";
-
-interface HealthData {
-  status: string;
-  services: Record<string, string>;
-}
-
-interface CacheStats {
-  hits: number;
-  misses: number;
-  hit_rate: number;
-  size: number;
-}
+import type { HealthData, CacheStats } from "@/types";
 
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [cache, setCache] = useState<CacheStats | null>(null);
 
   useEffect(() => {
+    // 使用 cancelled 标志位防止组件卸载后 setState
+    let cancelled = false;
+
     const fetchData = async () => {
       try {
         const h = await getHealth();
-        setHealth(h);
+        if (!cancelled) setHealth(h);
       } catch {
-        setHealth({ status: "offline", services: {} });
+        if (!cancelled) setHealth({ status: "offline", services: {} });
       }
       try {
         const c = await getCacheStats();
-        setCache(c);
+        if (!cancelled) setCache(c);
       } catch {
-        setCache({ hits: 0, misses: 0, hit_rate: 0, size: 0 });
+        if (!cancelled) setCache({ hits: 0, misses: 0, hit_rate: 0, size: 0 });
       }
     };
     fetchData();
+
+    // cleanup: 组件卸载时设置 cancelled = true，阻止后续 setState
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const stats = [
@@ -53,6 +50,7 @@ export default function DashboardPage() {
       icon: MessageSquare,
       change: "+12.5%",
       color: "text-sky-400",
+      mock: true,
     },
     {
       label: "车控指令",
@@ -60,6 +58,7 @@ export default function DashboardPage() {
       icon: Car,
       change: "+8.2%",
       color: "text-indigo-400",
+      mock: true,
     },
     {
       label: "缓存命中",
@@ -67,6 +66,7 @@ export default function DashboardPage() {
       icon: Zap,
       change: cache ? `${cache.hits} hits` : "",
       color: "text-emerald-400",
+      mock: false,
     },
     {
       label: "平均响应",
@@ -74,6 +74,7 @@ export default function DashboardPage() {
       icon: Clock,
       change: "-15ms",
       color: "text-amber-400",
+      mock: true,
     },
   ];
 
@@ -104,7 +105,14 @@ export default function DashboardPage() {
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{stat.label}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-muted-foreground">{stat.label}</p>
+                      {stat.mock && (
+                        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">
+                          Mock
+                        </span>
+                      )}
+                    </div>
                     <p className="text-2xl font-bold">{stat.value}</p>
                     <p className="text-xs text-emerald-400 flex items-center gap-1">
                       <TrendingUp className="h-3 w-3" />

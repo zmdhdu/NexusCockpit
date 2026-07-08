@@ -13,9 +13,8 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from nexus.core.logger import get_logger
@@ -113,6 +112,9 @@ async def chat(request: Request, body: ChatRequest):
         session_id=body.session_id,
         latency_ms=latency,
         metadata=state.metadata,
+        intent=state.intent.get("Route_Source", "") if state.intent else "",
+        action=state.skill_action or "",
+        trace_id=state.trace_id,
     )
 
 
@@ -143,21 +145,48 @@ async def chat_stream(request: Request, body: ChatRequest):
 
         agent_graph = app.state.agent_graph
         start = time.perf_counter()
+        session_key = body.session_id or body.user_id
 
         try:
-            async for chunk in agent_graph.stream(state):
-                data = json.dumps({"content": chunk}, ensure_ascii=False)
-                yield f"data: {data}\n\n"
+            # Phase 1: 规划 (不输出给前端，但结果中的 intent 会先发出)
+            state = await agent_graph.planner.plan(state)
+
+            # 发送意图事件
+            if state.intent:
+                intent_name = state.intent.get("Route_Source", "")
+                yield f"data: {json.dumps({'type': 'intent', 'data': {'intent': intent_name}}, ensure_ascii=False)}\n\n"
+
+            # Phase 2: 澄清分支
+            if state.need_clarification and state.clarification_prompt:
+                yield f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': state.clarification_prompt}}, ensure_ascii=False)}\n\n"
+                state.final_response = state.clarification_prompt
+                await agent_graph.reviewer.review(state)
+
+            # Phase 3: 执行技能
+            else:
+                state = await agent_graph.executor.execute(state)
+
+                # 发送技能动作事件
+                if state.skill_action:
+                    yield f"data: {json.dumps({'type': 'action', 'data': {'action': state.skill_action}}, ensure_ascii=False)}\n\n"
+
+                # Phase 4: 流式响应
+                async for chunk in agent_graph.responder.stream_respond(state):
+                    yield f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': chunk}}, ensure_ascii=False)}\n\n"
+
+                # Phase 5: 审查后处理
+                await agent_graph.reviewer.review(state)
 
             latency = round((time.perf_counter() - start) * 1000, 2)
-            yield f"data: {json.dumps({'done': True, 'latency_ms': latency}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'data': {'response': state.final_response, 'latency_ms': latency, 'intent': state.intent.get('Route_Source', '') if state.intent else '', 'action': state.skill_action or ''}}, ensure_ascii=False)}\n\n"
+
         except Exception as e:
             logger.error(f"Stream failed: {e}")
-            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}}, ensure_ascii=False)}\n\n"
 
-        # 更新会话历史
-        session_key = body.session_id or body.user_id
-        app.state.session_histories[session_key] = state.history[-20:]
+        finally:
+            # 确保会话历史始终被更新，即使流被中断
+            app.state.session_histories[session_key] = state.history[-20:]
 
     return StreamingResponse(
         event_generator(),

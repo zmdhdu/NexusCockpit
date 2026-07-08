@@ -1,0 +1,23 @@
+# EditorConfig — 统一编辑器配置，防止中文乱码
+# https://editorconfig.org
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{py,pyi}]
+indent_size = 4
+
+[*.md]
+# Markdown 文件保留尾部空格 (换行用)
+trim_trailing_whitespace = false
+
+[Makefile]
+# Makefile 必须用 Tab 缩进
+indent_style = tab

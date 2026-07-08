@@ -6,10 +6,12 @@
  */
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, MessageSquare, Car, Settings, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getHealth } from "@/lib/api";
 
 // 导航菜单项配置
 const navItems = [
@@ -23,6 +25,38 @@ const navItems = [
 export function Sidebar() {
   // 获取当前路由路径，用于判断哪个导航项是活跃的
   const pathname = usePathname();
+  const [healthStatus, setHealthStatus] = useState<"healthy" | "degraded" | "offline">("offline");
+
+  // 定时轮询后端健康状态 (每 30 秒)
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkHealth = async () => {
+      try {
+        const h = await getHealth();
+        if (!cancelled) {
+          setHealthStatus(h.status === "healthy" ? "healthy" : "degraded");
+        }
+      } catch {
+        if (!cancelled) setHealthStatus("offline");
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const statusConfig = {
+    healthy: { color: "bg-emerald-400", text: "系统运行中" },
+    degraded: { color: "bg-amber-400", text: "系统降级" },
+    offline: { color: "bg-red-400", text: "系统离线" },
+  };
+  const current = statusConfig[healthStatus];
 
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-border bg-card/50 backdrop-blur-xl">
@@ -60,11 +94,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Status */}
+      {/* Status — 动态显示后端健康状态 */}
       <div className="absolute bottom-0 left-0 right-0 border-t border-border p-4">
         <div className="flex items-center gap-2 rounded-lg bg-accent/50 px-3 py-2">
-          <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs text-muted-foreground">系统运行中</span>
+          <div className={`h-2 w-2 rounded-full ${current.color} animate-pulse`} />
+          <span className="text-xs text-muted-foreground">{current.text}</span>
         </div>
       </div>
     </aside>

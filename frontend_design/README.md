@@ -5,7 +5,7 @@
 ## 启动
 
 ```bash
-cd web
+cd frontend_design
 
 # 安装依赖
 npm install

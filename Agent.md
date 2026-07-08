@@ -47,6 +47,7 @@ NexusCockpit/
 ├── docker-compose.yml               # 基础设施一键部署
 ├── Makefile                         # 工程化命令 (make dev/test/lint...)
 ├── .pre-commit-config.yaml          # 代码质量钩子
+├── .editorconfig                    # 编辑器配置 (强制 UTF-8)
 │
 ├── backend_design/                  # ===== 后端代码 (Python) =====
 │   ├── nexus/                       # 主 Python 包

@@ -67,27 +67,45 @@ docker compose up -d
 make install
 ```
 
-### 3. 配置环境变量
+### 3. 下载 AI 模型
+
+> 模型文件较大 (CosyVoice 约 3.5GB)，请确保磁盘空间充足。
+> 详细步骤请参考 [SETUP.md 第 5 节](docs/deployment/SETUP.md#5-下载-ai-模型)
+
+```bash
+pip install modelscope
+
+# SenseVoice ASR 模型
+modelscope download --model iic/SenseVoiceSmall --local_dir ./models/asr/sensevoice
+
+# CAM++ 声纹模型
+modelscope download --model iic/speech_campplus_sv_zh-cn_3dspeaker_16k --local_dir ./models/sv/cam_plus
+
+# CosyVoice TTS 模型 (约 3.5GB)
+modelscope download --model iic/CosyVoice-300M --local_dir ./models/tts/cosyvoice
+```
+
+### 4. 配置环境变量
 
 ```bash
 cp .env.example .env
 # 编辑 .env，填入 ARK_API_KEY 等
 ```
 
-### 4. 启动后端
+### 5. 启动后端
 
 ```bash
 make dev
 ```
 
-### 5. 启动前端
+### 6. 启动前端
 
 ```bash
 make install-frontend
 make dev-frontend
 ```
 
-### 6. 访问
+### 7. 访问
 
 | 服务 | 地址 |
 |------|------|
