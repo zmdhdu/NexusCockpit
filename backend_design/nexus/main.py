@@ -26,15 +26,18 @@ from prometheus_client import make_asgi_app
 
 # 导入 API 路由
 from nexus.api.routes.admin import router as admin_router
+from nexus.api.routes.auth import router as auth_router
 from nexus.api.routes.chat import router as chat_router
 from nexus.api.routes.health import router as health_router
 from nexus.api.routes.vehicle import router as vehicle_router
 from nexus.api.websocket import router as ws_router
 from nexus.config import get_config
-from nexus.core.exceptions import NexusError
+from nexus.core.exceptions import AuthError, NexusError, RateLimitError
 from nexus.core.logger import get_logger, setup_logging
 from nexus.middleware.rate_limiter import RateLimiter
 from nexus.middleware.redis_cache import SemanticCache
+from nexus.middleware.session_store import SessionStore
+from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import init_metrics
 from nexus.rag.embedding import EmbeddingService
 from nexus.rag.graph_store import Neo4jGraphStore
@@ -100,6 +103,17 @@ async def lifespan(app: FastAPI):
     await rate_limiter.connect()
     app.state.rate_limiter = rate_limiter
 
+    # --- 7.5. 初始化会话历史存储 (Redis 持久化，降级内存) ---
+    session_store = SessionStore()
+    await session_store.connect()
+    app.state.session_store = session_store
+    # 保留内存 dict 作为兼容 (部分代码仍直接引用)
+    app.state.session_histories: dict[str, list] = {}
+
+    # --- 7.6. 初始化 Langfuse 追踪监控器 ---
+    langfuse_monitor = LangfuseMonitor()
+    app.state.langfuse = langfuse_monitor
+
     # --- 8. 初始化 Agent 工作流 (核心!) ---
     # Agent 图是整个系统的"大脑"，包含 Planner-Executor-Responder-Reviewer 四个阶段
     try:
@@ -134,8 +148,8 @@ async def lifespan(app: FastAPI):
         logger.error(f"Agent graph initialization failed: {e}")
         app.state.agent_graph = None
 
-    # --- 会话历史存储 (内存中，重启丢失) ---
-    app.state.session_histories: dict[str, list] = {}
+    # --- 会话历史存储 (内存兼容层，实际数据走 SessionStore) ---
+    # 已在上方初始化 session_store 和 session_histories
 
     logger.info("NexusCockpit ready!")
     yield  # ← 应用运行期间在此暂停
@@ -149,8 +163,12 @@ async def lifespan(app: FastAPI):
         app.state.graph_store.close()
     if hasattr(app.state, "semantic_cache") and app.state.semantic_cache:
         await app.state.semantic_cache.close()
+    if hasattr(app.state, "session_store") and app.state.session_store:
+        await app.state.session_store.close()
     if hasattr(app.state, "embedding_service") and app.state.embedding_service:
         await app.state.embedding_service.close()
+    if hasattr(app.state, "langfuse") and app.state.langfuse:
+        app.state.langfuse.flush()
     logger.info("NexusCockpit stopped")
 
 
@@ -180,6 +198,7 @@ def create_app() -> FastAPI:
 
     # 注册 API 路由
     app.include_router(health_router)     # /health 健康检查
+    app.include_router(auth_router)       # /auth 认证接口
     app.include_router(chat_router)       # /chat 对话接口
     app.include_router(vehicle_router)    # /vehicle 车控接口
     app.include_router(admin_router)      # /admin 管理接口
@@ -189,10 +208,39 @@ def create_app() -> FastAPI:
     metrics_app = make_asgi_app()
     app.mount("/metrics", metrics_app)
 
-    # 全局异常处理器 — 捕获 NexusError 返回统一格式
+    # 全局异常处理器 — 按异常类型返回不同 HTTP 状态码
+
+    @app.exception_handler(RateLimitError)
+    async def rate_limit_error_handler(request: Request, exc: RateLimitError):
+        """限流异常返回 429 Too Many Requests。"""
+        logger.warning(f"RateLimitError: {exc.message}")
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            },
+            headers={"Retry-After": "60"},
+        )
+
+    @app.exception_handler(AuthError)
+    async def auth_error_handler(request: Request, exc: AuthError):
+        """认证异常返回 401 Unauthorized。"""
+        logger.warning(f"AuthError: {exc.message}")
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": exc.code,
+                "message": exc.message,
+                "details": exc.details,
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     @app.exception_handler(NexusError)
     async def nexus_error_handler(request: Request, exc: NexusError):
-        """处理所有自定义异常，返回结构化错误信息。"""
+        """处理其他自定义异常，返回 500 内部服务器错误。"""
         logger.error(f"NexusError: {exc.code} - {exc.message}")
         return JSONResponse(
             status_code=500,

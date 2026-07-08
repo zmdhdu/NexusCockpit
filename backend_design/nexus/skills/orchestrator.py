@@ -33,6 +33,8 @@ class DispatchResult:
     reply: str = ""
     search_context: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # 是否有副作用: 车控类技能会修改车辆硬件状态，标记后禁止缓存
+    has_side_effect: bool = False
 
 
 class SkillOrchestrator:
@@ -81,6 +83,7 @@ class SkillOrchestrator:
                         "tool_duration_ms": duration,
                         **result.metadata,
                     },
+                    has_side_effect=True,  # 车控指令有副作用，禁止缓存
                 )
 
         # 点餐

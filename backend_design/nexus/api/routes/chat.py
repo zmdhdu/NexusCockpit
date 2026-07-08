@@ -20,6 +20,7 @@ from fastapi.responses import StreamingResponse
 from nexus.core.logger import get_logger
 from nexus.middleware.rate_limiter import RateLimiter
 from nexus.models.schemas import ChatRequest, ChatResponse
+from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import (
     AGENT_INVOCATIONS,
     CACHE_HITS,
@@ -48,6 +49,16 @@ async def chat(request: Request, body: ChatRequest):
     start = time.perf_counter()
     app = request.app
 
+    # Langfuse 链路追踪: 在 API 层创建 trace，贯穿整个请求生命周期
+    langfuse: LangfuseMonitor = getattr(app.state, "langfuse", None)
+    trace = None
+    if langfuse:
+        trace = langfuse.start_trace(
+            name="chat",
+            user_id=body.user_id,
+            metadata={"session_id": body.session_id, "input": body.text[:200]},
+        )
+
     # 限流检查
     rate_limiter: RateLimiter = app.state.rate_limiter
     if rate_limiter:
@@ -74,14 +85,26 @@ async def chat(request: Request, body: ChatRequest):
     # 构建 Agent 状态并执行
     from nexus.models.state import AgentState
 
+    # 优先从 SessionStore 加载历史 (Redis 持久化，重启不丢失)
+    session_key = body.session_id or body.user_id
+    session_store = getattr(app.state, "session_store", None)
+    if session_store:
+        history = await session_store.async_get(session_key)
+    else:
+        history = app.state.session_histories.get(session_key, [])
+
     state = AgentState(
         user_input=body.text,
         user_id=body.user_id,
         session_id=body.session_id,
-        history=app.state.session_histories.get(body.session_id or body.user_id, []),
+        history=history,
     )
 
     agent_graph = app.state.agent_graph
+    # Langfuse span: 记录 Agent 执行耗时
+    agent_span = None
+    if langfuse and trace:
+        agent_span = langfuse.start_span(trace, name="agent_invoke")
     try:
         state = await agent_graph.invoke(state)
         AGENT_INVOCATIONS.labels(agent_name="full_pipeline", status="success").inc()
@@ -89,22 +112,35 @@ async def chat(request: Request, body: ChatRequest):
         logger.error(f"Agent invocation failed: {e}")
         AGENT_INVOCATIONS.labels(agent_name="full_pipeline", status="error").inc()
         state.final_response = f"处理失败: {e}"
+    finally:
+        if langfuse and agent_span:
+            langfuse.end_observation(agent_span, output=state.final_response[:200])
 
-    # 更新会话历史
-    session_key = body.session_id or body.user_id
+    # 更新会话历史 (优先使用 SessionStore 持久化)
+    if session_store:
+        await session_store.async_set(session_key, state.history)
     app.state.session_histories[session_key] = state.history[-20:]
 
-    # 写入缓存
-    if cache and cache.is_enabled and state.final_response:
+    # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存，避免命中缓存后车控不执行
+    if cache and cache.is_enabled and state.final_response and not state.has_side_effect:
         await cache.set(
             body.text,
             {"response": state.final_response},
             body.user_id,
+            has_side_effect=state.has_side_effect,  # 二次安全防护
         )
 
     latency = round((time.perf_counter() - start) * 1000, 2)
     REQUEST_COUNT.labels(endpoint="chat", method="POST", status="success").inc()
     REQUEST_LATENCY.labels(endpoint="chat").observe(latency / 1000)
+
+    # 结束 Langfuse trace
+    if langfuse and trace:
+        langfuse.end_observation(
+            trace,
+            output=state.final_response[:200] if state.final_response else "",
+            metadata={"latency_ms": latency, "cache_hit": False, "has_side_effect": state.has_side_effect},
+        )
 
     return ChatResponse(
         response=state.final_response,
@@ -136,20 +172,31 @@ async def chat_stream(request: Request, body: ChatRequest):
     async def event_generator():
         from nexus.models.state import AgentState
 
+        # 优先从 SessionStore 加载历史
+        session_key = body.session_id or body.user_id
+        session_store = getattr(app.state, "session_store", None)
+        if session_store:
+            history = await session_store.async_get(session_key)
+        else:
+            history = app.state.session_histories.get(session_key, [])
+
         state = AgentState(
             user_input=body.text,
             user_id=body.user_id,
             session_id=body.session_id,
-            history=app.state.session_histories.get(body.session_id or body.user_id, []),
+            history=history,
         )
 
         agent_graph = app.state.agent_graph
         start = time.perf_counter()
-        session_key = body.session_id or body.user_id
 
         try:
             # Phase 1: 规划 (不输出给前端，但结果中的 intent 会先发出)
             state = await agent_graph.planner.plan(state)
+
+            # 检测客户端是否已断开
+            if await request.is_disconnected():
+                return
 
             # 发送意图事件
             if state.intent:
@@ -166,12 +213,17 @@ async def chat_stream(request: Request, body: ChatRequest):
             else:
                 state = await agent_graph.executor.execute(state)
 
+                if await request.is_disconnected():
+                    return
+
                 # 发送技能动作事件
                 if state.skill_action:
                     yield f"data: {json.dumps({'type': 'action', 'data': {'action': state.skill_action}}, ensure_ascii=False)}\n\n"
 
                 # Phase 4: 流式响应
                 async for chunk in agent_graph.responder.stream_respond(state):
+                    if await request.is_disconnected():
+                        return
                     yield f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': chunk}}, ensure_ascii=False)}\n\n"
 
                 # Phase 5: 审查后处理
@@ -186,6 +238,8 @@ async def chat_stream(request: Request, body: ChatRequest):
 
         finally:
             # 确保会话历史始终被更新，即使流被中断
+            if session_store:
+                await session_store.async_set(session_key, state.history)
             app.state.session_histories[session_key] = state.history[-20:]
 
     return StreamingResponse(

@@ -45,15 +45,26 @@ class ReviewerAgent:
             state.final_response = "抱歉，我没有理解你的意思，能再说一次吗？"
             state.metadata["reviewer_fallback"] = True
 
-        # 2. 触发后台记忆存储 (非阻塞)
-        if self.memory_manager and state.final_response:
+        # 2. 触发后台记忆存储 (优先使用 Celery 任务队列，降级为进程内异步)
+        if state.final_response:
             try:
-                self.memory_manager.store_from_text_async(
-                    state.user_input, state.user_id
-                )
+                # 尝试通过 Celery 任务队列异步存储 (非阻塞，不阻塞响应)
+                from nexus.middleware.task_queue import task_store_memory
+                task_store_memory.delay(state.user_input, state.user_id)
                 state.metadata["memory_storage_triggered"] = True
-            except Exception as e:
-                logger.error(f"Memory storage trigger failed: {e}")
+                state.metadata["memory_storage_backend"] = "celery"
+            except Exception as celery_err:
+                # Celery 不可用时降级为进程内异步存储
+                logger.debug(f"Celery unavailable, fallback to in-process: {celery_err}")
+                if self.memory_manager:
+                    try:
+                        self.memory_manager.store_from_text_async(
+                            state.user_input, state.user_id
+                        )
+                        state.metadata["memory_storage_triggered"] = True
+                        state.metadata["memory_storage_backend"] = "in_process"
+                    except Exception as e:
+                        logger.error(f"Memory storage trigger failed: {e}")
 
         # 3. 计算总延迟
         state.metadata["reviewer_latency_ms"] = round((perf_counter() - t0) * 1000, 2)

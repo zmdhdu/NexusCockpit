@@ -55,6 +55,7 @@ class ExecutorAgent:
             state.skill_handled = result.handled
             state.skill_action = result.action
             state.search_context = result.search_context
+            state.has_side_effect = result.has_side_effect  # 传播副作用标记供缓存层判断
             state.metadata["executor_latency_ms"] = round((perf_counter() - t0) * 1000, 2)
             state.metadata["skill_action"] = result.action
             state.metadata["skill_metadata"] = result.metadata

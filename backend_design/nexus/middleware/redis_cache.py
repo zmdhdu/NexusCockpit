@@ -8,6 +8,12 @@ Redis Semantic Cache — 基于向量相似度的语义缓存
   4. 否则走完整 Agent 流程，完成后将结果写入缓存
 
 优势: 语义相同的提问 (如"开空调"和"打开冷气")也能命中缓存。
+
+安全设计:
+  - 副作用隔离: 车控等有副作用的响应 (has_side_effect=True) 永不写入缓存，
+    避免"打开空调"缓存命中后车控指令不执行的安全事故
+  - 独立 TTL: 每条缓存元数据使用独立 Redis key + 独立 TTL，
+    避免全局 Hash TTL 刷新导致旧条目永久残留的内存泄漏问题
 """
 
 from __future__ import annotations
@@ -33,13 +39,13 @@ class SemanticCache:
 
     Attributes:
         CACHE_PREFIX: 缓存条目 Redis Key 前缀
-        INDEX_KEY: 元数据索引 Key
-        META_KEY: 元数据 Hash Key (包含 embedding 向量)
+        INDEX_KEY: 缓存索引 SET Key (记录所有活跃缓存 key)
+        META_PREFIX: 元数据 Key 前缀 (每条元数据使用独立 key，拥有独立 TTL)
     """
 
     CACHE_PREFIX = "nexus:cache:"
     INDEX_KEY = "nexus:cache:index"
-    META_KEY = "nexus:cache:meta"
+    META_PREFIX = "nexus:cache:meta:"  # 改为前缀，每条元数据使用独立 key 拥有独立 TTL
 
     def __init__(
         self,
@@ -84,24 +90,31 @@ class SemanticCache:
             if not query_vec:
                 return None
 
-            # 在 Redis 中搜索所有缓存向量
-            # 使用简单的遍历方式 (适合小规模缓存)
-            # 生产环境可使用 Redis Stack 的 VECTOR 类型
-            cache_keys = await self._redis.hkeys(self.META_KEY)
+            # 从索引 SET 中获取所有缓存 key
+            cache_keys = await self._redis.smembers(self.INDEX_KEY)
             if not cache_keys:
                 return None
 
             best_score = 0.0
             best_key = None
+            expired_keys = []  # 收集已过期的索引条目用于清理
 
             for key in cache_keys:
-                meta_json = await self._redis.hget(self.META_KEY, key)
+                # 每条元数据使用独立 key，TTL 到期后 Redis 自动删除
+                meta_json = await self._redis.get(self.META_PREFIX + key)
                 if not meta_json:
+                    # 元数据 key 已过期但索引 SET 中残留，标记清理
+                    expired_keys.append(key)
                     continue
                 meta = json.loads(meta_json)
 
-                # 检查 TTL
+                # 安全检查: 有副作用的缓存条目（车控指令）永远不返回
+                if meta.get("has_side_effect", False):
+                    continue
+
+                # 检查 TTL (双重保障，即便 Redis TTL 未生效)
                 if time.time() - meta.get("timestamp", 0) > self.config.cache_ttl:
+                    expired_keys.append(key)
                     continue
 
                 # 检查 user_id 匹配
@@ -117,6 +130,10 @@ class SemanticCache:
                 if similarity > best_score:
                     best_score = similarity
                     best_key = key
+
+            # 清理过期的索引条目
+            if expired_keys:
+                await self._redis.srem(self.INDEX_KEY, *expired_keys)
 
             if best_key and best_score >= self.config.cache_similarity_threshold:
                 # 缓存命中
@@ -143,8 +160,18 @@ class SemanticCache:
         response: Dict[str, Any],
         user_id: str = "",
         embedding: list[float] | None = None,
+        has_side_effect: bool = False,
     ) -> None:
-        """写入缓存"""
+        """写入缓存
+
+        Args:
+            has_side_effect: 是否有副作用 (车控等)，为 True 时禁止写入缓存
+        """
+        # 有副作用的响应永远不写入缓存，防止车控指令被缓存后不执行
+        if has_side_effect:
+            logger.debug("Skip cache for side-effect response")
+            return
+
         if not self._enabled or not self._redis:
             return
 
@@ -162,22 +189,25 @@ class SemanticCache:
                 mapping={"response": json.dumps(response, ensure_ascii=False)},
             )
 
-            # 存储元数据 (包含 embedding 向量)
+            # 存储元数据为独立 key (拥有独立 TTL，不会互相影响)
             meta = {
                 "query": query[:200],
                 "user_id": user_id,
                 "embedding": vec,
                 "timestamp": time.time(),
+                "has_side_effect": has_side_effect,
             }
-            await self._redis.hset(
-                self.META_KEY,
-                cache_key,
+            await self._redis.set(
+                self.META_PREFIX + cache_key,
                 json.dumps(meta, ensure_ascii=False),
             )
 
-            # 设置 TTL
+            # 每条数据独立设置 TTL — 旧条目到期后自动删除，不会因新条目刷新而永久残留
             await self._redis.expire(self.CACHE_PREFIX + cache_key, self.config.cache_ttl)
-            await self._redis.expire(self.META_KEY, self.config.cache_ttl)
+            await self._redis.expire(self.META_PREFIX + cache_key, self.config.cache_ttl)
+
+            # 添加到索引 SET (便于遍历查找)
+            await self._redis.sadd(self.INDEX_KEY, cache_key)
 
             logger.debug(f"Cache SET: key={cache_key}")
         except Exception as e:
@@ -189,11 +219,12 @@ class SemanticCache:
             return 0
 
         try:
-            # 删除所有缓存条目
-            keys = await self._redis.hkeys(self.META_KEY)
+            # 从索引 SET 获取所有缓存 key
+            keys = await self._redis.smembers(self.INDEX_KEY)
             for key in keys:
                 await self._redis.delete(self.CACHE_PREFIX + key)
-            await self._redis.delete(self.META_KEY)
+                await self._redis.delete(self.META_PREFIX + key)
+            await self._redis.delete(self.INDEX_KEY)
             logger.info(f"Cache cleared: {len(keys)} entries")
             return len(keys)
         except Exception as e:
@@ -239,7 +270,7 @@ class SemanticCache:
         if not self._enabled or not self._redis:
             return 0
         try:
-            return await self._redis.hlen(self.META_KEY)
+            return await self._redis.scard(self.INDEX_KEY)
         except Exception:
             return 0
 

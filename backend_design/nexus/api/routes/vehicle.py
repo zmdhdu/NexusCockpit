@@ -8,8 +8,9 @@ Vehicle Routes — 车控命令 REST 接口
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from nexus.core.auth import get_current_user
 from nexus.core.logger import get_logger
 from nexus.models.schemas import VehicleCommandRequest, VehicleCommandResponse
 from nexus.observability.metrics import SKILL_EXECUTIONS
@@ -19,13 +20,18 @@ router = APIRouter(prefix="/vehicle", tags=["vehicle"])
 
 
 @router.post("/command", response_model=VehicleCommandResponse)
-async def vehicle_command(request: Request, body: VehicleCommandRequest):
+async def vehicle_command(
+    request: Request,
+    body: VehicleCommandRequest,
+    user_id: str = Depends(get_current_user),
+):
     """直接执行车控命令 (绕过 Agent 工作流)。
 
-    适用于前端车控面板的按钮直接调用。
+    需要 JWT 认证。适用于前端车控面板的按钮直接调用。
 
     Args:
         body: 包含 command 和 arguments 的请求体
+        user_id: 从 JWT Token 中解析的当前用户 ID
 
     Returns:
         VehicleCommandResponse 包含执行结果
@@ -45,10 +51,10 @@ async def vehicle_command(request: Request, body: VehicleCommandRequest):
 
 
 @router.get("/status")
-async def vehicle_status(request: Request):
+async def vehicle_status(request: Request, user_id: str = Depends(get_current_user)):
     """获取车辆当前状态 (空调、车窗、座椅、媒体、导航、车况)。
 
-    返回扁平的车辆状态对象，前端可直接使用。
+    需要JWT认证。
 
     Returns:
         包含车辆各子系统状态的字典

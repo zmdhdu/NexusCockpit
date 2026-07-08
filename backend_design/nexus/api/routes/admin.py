@@ -4,8 +4,9 @@ Admin Routes — 管理接口: 技能列表、记忆查询、缓存管理
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
+from nexus.core.auth import get_current_user
 from nexus.core.logger import get_logger
 from nexus.models.schemas import MemoryResponse, SkillListResponse
 
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.get("/skills", response_model=SkillListResponse)
-async def list_skills(request: Request):
+async def list_skills(request: Request, user_id: str = Depends(get_current_user)):
     """列出所有可用技能"""
     app = request.app
     if not hasattr(app.state, "skill_registry") or not app.state.skill_registry:
@@ -25,7 +26,7 @@ async def list_skills(request: Request):
 
 
 @router.get("/memory/{user_id}", response_model=MemoryResponse)
-async def get_user_memory(request: Request, user_id: str):
+async def get_user_memory(request: Request, user_id: str, _: str = Depends(get_current_user)):
     """查询用户记忆"""
     app = request.app
     if not hasattr(app.state, "memory_manager") or not app.state.memory_manager:
@@ -43,7 +44,7 @@ async def get_user_memory(request: Request, user_id: str):
 
 
 @router.get("/cache/stats")
-async def cache_stats(request: Request):
+async def cache_stats(request: Request, user_id: str = Depends(get_current_user)):
     """获取语义缓存统计信息（命中/未命中/命中率/大小）。"""
     app = request.app
     if not hasattr(app.state, "semantic_cache") or not app.state.semantic_cache:
@@ -70,7 +71,7 @@ async def cache_stats(request: Request):
 
 
 @router.post("/cache/clear")
-async def clear_cache(request: Request):
+async def clear_cache(request: Request, user_id: str = Depends(get_current_user)):
     """清空语义缓存"""
     app = request.app
     if not hasattr(app.state, "semantic_cache") or not app.state.semantic_cache:
@@ -81,9 +82,16 @@ async def clear_cache(request: Request):
 
 
 @router.get("/sessions")
-async def list_sessions(request: Request):
+async def list_sessions(request: Request, user_id: str = Depends(get_current_user)):
     """列出活跃会话"""
     app = request.app
+    # 优先使用 SessionStore (Redis 持久化)
+    session_store = getattr(app.state, "session_store", None)
+    if session_store:
+        sessions = await session_store.list_sessions()
+        return {"sessions": sessions, "count": len(sessions)}
+
+    # 降级: 从内存 dict 获取
     sessions = {}
     if hasattr(app.state, "session_histories"):
         for key, history in app.state.session_histories.items():

@@ -48,6 +48,9 @@ class AgentState:
     skill_handled: bool = False
     skill_action: str = ""
     search_context: str = ""
+    # 副作用标记: 车控等操作会修改车辆状态，此类响应禁止写入语义缓存
+    # 避免 "打开空调" 缓存命中后车控指令不执行的安全事故
+    has_side_effect: bool = False
 
     # LLM 对话
     history: List[Dict[str, str]] = field(default_factory=list)
