@@ -4,8 +4,6 @@
 # Python >= 3.10 required
 # ============================================================
 # NOTE: PyTorch must be installed separately before this file.
-#   CPU:  pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-#   GPU:  pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 # ============================================================
 
 # --- Web Framework ---
@@ -32,7 +30,7 @@ langsmith>=1.0.0
 pymilvus==2.6.6
 neo4j>=5.18.0
 rank-bm25>=0.2.2
-sentence-transformers>=2.7.0
+# sentence-transformers>=2.7.0  # deferred: depends on torch
 
 # --- Middleware ---
 redis==5.0.0
@@ -55,9 +53,8 @@ PyJWT==2.8.0
 passlib[bcrypt]>=1.7.4
 
 # --- Audio / ASR / TTS ---
-funasr==1.1.12
+# funasr==1.1.12  # deferred: depends on torch
 modelscope==1.15.0
-torchaudio>=2.2.0
 librosa==0.11.0
 soundfile==0.13.1
 pydub==0.25.1

@@ -24,11 +24,21 @@ from typing import Any, Dict, List, Optional
 from nexus.core.logger import get_logger
 from nexus.rag.embedding import EmbeddingService
 
+# langchain-text-splitters 1.0+ 提供的递归字符文本分割器
+# 支持多级分隔符（段落 → 句子 → 字符），比简单滑动窗口更智能
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    _HAS_LANGCHAIN_SPLITTER = True
+except ImportError:
+    _HAS_LANGCHAIN_SPLITTER = False
+
 logger = get_logger(__name__)
 
 _COLLECTION_NAME = "nexus_kb_docs"
 _CHUNK_SIZE = 500  # 每块约500字
 _CHUNK_OVERLAP = 50  # 块间重叠50字
+# 中文优先分隔符：段落 > 句号 > 感叹号 > 问号 > 分号 > 逗号 > 空格 > 字符
+_CHUNK_SEPARATORS = ["\n\n", "\n", "。", "！", "？", ";", "；", ",", "，", " ", ""]
 
 
 class CherryKnowledgeBase:
@@ -50,6 +60,18 @@ class CherryKnowledgeBase:
         self.embedding_service = embedding_service or EmbeddingService()
         self._client = milvus_client
         self._connected = False
+
+        # 初始化 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter
+        # 支持中英文多级分隔符递归分割，比简单滑动窗口更自然
+        if _HAS_LANGCHAIN_SPLITTER:
+            self._splitter = RecursiveCharacterTextSplitter(
+                chunk_size=_CHUNK_SIZE,
+                chunk_overlap=_CHUNK_OVERLAP,
+                separators=_CHUNK_SEPARATORS,
+                keep_separator=True,
+            )
+        else:
+            self._splitter = None
 
     def connect(self, milvus_client=None) -> None:
         """连接 Milvus 并确保集合存在。"""
@@ -117,8 +139,8 @@ class CherryKnowledgeBase:
             logger.warning("KB not connected, document not added")
             return 0
 
-        # 分块
-        chunks = self._chunk_text(text, _CHUNK_SIZE, _CHUNK_OVERLAP)
+        # 分块（使用 langchain_text_splitters RecursiveCharacterTextSplitter）
+        chunks = self._chunk_text(text)
         if not chunks:
             return 0
 
@@ -147,10 +169,22 @@ class CherryKnowledgeBase:
             logger.error(f"KB add document failed: {e}")
             return 0
 
-    def _chunk_text(self, text: str, chunk_size: int, overlap: int) -> List[str]:
-        """文本分块（滑动窗口）。"""
+    def _chunk_text(self, text: str, chunk_size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> List[str]:
+        """文本分块。
+
+        优先使用 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter，
+        支持中英文多级分隔符递归分割（段落 → 句子 → 字符），
+        在分隔符处自然断句，避免硬截断单词/句子。
+        若 langchain_text_splitters 未安装，降级为简单滑动窗口分块。
+        """
         if not text:
             return []
+
+        # 优先使用 langchain RecursiveCharacterTextSplitter
+        if self._splitter:
+            return self._splitter.split_text(text)
+
+        # 降级方案：简单滑动窗口
         chunks = []
         start = 0
         while start < len(text):
