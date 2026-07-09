@@ -12,12 +12,25 @@
 
 mappings:
   # ============================================================
+  # README.md — 项目门面文档, 任何变更都需检查
+  # ============================================================
+  - code_path: "README.md"
+    docs:
+      - "README.md"
+    check_items:
+      - "技术栈表是否反映最新架构 (v2.0 Supervisor+Experts / 三路RAG+Rerank / 双模式部署)"
+      - "技能数量是否与 .catpaw/skills/ 目录一致 (当前应为 8 个)"
+      - "文档导航表是否包含所有关键文档链接"
+      - "架构图是否反映 v2.0 Multi-Agent 和 GraphRAG 三路融合"
+
+  # ============================================================
   # L0 基础设施层
   # ============================================================
   - code_prefix: "backend_design/nexus/main.py"
     docs:
       - "docs/architecture/L6-api.md"
       - "docs/PROGRESS.md"
+      - "README.md"
     check_items:
       - "路由注册清单是否与 include_router 一致"
       - "lifespan 初始化组件清单是否完整"
@@ -27,6 +40,7 @@ mappings:
     docs:
       - "docs/architecture/L0-infrastructure.md"
       - "docs/deployment/SETUP.md"
+      - "README.md"
 
   - code_prefix: "config/"
     docs:
@@ -50,9 +64,11 @@ mappings:
       - "docs/architecture/L1-core.md"
       - "docs/deployment/SETUP.md"
       - "docs/PROGRESS.md"
+      - "README.md"
     check_items:
       - "配置类清单是否与 AppConfig 中的子配置一致"
       - ".env 变量清单是否与 config.py 中的 validation_alias 一致"
+      - "README.md 技术选型表是否反映配置变更"
 
   # ============================================================
   # L2 数据层 (rag/ + memory/)
@@ -61,9 +77,12 @@ mappings:
     docs:
       - "docs/architecture/L2-data.md"
       - "docs/PROGRESS.md"
+      - "README.md"
     check_items:
       - "Embedding/VectorStore/GraphStore/Retriever 模块描述是否与代码一致"
       - "检索流程描述是否与 retriever.py 中的 RRF 融合逻辑一致"
+      - "README.md 中的 GraphRAG 架构图是否反映三路融合+Rerank"
+      - "README.md 技术选型表是否包含 Reranker 行"
 
   - code_prefix: "backend_design/nexus/memory/"
     docs:
@@ -141,6 +160,7 @@ mappings:
     docs:
       - "docs/architecture/L5-middleware.md"
       - "docs/PROGRESS.md"
+      - "README.md"
     check_items:
       - "语义缓存的 set() 方法签名是否包含 has_side_effect 和 ttl 参数"
       - "是否描述了 RediSearch KNN 向量检索架构"
@@ -201,6 +221,7 @@ mappings:
     docs:
       - "docs/deployment/SETUP.md"
       - "docs/PROGRESS.md"
+      - "README.md"
     check_items:
       - "安装步骤中列出的依赖是否与 requirements.txt 一致"
 
@@ -219,9 +240,11 @@ mappings:
     docs:
       - "docs/architecture/README.md"
       - "docs/PROGRESS.md"
+      - "README.md"
     check_items:
       - "Skills 清单表格是否包含所有 skill 目录（当前应为 8 个）"
       - "新增 skill 是否在 architecture/README.md 中登记"
+      - "README.md 中技能数量是否与目录一致"
       - "post-code-guardian 的子技能引用路径是否正确（code-review/code-doc/doc-sync）"
       - "Agent.md 中的技能目录树是否包含所有 skill"
 
