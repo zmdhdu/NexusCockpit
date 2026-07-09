@@ -146,6 +146,7 @@ results = kb.search("发动机故障灯", top_k=5)
 - 基于 Milvus 的文档型知识库
 - 支持文档分块、向量化、入库
 - 按类别管理 (manual/dtc/faq/maintenance)
+- 文档分块使用 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter（中英文多级分隔符递归分割，未安装时降级为滑动窗口）
 
 ### unified_retriever.py — 统一检索路由 (v2.0 新增)
 
