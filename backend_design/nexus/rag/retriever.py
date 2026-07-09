@@ -22,8 +22,11 @@ from typing import Any, Dict, List, Optional
 from nexus.core.logger import get_logger
 from nexus.rag.embedding import EmbeddingService
 from nexus.rag.graph_store import Neo4jGraphStore
-from nexus.rag.reranker import RerankerService
-from nexus.rag.vector_store import MilvusVectorStore
+from nexus.rag.graph_factory import build_graph_store
+from nexus.rag.reranker_base import BaseReranker
+from nexus.rag.reranker_factory import build_reranker
+from nexus.rag.vector_base import BaseVectorStore
+from nexus.rag.vector_factory import build_vector_store
 
 logger = get_logger(__name__)
 
@@ -49,21 +52,21 @@ class GraphRAGRetriever:
 
     def __init__(
         self,
-        vector_store: Optional[MilvusVectorStore] = None,
+        vector_store: Optional[BaseVectorStore] = None,
         graph_store: Optional[Neo4jGraphStore] = None,
         embedding_service: Optional[EmbeddingService] = None,
-        reranker: Optional[RerankerService] = None,
+        reranker: Optional[BaseReranker] = None,
         enable_rerank: bool = True,
         enable_bm25: bool = True,
     ):
         self.embedding_service = embedding_service or EmbeddingService()
-        self.vector_store = vector_store or MilvusVectorStore(self.embedding_service)
-        self.graph_store = graph_store or Neo4jGraphStore()
+        self.vector_store = vector_store or build_vector_store(self.embedding_service)
+        self.graph_store = graph_store or build_graph_store()
         self.enable_rerank = enable_rerank
         self.enable_bm25 = enable_bm25
 
-        # Rerank 服务
-        self.reranker = reranker or (RerankerService() if enable_rerank else None)
+        # Rerank 服务 (由工厂按 provider 选择)
+        self.reranker = reranker or (build_reranker() if enable_rerank else None)
 
         # BM25 索引（延迟初始化）
         self._bm25 = None

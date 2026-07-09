@@ -54,6 +54,7 @@ Fallback: RediSearch 不可用时自动回退到 O(n) 遍历模式
 - **TTL 分级**: 闲聊 1h、知识库 24h、车控永不上缓存
 - **副作用隔离**: `has_side_effect=True` 的响应永不写入缓存
 - **降级模式**: Redis Stack 不可用时自动回退到 O(n) 遍历
+- **双模式支持**: `CACHE_PROVIDER=cloud` 时自动跳过 RediSearch 索引初始化，使用 scan 降级模式，兼容无 RediSearch 模块的云 Redis
 
 ### 配置
 

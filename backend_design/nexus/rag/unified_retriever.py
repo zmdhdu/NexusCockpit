@@ -19,7 +19,8 @@ from typing import Any, Dict, List, Optional
 
 from nexus.core.logger import get_logger
 from nexus.rag.cherry_kb import CherryKnowledgeBase
-from nexus.rag.reranker import RerankerService
+from nexus.rag.reranker_base import BaseReranker
+from nexus.rag.reranker_factory import build_reranker
 from nexus.rag.retriever import GraphRAGRetriever
 
 logger = get_logger(__name__)
@@ -43,11 +44,11 @@ class UnifiedRetriever:
         self,
         graph_rag: Optional[GraphRAGRetriever] = None,
         cherry_kb: Optional[CherryKnowledgeBase] = None,
-        reranker: Optional[RerankerService] = None,
+        reranker: Optional[BaseReranker] = None,
     ):
         self.graph_rag = graph_rag or GraphRAGRetriever()
         self.cherry_kb = cherry_kb or CherryKnowledgeBase()
-        self.reranker = reranker
+        self.reranker = reranker or build_reranker()
 
     def connect(self) -> None:
         """连接所有知识库。"""

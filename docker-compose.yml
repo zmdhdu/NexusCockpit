@@ -103,20 +103,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # --- MySQL (User Data + Audit Log) ---
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: nexuscockpit
-      MYSQL_DATABASE: nexus_cockpit
-      MYSQL_CHARSET: utf8mb4
-      MYSQL_COLLATION: utf8mb4_unicode_ci
-    volumes:
-      - mysql_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
-    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-
   # --- Prometheus (Metrics) ---
   prometheus:
     image: prom/prometheus:v2.51.0
@@ -147,6 +133,5 @@ volumes:
   neo4j_logs:
   redis_data:
   rabbitmq_data:
-  mysql_data:
   prometheus_data:
   grafana_data:

@@ -16,6 +16,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from nexus.core.logger import get_logger
+from nexus.rag.reranker_base import BaseReranker
 
 logger = get_logger(__name__)
 
@@ -26,7 +27,7 @@ _DEFAULT_MODEL_PATH = os.path.join(
 )
 
 
-class RerankerService:
+class LocalReranker(BaseReranker):
     """Rerank 重排服务。
 
     使用 BAAI/bge-reranker-v2-m3 模型对检索结果进行二次排序。
@@ -139,3 +140,7 @@ class RerankerService:
         return self._loaded or (
             os.path.exists(self.model_path) and self._load_error == ""
         )
+
+
+# 向后兼容别名: 旧代码引用 RerankerService 仍可工作
+RerankerService = LocalReranker

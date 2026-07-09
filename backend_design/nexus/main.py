@@ -40,8 +40,8 @@ from nexus.middleware.session_store import SessionStore
 from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import init_metrics
 from nexus.rag.embedding import EmbeddingService
-from nexus.rag.graph_store import Neo4jGraphStore
-from nexus.rag.vector_store import MilvusVectorStore
+from nexus.rag.graph_factory import build_graph_store
+from nexus.rag.vector_factory import build_vector_store
 from nexus.vehicle.factory import build_vehicle_adapter
 
 logger = get_logger(__name__)
@@ -66,8 +66,8 @@ async def lifespan(app: FastAPI):
     embedding_service = EmbeddingService()
     app.state.embedding_service = embedding_service
 
-    # --- 2. 初始化 Milvus 向量存储 ---
-    vector_store = MilvusVectorStore(embedding_service)
+    # --- 2. 初始化向量存储 (本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定) ---
+    vector_store = build_vector_store(embedding_service)
     try:
         vector_store.connect()
     except Exception as e:
@@ -75,8 +75,8 @@ async def lifespan(app: FastAPI):
         logger.error(f"Milvus connection failed (will continue): {e}")
     app.state.vector_store = vector_store
 
-    # --- 3. 初始化 Neo4j 图谱存储 ---
-    graph_store = Neo4jGraphStore()
+    # --- 3. 初始化图谱存储 (本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定) ---
+    graph_store = build_graph_store()
     try:
         graph_store.connect()
     except Exception as e:

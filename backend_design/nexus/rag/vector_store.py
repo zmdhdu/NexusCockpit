@@ -26,11 +26,12 @@ from nexus.config import get_config
 from nexus.core.exceptions import VectorStoreError
 from nexus.core.logger import get_logger
 from nexus.rag.embedding import EmbeddingService
+from nexus.rag.vector_base import BaseVectorStore
 
 logger = get_logger(__name__)
 
 
-class MilvusVectorStore:
+class MilvusVectorStore(BaseVectorStore):
     """Milvus 向量数据库管理器。
 
     Args:

@@ -12,11 +12,12 @@ from neo4j import GraphDatabase
 from nexus.config import get_config
 from nexus.core.exceptions import GraphStoreError
 from nexus.core.logger import get_logger
+from nexus.rag.graph_base import BaseGraphStore
 
 logger = get_logger(__name__)
 
 
-class Neo4jGraphStore:
+class Neo4jGraphStore(BaseGraphStore):
     """Neo4j 知识图谱管理器"""
 
     def __init__(self):

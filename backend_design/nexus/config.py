@@ -394,6 +394,54 @@ class TavilyConfig(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
 
+class ProvidersConfig(BaseSettings):
+    """双模式部署开关 — 控制各组件使用本地中间件还是云端托管。
+
+    每个开关取值:
+        - local:  使用本地 Docker 部署的中间件/模型 (开发默认)
+        - cloud:  使用云端托管服务 (Zilliz/AuraDB/云Redis/硅基流动)
+        - none:   仅 RERANKER_PROVIDER 支持，跳过重排省成本
+
+    切换线上时，把对应开关改为 cloud 并在下方各组件配置中填入云端 AK/SK，
+    代码无需改动。详见 docs/deployment/SETUP.md 双模式部署章节。
+    """
+
+    # 向量库: local=本地 Milvus | cloud=Zilliz Cloud
+    vector_store: str = Field(default="local", validation_alias="VECTOR_STORE_PROVIDER")
+    # 图谱: local=本地 Neo4j | cloud=Neo4j AuraDB
+    graph_store: str = Field(default="local", validation_alias="GRAPH_STORE_PROVIDER")
+    # 语义缓存: local=本地 Redis Stack | cloud=云 Redis (无 RediSearch 时自动降级 scan)
+    cache: str = Field(default="local", validation_alias="CACHE_PROVIDER")
+    # 重排: local=本地 BGE | cloud=硅基流动 Rerank | none=跳过
+    reranker: str = Field(default="local", validation_alias="RERANKER_PROVIDER")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+    def normalized(self) -> dict[str, str]:
+        """返回小写归一化后的 provider 取值，便于工厂函数比较。"""
+        return {
+            "vector_store": (self.vector_store or "local").strip().lower(),
+            "graph_store": (self.graph_store or "local").strip().lower(),
+            "cache": (self.cache or "local").strip().lower(),
+            "reranker": (self.reranker or "local").strip().lower(),
+        }
+
+
+class RerankerConfig(BaseSettings):
+    """Rerank 重排配置。
+
+    RERANKER_PROVIDER=cloud 时使用硅基流动 Rerank API (复用 ARK_API_KEY/ARK_BASE_URL)。
+    本地模式 (RERANKER_PROVIDER=local) 加载 ./models/reranker/bge-reranker-v2-m3 模型。
+    """
+
+    # 硅基流动 Rerank 模型 ID (云端模式)
+    model: str = Field(
+        default="BAAI/bge-reranker-v2-m3", validation_alias="RERANK_MODEL"
+    )
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
 class DataConfig(BaseSettings):
     """数据目录配置 — 所有路径使用项目根目录的相对路径。"""
 
@@ -494,6 +542,8 @@ class AppConfig(BaseSettings):
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     tavily: TavilyConfig = Field(default_factory=TavilyConfig)
+    providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 

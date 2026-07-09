@@ -86,8 +86,18 @@ class SemanticCache:
                     decode_responses=True,
                 )
             await self._redis.ping()
-            await self._ensure_index()
-            logger.info("Redis Stack semantic cache connected (v2.0 VECTOR index)")
+
+            # 双模式: 云 Redis 通常无 RediSearch 模块, 跳过 VECTOR 索引走 scan 降级
+            cache_provider = get_config().providers.normalized()["cache"]
+            if cache_provider == "cloud":
+                logger.info(
+                    "Cloud Redis detected, semantic cache using scan fallback "
+                    "(no RediSearch VECTOR index)"
+                )
+                self._index_ready = False
+            else:
+                await self._ensure_index()
+                logger.info("Redis Stack semantic cache connected (v2.0 VECTOR index)")
         except Exception as e:
             logger.warning(f"Redis connection failed, cache disabled: {e}")
             self._enabled = False

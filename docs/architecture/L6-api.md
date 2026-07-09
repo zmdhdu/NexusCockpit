@@ -42,8 +42,8 @@ from nexus.main import app
 # 应用生命周期 (lifespan):
 # 1. 加载配置 + 初始化日志 + 初始化 Prometheus 指标
 # 2. 初始化 Embedding 服务
-# 3. 连接 Milvus 向量存储
-# 4. 连接 Neo4j 图谱存储
+# 3. 初始化向量存储 (工厂模式: 本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定)
+# 4. 初始化图谱存储 (工厂模式: 本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定)
 # 5. 构建车控适配器 (mock/http/mcp)
 # 6. 初始化 OSS 对象存储
 # 7. 连接 Redis 语义缓存
