@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -118,3 +118,13 @@ data/temp/*
 *.onnx
 *.safetensors
 *.zip
+
+# ============================================================
+# Installer packages (do not track)
+# ============================================================
+*.whl
+
+# ============================================================
+# Frontend node_modules (any location)
+# ============================================================
+frontend_design/node_modules/
