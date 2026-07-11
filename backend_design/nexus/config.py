@@ -32,8 +32,33 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-# .env 文件统一放在项目根目录，前后端共享
-_ENV_FILE = os.path.join(_PROJECT_ROOT, ".env")
+
+# ============================================================
+# 环境文件加载策略 (local / prod 自动切换)
+# ============================================================
+# 优先级 (从高到低):
+#   1. 环境变量 APP_ENV=prod → 加载 .env.prod
+#   2. 环境变量 APP_ENV=local → 加载 .env.local
+#   3. 默认 (未设置 APP_ENV) → 加载 .env.local (本地开发默认)
+#   4. 如果目标文件不存在 → 回退到 .env (兼容旧逻辑)
+#
+# 使用方式:
+#   本地开发: 无需设置，默认加载 .env.local
+#   线上生产: export APP_ENV=prod  (或 docker 环境变量 APP_ENV=prod)
+
+_APP_ENV = os.getenv("APP_ENV", "local").strip().lower()
+_ENV_LOCAL = os.path.join(_PROJECT_ROOT, ".env.local")
+_ENV_PROD = os.path.join(_PROJECT_ROOT, ".env.prod")
+_ENV_FALLBACK = os.path.join(_PROJECT_ROOT, ".env")
+
+if _APP_ENV == "prod" and os.path.exists(_ENV_PROD):
+    _ENV_FILE = _ENV_PROD
+elif _APP_ENV == "local" and os.path.exists(_ENV_LOCAL):
+    _ENV_FILE = _ENV_LOCAL
+elif os.path.exists(_ENV_LOCAL):
+    _ENV_FILE = _ENV_LOCAL
+else:
+    _ENV_FILE = _ENV_FALLBACK
 
 
 def _resolve_path(relative_path: str) -> str:

@@ -1103,6 +1103,8 @@ from nexus.rag.reranker_factory import build_reranker
 
 ## 十五、Step 9：清理 MySQL 死配置
 
+> **⚠️ 更新说明 (2026-07-11)**：MySQL 已重新加入 `docker-compose.yml` 和 `requirements.txt`（`aiomysql>=0.2.0`），因为 `config.py` 中的 `MySQLConfig` 一直保留且连接 URL 依赖 `aiomysql` 驱动。以下内容仅作为历史记录保留，实际部署时 MySQL 服务已恢复。
+
 ### 15.1 改 `docker-compose.yml`
 
 删除整个 `mysql` 服务块（约第 106-118 行）：

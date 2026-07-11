@@ -162,7 +162,7 @@ L4  Agent 层    →  v2.0: Supervisor → 5 Expert Agents (并行) → Responde
 L3  服务层      →  ASR / TTS / Skills / Vehicle / Intent / MCP
 L2  数据层      →  GraphRAG / Memory / Vector Store / Graph Store
 L1  核心层      →  Config / Logger / Exceptions / Circuit Breaker
-L0  基础设施层  →  Docker Compose / Milvus / Neo4j / Redis / RabbitMQ (双模式可切云端)
+L0  基础设施层  →  Docker Compose / Milvus / Neo4j / Redis / RabbitMQ / MySQL (双模式可切云端)
 ```
 
 > 详见 [架构总览](docs/architecture/overview.md)

@@ -166,6 +166,7 @@ docker compose ps
 | neo4j | 7474, 7687 | running |
 | redis | 6379 | running |
 | rabbitmq | 5672, 15672 | running |
+| mysql | 3306 | running |
 | prometheus | 9090 | running |
 | grafana | 3001 | running |
 

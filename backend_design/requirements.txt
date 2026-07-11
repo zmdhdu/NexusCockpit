@@ -39,6 +39,9 @@ redis==5.0.0
 celery==5.3.0
 kombu==5.3.0
 
+# --- Database (MySQL async driver) ---
+aiomysql>=0.2.0
+
 # --- Config / Validation ---
 pydantic==2.12.5
 pydantic-core==2.41.5

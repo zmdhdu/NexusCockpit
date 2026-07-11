@@ -32,10 +32,11 @@ ENV/
 *.swp
 *.swo
 
-# Environment
-.env
+# Environment (敏感配置，不提交到 GitHub)
 .env.local
+.env.prod
 .env.production
+# .env 作为模板文件可提交 (不含真实密钥)
 
 # Docker
 docker-compose.override.yml
