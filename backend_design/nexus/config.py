@@ -60,6 +60,14 @@ elif os.path.exists(_ENV_LOCAL):
 else:
     _ENV_FILE = _ENV_FALLBACK
 
+# 显式加载环境文件到 os.environ，确保 .env.local 中的值不会被 .env 中的空值覆盖
+# pydantic-settings 在读取 env_file 时可能会被其他 .env 文件干扰
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(_ENV_FILE, override=True)
+except ImportError:
+    pass
+
 
 def _resolve_path(relative_path: str) -> str:
     """将相对路径 (如 ./models/asr) 解析为基于项目根目录的绝对路径。
@@ -85,14 +93,14 @@ def _resolve_path(relative_path: str) -> str:
 class LLMConfig(BaseSettings):
     """大语言模型 (LLM) 配置。
 
-    管理与火山方舟 (Ark) API 的连接参数，包括模型选择、温度、超时等。
+    管理与 LLM 供应商 (硅基流动 / 火山方舟) 的连接参数，两者均为 OpenAI 兼容 API。
     """
 
-    # 火山方舟 API Key，从 .env 的 ARK_API_KEY 读取
+    # LLM API Key (硅基流动 / 火山方舟均兼容)，从 .env 的 ARK_API_KEY 读取
     ark_api_key: str = Field(default="", validation_alias="ARK_API_KEY")
-    # Ark API 基础地址 (北京区域)
+    # API 基础地址 (默认硅基流动，可切换为火山方舟)
     ark_base_url: str = Field(
-        default="https://ark.cn-beijing.volces.com/api/v3",
+        default="https://api.siliconflow.cn/v1",
         validation_alias="ARK_BASE_URL",
     )
     # 对话使用的 LLM 模型名称

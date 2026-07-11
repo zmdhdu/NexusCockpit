@@ -60,6 +60,9 @@ class CherryKnowledgeBase:
         self.embedding_service = embedding_service or EmbeddingService()
         self._client = milvus_client
         self._connected = False
+        # Milvus 连接别名，从配置读取 (与 MilvusVectorStore 使用相同的别名)
+        from nexus.config import get_config
+        self._milvus_alias = get_config().milvus.alias
 
         # 初始化 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter
         # 支持中英文多级分隔符递归分割，比简单滑动窗口更自然
@@ -74,7 +77,12 @@ class CherryKnowledgeBase:
             self._splitter = None
 
     def connect(self, milvus_client=None) -> None:
-        """连接 Milvus 并确保集合存在。"""
+        """连接 Milvus 并确保集合存在。
+
+        Args:
+            milvus_client: 可选的 Milvus 客户端标志。如果传入 truthy 值，
+                           表示 Milvus 已由外部连接，直接使用。
+        """
         if milvus_client:
             self._client = milvus_client
         if self._client:
@@ -91,7 +99,7 @@ class CherryKnowledgeBase:
         try:
             from pymilvus import Collection, CollectionSchema, FieldSchema, DataType, utility
 
-            if utility.has_collection(_COLLECTION_NAME):
+            if utility.has_collection(_COLLECTION_NAME, using=self._milvus_alias):
                 logger.info(f"KB collection '{_COLLECTION_NAME}' already exists")
                 return
 
@@ -104,7 +112,7 @@ class CherryKnowledgeBase:
                 FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=1024),
             ]
             schema = CollectionSchema(fields, description="NexusCockpit Knowledge Base Docs")
-            collection = Collection(_COLLECTION_NAME, schema)
+            collection = Collection(_COLLECTION_NAME, schema, using=self._milvus_alias)
 
             # 创建 IVF_FLAT 索引
             collection.create_index(
@@ -147,7 +155,7 @@ class CherryKnowledgeBase:
         try:
             from pymilvus import Collection
 
-            collection = Collection(_COLLECTION_NAME)
+            collection = Collection(_COLLECTION_NAME, using=self._milvus_alias)
 
             # 批量向量化
             embeddings = self.embedding_service.embed_batch(chunks)
@@ -216,7 +224,7 @@ class CherryKnowledgeBase:
         try:
             from pymilvus import Collection
 
-            collection = Collection(_COLLECTION_NAME)
+            collection = Collection(_COLLECTION_NAME, using=self._milvus_alias)
             collection.load()
 
             # 查询向量化
@@ -261,7 +269,7 @@ class CherryKnowledgeBase:
         try:
             from pymilvus import Collection
 
-            collection = Collection(_COLLECTION_NAME)
+            collection = Collection(_COLLECTION_NAME, using=self._milvus_alias)
             collection.flush()
             stats = {
                 "connected": True,

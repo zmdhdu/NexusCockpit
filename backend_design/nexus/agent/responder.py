@@ -137,7 +137,19 @@ class ResponderAgent:
         self, state: AgentState, search_ctx: str = ""
     ) -> str:
         """非流式 LLM 回复"""
-        system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
+        # 搜索类技能使用专用提示词
+        if state.skill_action == "web_search" and search_ctx:
+            system_msg = (
+                "你是车载语音助手小千。用户进行了联网搜索，请根据以下搜索结果组织回答。\n\n"
+                f"搜索结果：\n{search_ctx}\n\n"
+                "回答要求：\n"
+                "1. 根据搜索结果中的信息回答用户问题，不要编造\n"
+                "2. 回答要简洁实用，直接给出用户关心的核心信息\n"
+                "3. 如果搜索结果与问题相关，请总结关键信息\n"
+                "4. 回答不超过200字，使用自然口语化的表达"
+            )
+        else:
+            system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
 
         msgs, new_summary = await self.compressor.build_context(
             system_prompt=system_msg,
@@ -165,7 +177,19 @@ class ResponderAgent:
         self, state: AgentState, search_ctx: str = ""
     ) -> AsyncGenerator[str, None]:
         """流式 LLM 回复"""
-        system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
+        # 搜索类技能使用专用提示词
+        if state.skill_action == "web_search" and search_ctx:
+            system_msg = (
+                "你是车载语音助手小千。用户进行了联网搜索，请根据以下搜索结果组织回答。\n\n"
+                f"搜索结果：\n{search_ctx}\n\n"
+                "回答要求：\n"
+                "1. 根据搜索结果中的信息回答用户问题，不要编造\n"
+                "2. 回答要简洁实用，直接给出用户关心的核心信息\n"
+                "3. 如果搜索结果与问题相关，请总结关键信息\n"
+                "4. 回答不超过200字，使用自然口语化的表达"
+            )
+        else:
+            system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
 
         msgs, new_summary = await self.compressor.build_context(
             system_prompt=system_msg,

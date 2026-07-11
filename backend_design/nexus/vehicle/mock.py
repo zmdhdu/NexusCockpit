@@ -53,6 +53,20 @@ class MockVehicleBus(BaseVehicleAdapter):
     }
 
     def __init__(self):
+        # 内置播放列表 (10 首热门歌曲)
+        self._playlist = [
+            "爱错 - 王力宏",
+            "晴天 - 周杰伦",
+            "起风了 - 买辣椒也用券",
+            "夜曲 - 周杰伦",
+            "稻香 - 周杰伦",
+            "光年之外 - 邓紫棋",
+            "说好不哭 - 周杰伦",
+            "圈圈叉叉 - 蔡依林",
+            "告白气球 - 周杰伦",
+            "年少有为 - 李荣浩",
+        ]
+        self._track_index = 0
         self.climate: Dict[str, Any] = {
             "temperature": 22,
             "fan_speed": 3,
@@ -75,7 +89,9 @@ class MockVehicleBus(BaseVehicleAdapter):
             "playing": False,
             "volume": 18,
             "source": "local",
-            "track": "",
+            "track": self._playlist[0],
+            "playlist": list(self._playlist),
+            "track_index": 0,
         }
         self.navigation: Dict[str, Any] = {
             "destination": "",
@@ -163,9 +179,13 @@ class MockVehicleBus(BaseVehicleAdapter):
         if op in ("heat_on", "heat", "seat_heat"):
             seat["heat"] = max(1, int(level or 1))
             seat["cool"] = 0
+        elif op in ("heat_off", "heat_stop"):
+            seat["heat"] = 0
         elif op in ("cool_on", "cool", "seat_cool"):
             seat["cool"] = max(1, int(level or 1))
             seat["heat"] = 0
+        elif op in ("cool_off", "cool_stop"):
+            seat["cool"] = 0
         elif op in ("massage_on", "massage"):
             seat["massage"] = True
         elif op in ("massage_off", "stop_massage"):
@@ -233,14 +253,38 @@ class MockVehicleBus(BaseVehicleAdapter):
 
         if op in ("play", "resume"):
             self.media["playing"] = True
+            if not self.media.get("track"):
+                self.media["track"] = self._playlist[self._track_index]
         elif op in ("pause", "stop"):
             self.media["playing"] = False
         elif op in ("next", "next_track"):
-            self.media["track"] = "下一首"
+            self._track_index = (self._track_index + 1) % len(self._playlist)
+            self.media["track"] = self._playlist[self._track_index]
+            self.media["track_index"] = self._track_index
             self.media["playing"] = True
         elif op in ("prev", "previous_track"):
-            self.media["track"] = "上一首"
+            self._track_index = (self._track_index - 1) % len(self._playlist)
+            self.media["track"] = self._playlist[self._track_index]
+            self.media["track_index"] = self._track_index
             self.media["playing"] = True
+        elif op in ("play_track", "select_track"):
+            if track is not None:
+                # 按名称或索引选择歌曲
+                if isinstance(track, int) or (isinstance(track, str) and track.isdigit()):
+                    idx = int(track)
+                    if 0 <= idx < len(self._playlist):
+                        self._track_index = idx
+                else:
+                    # 按名称查找
+                    for i, t in enumerate(self._playlist):
+                        if track in t:
+                            self._track_index = i
+                            break
+                self.media["track"] = self._playlist[self._track_index]
+                self.media["track_index"] = self._track_index
+                self.media["playing"] = True
+
+        self.media["playlist"] = list(self._playlist)
 
         return VehicleCommandResult(
             success=True,

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
+import { OrbitControls, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import type { Mesh } from "three";
 
@@ -210,7 +210,10 @@ export function Vehicle3DModel({
           blur={2}
           far={4}
         />
-        <Environment preset="night" />
+        {/* 环境光: 用多方向点光源模拟 HDR 环境光照，避免 CDN 依赖 */}
+        <pointLight position={[5, 5, 5]} intensity={0.6} color="#4fc3f7" />
+        <pointLight position={[-5, 3, -5]} intensity={0.4} color="#7c4dff" />
+        <pointLight position={[0, -3, 0]} intensity={0.2} color="#ff6f00" />
         <OrbitControls
           enablePan={false}
           minDistance={5}

@@ -53,7 +53,7 @@ class WebSearchSkill(BaseSkill):
             )
         try:
             response = self._client.search(query=query, search_depth="basic")
-            results = response.get("results", [])[:2]
+            results = response.get("results", [])[:3]
             if not results:
                 return SkillResult(
                     status="ok",
@@ -64,9 +64,10 @@ class WebSearchSkill(BaseSkill):
 
             compact = []
             for r in results:
-                title = r.get("title", "")[:40]
-                content = r.get("content", "").replace("\n", " ")[:160]
-                compact.append(f"【{title}】{content}")
+                title = r.get("title", "")[:60]
+                content = r.get("content", "").replace("\n", " ")[:300]
+                url = r.get("url", "")
+                compact.append(f"【{title}】{content}\n来源: {url}")
 
             return SkillResult(
                 status="ok",

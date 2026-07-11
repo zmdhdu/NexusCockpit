@@ -62,6 +62,15 @@ async def lifespan(app: FastAPI):
     init_metrics()       # 初始化 Prometheus 指标
     logger.info("NexusCockpit starting up...")
 
+    # --- 0. 启动诊断: 打印 API Key 加载状态 (排查 401 问题) ---
+    api_key = config.llm.ark_api_key
+    if api_key:
+        logger.info(f"LLM API Key loaded: {api_key[:12]}...{api_key[-4:]} (len={len(api_key)})")
+        logger.info(f"LLM Base URL: {config.llm.ark_base_url}")
+        logger.info(f"LLM Model: {config.llm.llm_model}")
+    else:
+        logger.error("LLM API Key is EMPTY! Please check .env.local -> ARK_API_KEY")
+
     # --- 1. 初始化 Embedding 服务 (将文本转为向量) ---
     embedding_service = EmbeddingService()
     app.state.embedding_service = embedding_service
@@ -136,19 +145,23 @@ async def lifespan(app: FastAPI):
         checkpoint_saver = None
         try:
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-            import sqlite3
+            import aiosqlite
             import os
             db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
-            # 使用同步 SQLite 连接（LangGraph 会在线程池中执行）
-            conn = sqlite3.connect(db_path, check_same_thread=False)
+            # 使用 aiosqlite 异步连接
+            async with aiosqlite.connect(db_path) as conn:
+                checkpoint_saver = AsyncSqliteSaver(conn)
+                await checkpoint_saver.setup()
+            # 重新打开连接用于运行时
+            conn = aiosqlite.connect(db_path)
             checkpoint_saver = AsyncSqliteSaver(conn)
-            await checkpoint_saver.setup()
-            logger.info(f"SqliteSaver checkpoint initialized at {db_path}")
+            logger.info(f"AsyncSqliteSaver checkpoint initialized at {db_path}")
         except ImportError:
-            logger.warning("langgraph-checkpoint-sqlite not installed, checkpoint disabled")
+            logger.warning("langgraph-checkpoint-sqlite or aiosqlite not installed, checkpoint disabled")
         except Exception as e:
             logger.warning(f"Checkpoint initialization failed (non-fatal): {e}")
+            checkpoint_saver = None
 
         # v2.0: Supervisor 多智能体工作流
         agent_graph = SupervisorGraph(
@@ -163,7 +176,7 @@ async def lifespan(app: FastAPI):
             from nexus.rag.cherry_kb import CherryKnowledgeBase
             from nexus.rag.unified_retriever import UnifiedRetriever
             cherry_kb = CherryKnowledgeBase(embedding_service)
-            cherry_kb.connect(getattr(vector_store, "_client", None))
+            cherry_kb.connect(getattr(vector_store, "_connected", False) or vector_store)
             app.state.cherry_kb = cherry_kb
             logger.info("Cherry KnowledgeBase initialized")
         except Exception as e:

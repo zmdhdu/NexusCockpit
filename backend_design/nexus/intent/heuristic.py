@@ -24,6 +24,8 @@ class HeuristicRouter:
             self._extract_navigation,
             self._extract_media,
             self._extract_vehicle_status,
+            self._extract_search,
+            self._extract_food,
         ]:
             result = extractor(compact)
             if result:
@@ -141,3 +143,34 @@ class HeuristicRouter:
         if not any(k in text for k in ("车况", "胎压", "续航", "油量", "电量", "保养", "车辆状态")):
             return {}
         return {"Vehicle_Status_Action": {"op": "status"}}
+
+    def _extract_search(self, text: str) -> Dict[str, Any]:
+        """检测联网搜索意图"""
+        # 搜索关键词
+        search_keywords = (
+            "搜索", "查一下", "查询", "查查", "帮我查", "请问",
+            "附近", "周边", "附近有", "哪里有", "在哪",
+            "天气", "新闻", "百科", "什么是", "是怎么回事",
+            "怎么样", "好不好", "评分", "评价", "几点", "营业",
+            "多少钱", "价格", "最新",
+        )
+        if not any(k in text for k in search_keywords):
+            return {}
+
+        # 如果是导航意图（包含“导航”“去”等），不拦截
+        if any(k in text for k in ("导航", "带我", "前往", "开到", "去往")):
+            return {}
+
+        # 提取搜索 query：原文本即作为搜索关键词
+        return {"Need_Search": text}
+
+    def _extract_food(self, text: str) -> Dict[str, Any]:
+        """检测点餐意图"""
+        food_keywords = ("点外卖", "饿了", "想吃", "点餐", "叫外卖", "吃什么", "帮我点")
+        if not any(k in text for k in food_keywords):
+            return {}
+        # 提取食物名称
+        import re as _re
+        match = _re.search(r"(?:想吃|点|叫|来)([^，。！？?]+)", text)
+        food = match.group(1) if match else "随便"
+        return {"Call_elm": True, "Food_candidate": food}

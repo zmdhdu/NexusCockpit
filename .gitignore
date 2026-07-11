@@ -126,6 +126,14 @@ data/temp/*
 *.whl
 
 # ============================================================
-# Frontend node_modules (any location)
+# Frontend (Next.js under frontend_design/)
 # ============================================================
 frontend_design/node_modules/
+frontend_design/.next/
+frontend_design/out/
+frontend_design/build/
+
+# ============================================================
+# Backend runtime data (SQLite checkpoints, etc.)
+# ============================================================
+backend_design/data/

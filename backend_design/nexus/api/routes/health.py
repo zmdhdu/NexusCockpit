@@ -17,7 +17,7 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check(request: Request):
-    """健康检查: 检查 Milvus、Neo4j、Redis、Agent 的连接状态。
+    """健康检查: 检查所有组件连接状态。
 
     Returns:
         HealthResponse 包含 status 和各组件状态
@@ -25,25 +25,70 @@ async def health_check(request: Request):
     app = request.app
     services = {}
 
-    # 检查各组件状态
+    # --- Milvus 向量数据库 ---
     if hasattr(app.state, "vector_store"):
         services["milvus"] = "connected" if app.state.vector_store and app.state.vector_store.is_connected else "disconnected"
     else:
         services["milvus"] = "not_configured"
 
+    # --- Neo4j 知识图谱 ---
     if hasattr(app.state, "graph_store"):
         services["neo4j"] = "connected" if app.state.graph_store and app.state.graph_store.driver else "disconnected"
     else:
         services["neo4j"] = "not_configured"
 
+    # --- Redis 缓存 ---
     if hasattr(app.state, "semantic_cache"):
         services["redis"] = "connected" if app.state.semantic_cache and app.state.semantic_cache.is_enabled else "disconnected"
     else:
         services["redis"] = "not_configured"
 
+    # --- RabbitMQ 消息队列 ---
+    try:
+        import socket
+        from nexus.config import get_config
+        cfg = get_config().rabbitmq
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex((cfg.host, cfg.port))
+        sock.close()
+        services["rabbitmq"] = "connected" if result == 0 else "disconnected"
+    except Exception:
+        services["rabbitmq"] = "disconnected"
+
+    # --- MySQL 数据库 ---
+    try:
+        import socket as _sock
+        from nexus.config import get_config as _gc
+        _mcfg = _gc().mysql
+        _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        _s.settimeout(2)
+        _r = _s.connect_ex((_mcfg.host, _mcfg.port))
+        _s.close()
+        services["mysql"] = "connected" if _r == 0 else "disconnected"
+    except Exception:
+        services["mysql"] = "disconnected"
+
+    # --- OSS 对象存储 ---
+    if hasattr(app.state, "oss_storage"):
+        oss = app.state.oss_storage
+        if oss and oss.is_available:
+            services["oss"] = "connected"
+        elif oss and getattr(oss.config, "enabled", False):
+            services["oss"] = "configured"
+        else:
+            services["oss"] = "disabled"
+    else:
+        services["oss"] = "not_configured"
+
+    # --- Agent 工作流 ---
     services["agent"] = "ready" if hasattr(app.state, "agent_graph") and app.state.agent_graph else "not_ready"
 
-    all_healthy = all(v in ("connected", "ready") for v in services.values())
+    all_healthy = all(
+        v in ("connected", "ready")
+        for k, v in services.items()
+        if k in ("milvus", "neo4j", "redis", "agent")
+    )
     status = "healthy" if all_healthy else "degraded"
 
     return HealthResponse(status=status, version="1.0.0", services=services)

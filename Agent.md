@@ -6,6 +6,38 @@
 
 NexusCockpit 是一个企业级车载语音 Agent 系统，采用 **7 层分层架构**，集成了 Multi-Agent 协同、GraphRAG 融合检索、语义缓存、MCP 协议等前沿技术。
 
+> **v2.1 规划**：多座舱 CS 架构 + SubAgent 监控体系，详见 [v2.1 设计方案](docs/v2.1-design.md)
+
+## v2.1 多座舱 CS 架构概览
+
+```
+┌───────────────────────────────────────────────────────┐
+│  座舱1 (cockpit-01) ──┐                              │
+│  座舱2 (cockpit-02) ──┼── API Gateway               │
+│  座舱3 (cockpit-03) ──┘   ↓                          │
+│  SubAgent 监控层 (不定时巡检 + LLM 判断异常)           │
+│       ↓ Pub/Sub 上报                                   │
+│  MainAgent 确认层 (二次确认 + 安全回传)                │
+│       ↓                                                │
+│  Supervisor + 5 Experts (v2.0 复用)                    │
+│       ↓                                                │
+│  中间件隔离层 (Redis DB / Milvus collection / 行级)    │
+│       ↓                                                │
+│  数据中台看板 + 中间件看板 + 设置中心                  │
+└───────────────────────────────────────────────────────┘
+```
+
+| 新增模块 | 路径 | 说明 |
+|---------|------|------|
+| 座舱管理器 | `backend_design/nexus/core/cockpit_manager.py` | 座舱注册/查询/状态 |
+| 多租户上下文 | `backend_design/nexus/core/tenant_context.py` | 请求级 cockpit_id 隔离 |
+| SubAgent 监控器 | `backend_design/nexus/agent/subagent_monitor.py` | 不定时巡检 + LLM 判断 |
+| MainAgent 确认层 | `backend_design/nexus/agent/mainagent_confirm.py` | 二次确认 + 安全回传 |
+| 座舱 API | `backend_design/nexus/api/routes/cockpit.py` | `/cockpit/{id}/*` 路由 |
+| 数据中台 API | `backend_design/nexus/api/routes/dataplatform.py` | 跨座舱统计 |
+| 中间件看板 API | `backend_design/nexus/api/routes/middleware_status.py` | 中间件状态 |
+| 设置中心 API | `backend_design/nexus/api/routes/settings.py` | 座舱/用户/中间件管理 |
+
 ## 分层架构总览
 
 ```
@@ -132,6 +164,7 @@ NexusCockpit/
 
 | 文档 | 说明 |
 |------|------|
+| **[v2.1 设计方案](docs/v2.1-design.md)** | **多座舱 CS 架构 + SubAgent 监控体系 (最新)** |
 | [项目进展与架构图](docs/PROGRESS.md) | 开发进度、架构图、目录结构、文档索引 |
 | [架构总览](docs/architecture/overview.md) | 7 层架构设计理念与数据流 |
 | [环境搭建指南](docs/deployment/SETUP.md) | 虚拟环境、模型下载、中间件部署 |
@@ -168,6 +201,13 @@ NexusCockpit/
 | 修改 MCP 网关 | `backend_design/nexus/mcp/gateway.py` |
 | 修改基础设施 | `docker-compose.yml` + `config/` |
 | 修改 AI 技能 | `.catpaw/skills/` |
+| **v2.1: 座舱管理** | `backend_design/nexus/core/cockpit_manager.py` |
+| **v2.1: SubAgent 监控** | `backend_design/nexus/agent/subagent_monitor.py` |
+| **v2.1: MainAgent 确认** | `backend_design/nexus/agent/mainagent_confirm.py` |
+| **v2.1: 多租户上下文** | `backend_design/nexus/core/tenant_context.py` |
+| **v2.1: 数据中台 API** | `backend_design/nexus/api/routes/dataplatform.py` |
+| **v2.1: 中间件看板 API** | `backend_design/nexus/api/routes/middleware_status.py` |
+| **v2.1: 设置中心 API** | `backend_design/nexus/api/routes/settings.py` |
 
 ## 代码修改后的质量保障流程（强制执行）
 

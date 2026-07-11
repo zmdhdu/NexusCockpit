@@ -110,13 +110,14 @@ export default function DashboardPage() {
     },
   ];
 
-  // 专家列表
+  // 专家列表 — 只要 Agent 就绪即显示"就绪"
+  const agentReady = health?.services?.agent === "ready";
   const experts = [
-    { name: "车控专家", icon: Car, color: "text-sky-400", active: health?.status === "healthy" },
-    { name: "导航专家", icon: Activity, color: "text-indigo-400", active: health?.status === "healthy" },
-    { name: "生活推荐", icon: MessageSquare, color: "text-emerald-400", active: health?.status === "healthy" },
-    { name: "车辆健康", icon: Brain, color: "text-amber-400", active: health?.status === "healthy" },
-    { name: "闲聊专家", icon: Cpu, color: "text-purple-400", active: health?.status === "healthy" },
+    { name: "车控专家", icon: Car, color: "text-sky-400", active: agentReady },
+    { name: "导航专家", icon: Activity, color: "text-indigo-400", active: agentReady },
+    { name: "生活推荐", icon: MessageSquare, color: "text-emerald-400", active: agentReady },
+    { name: "车辆健康", icon: Brain, color: "text-amber-400", active: agentReady },
+    { name: "闲聊专家", icon: Cpu, color: "text-purple-400", active: agentReady },
   ];
 
   const handle3DPartClick = (part: string) => {

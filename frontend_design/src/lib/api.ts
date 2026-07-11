@@ -22,6 +22,66 @@ import type {
 // 后端 API 基础地址，从环境变量读取，默认 localhost:8000
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// 默认开发用户 (开发环境不校验密码，直接签发 Token)
+const DEFAULT_USER_ID = "nexus_dev";
+const TOKEN_KEY = "nexus_token";
+
+/**
+ * 自动获取 JWT Token — 开发环境下自动调用 /auth/token 获取 Token
+ * Token 缓存在 localStorage 中，过期后自动重新获取
+ */
+async function ensureAuthToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+
+  // 检查是否已有 Token
+  const existing = localStorage.getItem(TOKEN_KEY);
+  if (existing) {
+    // 简单检查: 尝试解码 JWT 的 exp 字段
+    try {
+      const payload = JSON.parse(atob(existing.split(".")[1]));
+      const exp = payload.exp * 1000;
+      if (Date.now() < exp - 60000) {
+        // 还没过期 (留 1 分钟缓冲)
+        return existing;
+      }
+    } catch {
+      // Token 格式无效，继续重新获取
+    }
+  }
+
+  // 没有 Token 或已过期，调用 /auth/token 获取新 Token
+  try {
+    const resp = await fetch(`${API_BASE}/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: DEFAULT_USER_ID, password: "" }),
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const token = data.access_token;
+      if (token) {
+        localStorage.setItem(TOKEN_KEY, token);
+        return token;
+      }
+    }
+  } catch {
+    // 后端可能未启动，静默失败
+  }
+  return null;
+}
+
+/**
+ * 强制刷新 Token — 当 401 错误发生时，清除旧 Token 并重新获取
+ */
+async function refreshToken(): Promise<string | null> {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(TOKEN_KEY);
+    _tokenPromise = ensureAuthToken();
+    return _tokenPromise;
+  }
+  return null;
+}
+
 // axios 实例 — 所有 API 请求都通过此实例发送
 export const api = axios.create({
   baseURL: API_BASE,
@@ -32,9 +92,19 @@ export const api = axios.create({
 });
 
 // 请求拦截器: 自动附加 JWT Token (如果用户已登录)
-api.interceptors.request.use((config) => {
+// 使用全局 Promise 确保所有请求等待同一个 Token 获取过程
+let _tokenPromise: Promise<string | null> | null = null;
+
+function getTokenPromise(): Promise<string | null> {
+  if (!_tokenPromise) {
+    _tokenPromise = ensureAuthToken();
+  }
+  return _tokenPromise;
+}
+
+api.interceptors.request.use(async (config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("nexus_token");
+    const token = await getTokenPromise();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -42,10 +112,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截器: 统一错误处理
+// 响应拦截器: 统一错误处理 + 401 自动刷新 Token 重试
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+
+    // 401 错误且未重试过: 自动刷新 Token 并重试一次
+    if (
+      error?.response?.status === 401 &&
+      !originalRequest._retried &&
+      typeof window !== "undefined"
+    ) {
+      originalRequest._retried = true;
+      const newToken = await refreshToken();
+      if (newToken) {
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return api(originalRequest);
+      }
+    }
+
     console.error("[API Error]", error?.response?.status, error?.message);
     return Promise.reject(error);
   }
@@ -84,10 +170,16 @@ export async function* streamMessage(
   req: ChatRequest,
   signal?: AbortSignal
 ): AsyncGenerator<StreamEvent> {
+  // 获取 JWT Token (与 axios 拦截器共用同一逻辑)
+  const token = await getTokenPromise();
+
   // 使用原生 fetch 发送 POST 请求 (axios 不支持流式读取)
   const response = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(req),
     signal, // 传入 AbortSignal，支持取消
   });

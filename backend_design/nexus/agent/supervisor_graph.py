@@ -378,13 +378,30 @@ class SupervisorGraph:
             "metadata": {"responder_latency_ms": latency_ms},
         }
 
-    async def _generate_llm_response(self, state: SupervisorState) -> str:
-        """调用 LLM 生成回复（非流式）。"""
-        system_msg = self.prompt_manager.render(
+    def _get_system_prompt(self, state: SupervisorState) -> str:
+        """根据技能类型选择合适的系统提示词。"""
+        # 搜索类技能使用专用 search 提示词
+        if state.get("skill_action") == "web_search" and state.get("search_context"):
+            search_prompt = self.prompt_manager.render(
+                "search",
+                search_context=state.get("search_context", ""),
+            )
+            if search_prompt:
+                return search_prompt
+
+        # 默认使用 chat 提示词
+        return self.prompt_manager.render(
             "chat",
             user_profile=state.get("user_profile", {}),
             memory=state.get("memory_str", ""),
         ) or "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
+
+    async def _generate_llm_response(self, state: SupervisorState) -> str:
+        """调用 LLM 生成回复（非流式）。"""
+        system_msg = self._get_system_prompt(state)
+
+        # 搜索类技能不需要重复传入 search_ctx（已在 system_msg 中）
+        search_ctx = "" if state.get("skill_action") == "web_search" else state.get("search_context", "")
 
         msgs, new_summary = await self.responder.compressor.build_context(
             system_prompt=system_msg,
@@ -392,7 +409,7 @@ class SupervisorGraph:
             history=state.get("history", []),
             running_summary=state.get("running_summary", ""),
             memory_str=state.get("memory_str", ""),
-            search_ctx=state.get("search_context", ""),
+            search_ctx=search_ctx,
         )
 
         try:
@@ -409,11 +426,10 @@ class SupervisorGraph:
 
     async def _stream_llm_response(self, state: SupervisorState) -> AsyncGenerator[str, None]:
         """流式调用 LLM 生成回复。"""
-        system_msg = self.prompt_manager.render(
-            "chat",
-            user_profile=state.get("user_profile", {}),
-            memory=state.get("memory_str", ""),
-        ) or "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
+        system_msg = self._get_system_prompt(state)
+
+        # 搜索类技能不需要重复传入 search_ctx（已在 system_msg 中）
+        search_ctx = "" if state.get("skill_action") == "web_search" else state.get("search_context", "")
 
         msgs, new_summary = await self.responder.compressor.build_context(
             system_prompt=system_msg,
@@ -421,7 +437,7 @@ class SupervisorGraph:
             history=state.get("history", []),
             running_summary=state.get("running_summary", ""),
             memory_str=state.get("memory_str", ""),
-            search_ctx=state.get("search_context", ""),
+            search_ctx=search_ctx,
         )
 
         try:
@@ -500,7 +516,11 @@ class SupervisorGraph:
         Returns:
             完成后的完整 SupervisorState
         """
-        result = await self._graph.ainvoke(state)
+        config = {}
+        if self.checkpoint_saver:
+            thread_id = state.get("session_id") or state.get("user_id", "default")
+            config = {"configurable": {"thread_id": thread_id}}
+        result = await self._graph.ainvoke(state, config=config)
         return result
 
     async def stream(self, state: SupervisorState) -> AsyncGenerator[str, None]:
