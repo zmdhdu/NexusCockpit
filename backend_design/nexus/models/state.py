@@ -51,10 +51,12 @@ class SupervisorState(TypedDict, total=False):
     user_input: str
     user_id: str
     session_id: str
+    cockpit_id: str  # v2.1: 座舱 ID（多租户隔离键）
 
     # ---- 记忆召回 ----
     recalled_memories: Annotated[List[str], add]
     memory_str: str
+    habits_str: str  # v2.1: 用户习惯（从 MySQL 加载）
     user_profile: Dict[str, Any]
 
     # ---- 意图路由 / Supervisor 分派 ----
@@ -73,6 +75,8 @@ class SupervisorState(TypedDict, total=False):
     skill_handled: bool
     skill_action: str
     search_context: str
+    # v2.2: 工具调用结果（供 Responder 做 LLM 合成和反思校验）
+    tool_result: Dict[str, Any]         # {tool_name, message, data, handled}
     # 副作用标记: 车控等操作会修改车辆状态，此类响应禁止写入语义缓存
     # 避免 "打开空调" 缓存命中后车控指令不执行的安全事故 (from main L5 fix)
     has_side_effect: bool
@@ -123,8 +127,10 @@ def create_initial_state(
         user_input=user_input,
         user_id=user_id,
         session_id=session_id,
+        cockpit_id="cockpit-01",  # v2.1: 默认座舱
         recalled_memories=[],
         memory_str="",
+        habits_str="",  # v2.1: 用户习惯
         user_profile={},
         intent={},
         intent_source="",
@@ -137,6 +143,7 @@ def create_initial_state(
         skill_handled=False,
         skill_action="",
         search_context="",
+        tool_result={},  # v2.2: 工具调用结果
         has_side_effect=False,
         history=list(history) if history else [],
         running_summary="",

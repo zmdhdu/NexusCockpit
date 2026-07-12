@@ -15,6 +15,7 @@ export function useSpeechRecognition() {
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const supportedRef = useRef(false);
 
   useEffect(() => {
     // 浏览器兼容性检查
@@ -24,8 +25,11 @@ export function useSpeechRecognition() {
 
     if (!SpeechRecognition) {
       setError("当前浏览器不支持语音识别，请使用 Chrome 浏览器");
+      supportedRef.current = false;
       return;
     }
+
+    supportedRef.current = true;
 
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
@@ -41,7 +45,10 @@ export function useSpeechRecognition() {
     };
 
     recognition.onerror = (event: any) => {
-      setError(`语音识别错误: ${event.error}`);
+      // 不在 "no-speech" 和 "aborted" 时显示错误（这些是正常行为）
+      if (event.error && event.error !== "no-speech" && event.error !== "aborted") {
+        setError(`语音识别错误: ${event.error}`);
+      }
       setIsListening(false);
     };
 
@@ -94,6 +101,6 @@ export function useSpeechRecognition() {
     startListening,
     stopListening,
     resetTranscript,
-    supported: !error || !error.includes("不支持"),
+    supported: supportedRef.current,
   };
 }

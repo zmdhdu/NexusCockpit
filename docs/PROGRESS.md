@@ -1,6 +1,19 @@
 # NexusCockpit 项目开发进展与架构说明
 
-> 最后更新 2026-07-08 (v2.0)
+> 最后更新 2026-07-12 (v2.1.1)
+>
+> ---
+>
+> ## v2.1 多座舱 CS 架构升级
+>
+> v2.1 将单座舱升级为 **CS 架构（3 并行座舱）**，引入三语言栈和 SubAgent/MainAgent 监控体系：
+> - 三语言栈: Go (并发网关) + Python (AI 服务) + TypeScript (前端)
+> - 多租户隔离: Redis DB 分区 / Milvus Collection 前缀 / MySQL `cockpit_id` 行级隔离
+> - SubAgent 异步巡检 + MainAgent 二次确认 + 三层降本策略（规则→记忆库→LLM）
+> - Go 网关原生处理非 AI 请求（健康检查/中间件状态/数据中台/座舱列表）
+> - 优先级令牌桶限流（High/Normal/Low 三级）
+> - RBAC 四级角色 + JWT 鉴权 + 声纹识别自动登录
+> - 前端新增数据中台看板 + 中间件状态看板 + RBAC 菜单控制 + 座舱切换
 >
 > ---
 >
@@ -34,6 +47,7 @@
 | 测试文档 | ✅ 已完成 | 100% | VERIFICATION.md + TESTING.md |
 | 模型下载与部署 | ⏳ 待执行 | 0% | 需用户按 SETUP.md 下载 |
 | API Key 配置 | ⏳ 待执行 | 0% | 需用户填入 ARK_API_KEY 等 |
+| v2.1 多座舱 CS 架构 | ✅ 已完成 | 100% | Go 网关 + SubAgent 监控 + 多租户隔离 + RBAC + 声纹 |
 | 前后端联调 | ⏳ 待执行 | 0% | 需启动后端后联调 |
 | 性能压测 | 🔲 未开始 | 0% | 联调通过后进行 |
 
@@ -50,14 +64,14 @@
 | TTS 引擎 | `backend_design/nexus/tts/engine.py` | ✅ | CosyVoice-300M |
 | Embedding | `backend_design/nexus/rag/embedding.py` | ✅ | Qwen3-Embedding-4B |
 | 向量存储 | `backend_design/nexus/rag/vector_store.py` | ✅ | Milvus HNSW + 双模式 (Zilliz Cloud) |
-| 图谱存储 | `backend_design/nexus/rag/graph_store.py` | ✅ | Neo4j + 双模式 (AuraDB) |
+| 图谱存储 | `backend_design/nexus/rag/graph_store.py` | ✅ | Neo4j + 双模式 (AuraDB) v2.1.1: coalesce 修复 |
 | 意图路由 | `backend_design/nexus/intent/` | ✅ | 启发式 + LLM 双路 |
 | 技能系统 | `backend_design/nexus/skills/` | ✅ | 21 个技能 (v1.0: 9 + v2.0: 12) + 装饰器注册 |
 | 车控适配 | `backend_design/nexus/vehicle/` | ✅ | Mock/HTTP/MCP 三模式 |
 | Agent 层 | `backend_design/nexus/agent/` | ✅ | v2.0: SupervisorGraph + 5 Expert Agents |
 | 专家 Agent | `backend_design/nexus/agent/experts/` | ✅ | v2.0: Vehicle/Nav/Lifestyle/Health/Chat |
 | Prompt 模板 | `backend_design/nexus/prompts/` | ✅ | v2.0: 外置 Prompt 管理 (5 个模板) |
-| 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 (tiktoken 精准计数) |
+| 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 (tiktoken 精准计数) v2.1.1: 修复 Event loop is closed |
 | 语义缓存 | `backend_design/nexus/middleware/redis_cache.py` | ✅ | v2.0: RediSearch KNN + 副作用隔离 + 双模式 (云Redis scan降级) |
 | RAG 检索 | `backend_design/nexus/rag/` | ✅ | v2.0: 三路融合+Rerank+CherryKB |
 | JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
@@ -70,7 +84,34 @@
 | MCP 网关 | `backend_design/nexus/mcp/` | ✅ | MCP 协议适配器 |
 | 数据模型 | `backend_design/nexus/models/` | ✅ | v2.0: TypedDict SupervisorState + Pydantic schemas |
 | 可观测性 | `backend_design/nexus/observability/` | ✅ | Prometheus + Langfuse |
-| 测试用例 | `backend_design/tests/` | ✅ | test_api + test_core |
+| 测试用例 | `backend_design/tests/` | ✅ | test_api + test_core + test_v21 (v2.1) |
+
+### v2.1 新增模块完成详情
+
+| 模块 | 路径 | 状态 | 说明 |
+|------|------|------|------|
+| Go 并发网关 | `backend_design/nexus_gate/` | ✅ | Gin 路由 + JWT 鉴权 + 优先级限流 + WebSocket Hub + 反向代理 |
+| Go 原生处理器 | `backend_design/nexus_gate/internal/handlers/` | ✅ | 非 AI 请求 Go 原生处理 (health/middleware/dataplatform/cockpits) |
+| Go RBAC | `backend_design/nexus_gate/internal/auth/jwt.go` | ✅ | JWT 签发/验证 + 座舱访问校验 + 角色检查 |
+| Go 限流器 | `backend_design/nexus_gate/internal/ratelimit/ratelimit.go` | ✅ | 令牌桶 + High/Normal/Low 三级优先级 |
+| Go WebSocket | `backend_design/nexus_gate/internal/ws/hub.go` | ✅ | WebSocket Hub + Python AI 后端消息转发 |
+| 座舱管理器 | `backend_design/nexus/core/cockpit_manager.py` | ✅ | 座舱注册/查询/状态 + 中间件资源初始化 |
+| 多租户上下文 | `backend_design/nexus/core/tenant_context.py` | ✅ | contextvars 请求级 cockpit_id 隔离 |
+| 数据库管理器 | `backend_design/nexus/core/db_manager.py` | ✅ | aiomysql 异步连接池 |
+| 声纹识别 | `backend_design/nexus/core/voiceprint.py` | ✅ | CAM++ 声纹提取/比对 + JWT 自动签发 |
+| SubAgent 监控器 | `backend_design/nexus/agent/subagent_monitor.py` | ✅ | 三层降本 (规则→记忆库→LLM) + Prometheus P95 |
+| MainAgent 确认层 | `backend_design/nexus/agent/mainagent_confirm.py` | ✅ | Redis Pub/Sub 二次确认 + 安全回传 |
+| 座舱 API | `backend_design/nexus/api/routes/cockpit.py` | ✅ | `/cockpit/{id}/*` 路由 + CockpitContext |
+| 数据中台 API | `backend_design/nexus/api/routes/dataplatform.py` | ✅ | overview/concurrency/alerts/comparison |
+| 中间件看板 API | `backend_design/nexus/api/routes/middleware_status.py` | ✅ | Redis/Milvus/Neo4j/RabbitMQ/MySQL 状态 |
+| 设置中心 API | `backend_design/nexus/api/routes/settings.py` | ✅ | 座舱/用户/中间件管理 + 声纹注册/验证 |
+| 座舱指标 | `backend_design/nexus/observability/cockpit_metrics.py` | ✅ | Prometheus Gauge/Counter/Histogram |
+| 数据保留策略 | `backend_design/nexus/observability/data_retention.py` | ✅ | 过期日志自动清理 |
+| 座舱数据模型 | `backend_design/nexus/models/cockpit.py` | ✅ | CockpitConfig/CockpitStatus Pydantic 模型 |
+| v2.1 数据库迁移 | `backend_design/scripts/v2.1_migration.sql` | ✅ | cockpits/users/audit_logs/subagent_logs 建表 |
+| 混沌测试 | `backend_design/scripts/chaos_test.py` | ✅ | 随机故障注入 + 自愈能力验证 |
+| v2.1 单元测试 | `backend_design/tests/test_v21.py` | ✅ | CockpitManager 13 + TenantContext 8 测试 |
+| gRPC Proto | `backend_design/nexus_gate/proto/nexus.proto` | ✅ | v2.1 gRPC 服务接口定义 (Phase 2 迁移) |
 
 ### 前端页面完成详情
 
@@ -80,6 +121,8 @@
 | 语音助手 | `/chat` | ✅ | 流式聊天、意图标签、Markdown 渲染、可取消 |
 | 车控面板 | `/vehicle` | ✅ | 空调/车窗/座椅/媒体/导航/状态 6 卡片 |
 | 设置 | `/settings` | ✅ | v2.0: API 密钥/模型配置/数据库状态 (Framer Motion 动效) |
+| 数据中台 | `/dataplatform` | ✅ | v2.1: 统计概览 + 座舱对比 + 告警历史 + 并发监控 |
+| 中间件看板 | `/middleware` | ✅ | v2.1: Redis/Milvus/Neo4j/RabbitMQ/MySQL 状态面板 |
 
 ### 前端工程化改进 (v1.0)
 
@@ -254,16 +297,29 @@ NexusCockpit/
 │
 ├── frontend_design/                # 前端代码 (Next.js)
 │   ├── src/
-│   │   ├── app/                    # 页面 (dashboard/chat/vehicle/settings)
+│   │   ├── app/                    # 页面 (dashboard/chat/vehicle/settings/dataplatform/middleware)
 │   │   ├── components/             # 组件 (ui/chat/vehicle/layout)
 │   │   ├── lib/                    # API 客户端 + 工具函数
-│   │   ├── stores/                 # Zustand 状态管理
-│   │   ├── hooks/                  # 自定义 Hooks (useAsync)
+│   │   ├── stores/                 # Zustand 状态管理 (含 auth-store v2.1)
+│   │   ├── hooks/                  # 自定义 Hooks (useAsync + useSpeechRecognition v2.1)
 │   │   └── types/                  # TypeScript 类型定义 (统一管理)
 │   ├── package.json
 │   ├── next.config.js
 │   ├── tailwind.config.ts
 │   └── tsconfig.json
+│
+├── backend_design/nexus_gate/      # v2.1: Go 并发网关
+│   ├── cmd/main.go                 # Go 网关入口
+│   ├── internal/                   # 内部包
+│   │   ├── auth/                   # JWT 鉴权 + RBAC
+│   │   ├── config/                 # 配置加载
+│   │   ├── handlers/               # Go 原生处理器 (非 AI 请求)
+│   │   ├── proxy/                  # 反向代理到 Python
+│   │   ├── ratelimit/              # 优先级令牌桶限流
+│   │   ├── router/                 # Gin 路由分发
+│   │   └── ws/                     # WebSocket Hub
+│   ├── proto/                      # gRPC Proto 定义 (Phase 2)
+│   └── go.mod
 │
 ├── .catpaw/skills/                 # AI 开发技能
 │   ├── fronted-design/             # 前端设计规范

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Mic,
   MicOff,
@@ -8,35 +8,54 @@ import {
   Loader2,
   Square,
   Sparkles,
+  AudioLines,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useChatStore } from "@/stores/chat-store";
-import { streamMessage, StreamError } from "@/lib/api";
+import { useAuth } from "@/stores/auth-store";
+import { streamMessage, StreamError, transcribeAudio } from "@/lib/api";
+import { emitVehicleRefresh } from "@/lib/vehicle-events";
+import { speak } from "@/lib/tts";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
-import type { Message } from "@/types";
+import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 
 /**
  * 语音助手栏 — 集成在车控面板顶部的快捷语音/文字输入区
  *
  * 功能:
- *   - 麦克风按钮：点击开始语音识别，再次点击停止
+ *   - 麦克风按钮（浏览器语音识别）：点击开始语音识别，再次点击停止
+ *   - 本地 ASR 按钮（录音上传后端识别）：使用本地 SenseVoice 模型转文字
  *   - 文字输入：支持回车发送
  *   - 快捷指令：一键发送常用车控命令
  *   - 流式回复：与聊天页面相同的 SSE 流式体验
  *   - 回复展示：助手回复以气泡形式显示在输入区上方
+ *
+ * 并发优化:
+ *   - 流式内容使用 useRef 缓存，通过 requestAnimationFrame 节流渲染
+ *   - 流式过程中不阻塞车控面板其他按钮操作
+ *   - 新请求可中断旧请求，无需等待
  */
 export function VoiceAssistantBar() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [assistantReply, setAssistantReply] = useState("");
   const [replyLoading, setReplyLoading] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const { userId } = useChatStore();
+  const [asrLoading, setAsrLoading] = useState(false);
 
+  // 流式内容缓存在 ref 中，避免每个 chunk 都触发重渲染
+  const streamingContentRef = useRef("");
+  // rAF 节流标记，防止过多重渲染
+  const rafScheduledRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const { userId, cockpitId: chatCockpitId, setCockpitId } = useChatStore();
+  const { cockpitId: authCockpitId } = useAuth();
+
+  // 浏览器 Web Speech API 语音识别
   const {
     isListening,
     transcript,
@@ -46,6 +65,22 @@ export function VoiceAssistantBar() {
     resetTranscript,
     supported,
   } = useSpeechRecognition();
+
+  // 本地 ASR 录音 hook
+  const {
+    isRecording,
+    error: recordError,
+    startRecording,
+    stopRecording,
+    supported: recordSupported,
+  } = useAudioRecorder();
+
+  // 当 auth store 中的座舱 ID 变化时，同步到 chat store
+  useEffect(() => {
+    if (authCockpitId && authCockpitId !== chatCockpitId) {
+      setCockpitId(authCockpitId);
+    }
+  }, [authCockpitId, chatCockpitId, setCockpitId]);
 
   // 语音识别结果实时同步到输入框
   useEffect(() => {
@@ -57,15 +92,14 @@ export function VoiceAssistantBar() {
   // 语音识别停止后自动发送
   useEffect(() => {
     if (!isListening && transcript) {
-      // 延迟一点确保最终结果已更新
       const timer = setTimeout(() => {
-        if (input.trim()) {
-          handleSend();
+        if (transcript.trim()) {
+          handleSend(transcript.trim());
         }
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [isListening]);
+  }, [isListening, transcript]);
 
   // 组件卸载时取消请求
   useEffect(() => {
@@ -76,14 +110,34 @@ export function VoiceAssistantBar() {
     };
   }, []);
 
+  /** 节流更新 assistantReply 状态，使用 rAF 避免高频重渲染阻塞 UI */
+  const flushStreamingContent = useCallback(() => {
+    rafScheduledRef.current = false;
+    setAssistantReply(streamingContentRef.current);
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (!rafScheduledRef.current) {
+      rafScheduledRef.current = true;
+      requestAnimationFrame(flushStreamingContent);
+    }
+  }, [flushStreamingContent]);
+
   const handleSend = async (text?: string) => {
     const message = (text || input).trim();
-    if (!message || isStreaming) return;
+    if (!message) return;
+    // 如果正在流式处理，先取消旧请求再发新的（不阻塞用户）
+    if (isStreaming && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+    }
 
     setInput("");
     resetTranscript();
     setReplyLoading(true);
     setAssistantReply("");
+    streamingContentRef.current = "";
     setIsStreaming(true);
 
     // 取消上一次请求
@@ -103,13 +157,30 @@ export function VoiceAssistantBar() {
         )) {
           if (event.type === "chunk" && event.data?.chunk) {
             fullContent += event.data.chunk;
-            setAssistantReply(fullContent);
+            streamingContentRef.current = fullContent;
+            // 节流更新 UI，不阻塞其他组件
+            scheduleFlush();
             setReplyLoading(false);
           } else if (event.type === "done") {
             if (event.data?.response) {
-              setAssistantReply(event.data.response);
+              fullContent = event.data.response;
+              streamingContentRef.current = fullContent;
             }
+            setAssistantReply(fullContent);
             setReplyLoading(false);
+            // TTS 语音合成朗读回复
+            if (event.data?.response) {
+              speak(event.data.response);
+            }
+            // 检查是否涉及车控操作，触发面板刷新
+            const action = event.data?.action || "";
+            const intent = event.data?.intent || "";
+            if (action.includes("vehicle") || intent.includes("车") ||
+                intent.includes("空调") || intent.includes("车窗") ||
+                intent.includes("座椅") || intent.includes("导航") ||
+                intent.includes("音乐") || intent.includes("media")) {
+              emitVehicleRefresh();
+            }
           } else if (event.type === "error") {
             const errMsg = event.data?.message || "未知错误";
             setAssistantReply(`抱歉，处理请求时出现错误：${errMsg}`);
@@ -126,7 +197,6 @@ export function VoiceAssistantBar() {
           (streamErr.status === 404 || streamErr.status === 501);
 
         if (shouldFallback) {
-          // 回退提示
           setAssistantReply("当前服务暂不可用，请稍后重试。");
         } else {
           const errorMsg =
@@ -145,6 +215,10 @@ export function VoiceAssistantBar() {
     } finally {
       setIsStreaming(false);
       abortControllerRef.current = null;
+      // 最终刷新一次确保内容完整
+      if (streamingContentRef.current) {
+        setAssistantReply(streamingContentRef.current);
+      }
     }
   };
 
@@ -168,6 +242,37 @@ export function VoiceAssistantBar() {
       stopListening();
     } else {
       startListening();
+    }
+  };
+
+  /** 本地 ASR 录音 → 上传后端识别 → 填入输入框 */
+  const handleLocalASRToggle = async () => {
+    if (isRecording) {
+      // 停止录音并获取音频 Blob
+      const blob = await stopRecording();
+      if (!blob) return;
+
+      setAsrLoading(true);
+      try {
+        const result = await transcribeAudio(blob);
+        if (result.success && result.text) {
+          setInput(result.text);
+          toast.success("语音识别成功", { description: result.text.slice(0, 50) });
+        } else {
+          toast.warning("未识别到语音内容", {
+            description: result.message || "请重试",
+          });
+        }
+      } catch (err: any) {
+        toast.error("语音识别失败", {
+          description: err?.message || "请检查 ASR 服务是否正常",
+        });
+      } finally {
+        setAsrLoading(false);
+      }
+    } else {
+      // 开始录音
+      await startRecording();
     }
   };
 
@@ -202,13 +307,13 @@ export function VoiceAssistantBar() {
 
       {/* 语音/文字输入区 */}
       <div className="flex items-center gap-2">
-        {/* 麦克风按钮 */}
+        {/* 浏览器语音识别按钮 */}
         <Button
           size="icon"
           variant={isListening ? "destructive" : "default"}
           onClick={handleMicToggle}
-          disabled={!supported || isStreaming}
-          title={supported ? "点击说话" : "浏览器不支持语音识别"}
+          disabled={!supported}
+          title={supported ? "浏览器语音识别" : "浏览器不支持语音识别"}
           className={cn(
             "shrink-0 transition-all",
             isListening && "animate-pulse"
@@ -221,15 +326,45 @@ export function VoiceAssistantBar() {
           )}
         </Button>
 
+        {/* 本地 ASR 录音按钮 — 使用后端 SenseVoice 模型 */}
+        <Button
+          size="icon"
+          variant={isRecording ? "destructive" : "outline"}
+          onClick={handleLocalASRToggle}
+          disabled={!recordSupported || asrLoading}
+          title={
+            !recordSupported
+              ? "浏览器不支持录音"
+              : isRecording
+              ? "停止录音并识别"
+              : "本地 ASR 语音识别"
+          }
+          className={cn(
+            "shrink-0 transition-all",
+            isRecording && "animate-pulse"
+          )}
+        >
+          {asrLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <AudioLines className="h-4 w-4" />
+          )}
+        </Button>
+
         {/* 文字输入 */}
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={
-            isListening ? "正在聆听..." : "语音或文字输入指令..."
+            isListening
+              ? "正在聆听..."
+              : isRecording
+              ? "正在录音..."
+              : asrLoading
+              ? "正在识别语音..."
+              : "语音或文字输入指令..."
           }
-          disabled={isStreaming}
           className="flex-1"
         />
 
@@ -263,7 +398,7 @@ export function VoiceAssistantBar() {
           <button
             key={cmd.label}
             onClick={() => handleSend(cmd.text)}
-            disabled={isStreaming}
+            disabled={false}
             className="rounded-full bg-accent/50 px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
           >
             {cmd.label}
@@ -272,8 +407,16 @@ export function VoiceAssistantBar() {
       </div>
 
       {/* 语音识别错误提示 */}
-      {speechError && (
-        <div className="text-xs text-amber-400">{speechError}</div>
+      {(speechError || recordError) && (
+        <div className="text-xs text-amber-400">{speechError || recordError}</div>
+      )}
+
+      {/* 录音状态提示 */}
+      {isRecording && (
+        <div className="flex items-center gap-2 text-xs text-red-400">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+          正在录音... 再次点击按钮停止并识别
+        </div>
       )}
     </Card>
   );

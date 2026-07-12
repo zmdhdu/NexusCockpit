@@ -3,11 +3,19 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: "nexus-cockpit"
+  # v2.1: Python AI Backend 指标
+  - job_name: "nexus-ai"
     static_configs:
       - targets: ["host.docker.internal:8000"]
     metrics_path: /metrics
 
+  # v2.1: Go Gateway (NexusGate) 指标
+  - job_name: "nexus-gate"
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+    metrics_path: /metrics
+
+  # Milvus 指标
   - job_name: "milvus"
     static_configs:
       - targets: ["host.docker.internal:9091"]

@@ -6,6 +6,7 @@
  */
 import type { Metadata } from "next";
 import { Sidebar } from "@/components/layout/sidebar";
+import { GpsProvider } from "@/components/layout/gps-provider";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -27,6 +28,8 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="min-h-screen bg-background antialiased">
+        {/* GPS 定位提供者 — 全局持续更新位置 */}
+        <GpsProvider>
         {/* 固定侧边栏 (宽 16rem=256px) */}
         <Sidebar />
         {/* 主内容区，左边距 16rem 避免被侧边栏遮挡 */}
@@ -38,6 +41,7 @@ export default function RootLayout({
           richColors
           closeButton
         />
+        </GpsProvider>
       </body>
     </html>
   );

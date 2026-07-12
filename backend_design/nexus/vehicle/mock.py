@@ -97,6 +97,11 @@ class MockVehicleBus(BaseVehicleAdapter):
             "destination": "",
             "waypoint": "",
             "mode": "drive",
+            "current_location": "",  # 初始为空，首次查询时动态获取
+            "latitude": None,
+            "longitude": None,
+            "speed_kmh": 0,
+            "heading": "北",
         }
         self.status: Dict[str, Any] = {
             "tire_pressure": "normal",
@@ -115,6 +120,22 @@ class MockVehicleBus(BaseVehicleAdapter):
         fan_speed: Optional[int] = None,
         mode: Optional[str] = None,
     ) -> VehicleCommandResult:
+        # 电源开关
+        if op in ("power_on", "on", "open"):
+            self.climate["power"] = True
+            return VehicleCommandResult(
+                success=True,
+                message="空调已开启。",
+                data={"climate": dict(self.climate)},
+            )
+        if op in ("power_off", "off", "close"):
+            self.climate["power"] = False
+            return VehicleCommandResult(
+                success=True,
+                message="空调已关闭。",
+                data={"climate": dict(self.climate)},
+            )
+
         if mode:
             self.climate["mode"] = mode
         if fan_speed is not None:
@@ -201,9 +222,26 @@ class MockVehicleBus(BaseVehicleAdapter):
         )
 
     def vehicle_navigation(
-        self, destination: str, waypoint: str = "", mode: str = "drive"
+        self, destination: str = "", waypoint: str = "", mode: str = "drive",
+        op: str = "navigate",
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
     ) -> VehicleCommandResult:
-        self.navigation["destination"] = destination
+        # 查询当前位置
+        if op in ("location", "current_location", "where", "位置", "我在哪"):
+            loc = self.navigation.get("current_location", "")
+            # v2.2: 只缓存成功获取的位置，失败时每次重试
+            if not loc or "未知" in loc or "不可用" in loc:
+                loc = self._fetch_ip_location(latitude, longitude)
+            # v2.2.3: 坐标降级时也算部分成功（至少有坐标）
+            is_failure = "未知" in loc and "坐标" not in loc
+            return VehicleCommandResult(
+                success=not is_failure,
+                message=f"您当前位于{loc}。" if not is_failure else f"{loc}。请尝试开启浏览器定位或稍后重试。",
+                data={"navigation": dict(self.navigation)},
+            )
+        if destination:
+            self.navigation["destination"] = destination
         self.navigation["waypoint"] = waypoint
         self.navigation["mode"] = mode
         return VehicleCommandResult(
@@ -211,6 +249,114 @@ class MockVehicleBus(BaseVehicleAdapter):
             message=f"已开始导航到 {destination}。",
             data={"navigation": dict(self.navigation)},
         )
+
+    def _fetch_ip_location(self, latitude: Optional[float] = None, longitude: Optional[float] = None) -> str:
+        """通过 IP 或浏览器坐标获取当前位置。
+
+        优先级:
+            1. 浏览器 GPS 坐标 (latitude/longitude) → 逆地理编码
+               1a. 高德地图 (Amap) — 国内服务，速度快
+               1b. Nominatim (OpenStreetMap) — 国际备选
+            2. IP 定位 — 多服务尝试
+            3. 降级：返回坐标字符串（仍存储坐标）
+
+        v2.2.3 修复:
+            - 优先使用高德地图逆地理编码（国内速度快）
+            - 即使逆地理编码失败也存储坐标
+            - 超时从 5s 降至 3s，总最大阻塞 9s → 6s
+        """
+        # v2.2.3: 无论逆地理编码是否成功，先存储坐标
+        if latitude is not None and longitude is not None:
+            self.navigation["latitude"] = latitude
+            self.navigation["longitude"] = longitude
+
+        # 1a. 优先使用高德地图逆地理编码（国内速度快，需配置 AMAP_KEY）
+        if latitude is not None and longitude is not None:
+            try:
+                import httpx
+                from nexus.config import get_config
+                amap_key = get_config().amap.api_key
+                if amap_key:
+                    resp = httpx.get(
+                        "https://restapi.amap.com/v3/geocode/regeo",
+                        params={
+                            "location": f"{longitude},{latitude}",
+                            "key": amap_key,
+                            "extensions": "base",
+                            "output": "json",
+                        },
+                        timeout=3.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("status") == "1":
+                            comp = data.get("regeocode", {}).get("formatted_address", "")
+                            if comp:
+                                self.navigation["current_location"] = comp
+                                logger.info(f"Location updated via Amap: {comp}")
+                                return comp
+            except Exception as e:
+                logger.warning(f"Amap reverse geocoding failed: {e}")
+
+        # 1b. Nominatim (OpenStreetMap) — 国际备选
+        if latitude is not None and longitude is not None:
+            try:
+                import httpx
+                resp = httpx.get(
+                    "https://nominatim.openstreetmap.org/reverse",
+                    params={
+                        "lat": latitude,
+                        "lon": longitude,
+                        "format": "json",
+                        "accept-language": "zh-CN",
+                    },
+                    headers={"User-Agent": "NexusCockpit/2.1"},
+                    timeout=3.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    addr = data.get("display_name", "")
+                    if addr:
+                        self.navigation["current_location"] = addr
+                        logger.info(f"Location updated via GPS (Nominatim): {addr}")
+                        return addr
+            except Exception as e:
+                logger.warning(f"GPS reverse geocoding (Nominatim) failed: {e}")
+
+        # 2a. IP 定位 — ip-api.com (国际服务)
+        try:
+            import httpx
+            resp = httpx.get(
+                "http://ip-api.com/json/",
+                params={"lang": "zh-CN", "fields": "status,country,regionName,city,lat,lon,query"},
+                timeout=3.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    parts = []
+                    for key in ("country", "regionName", "city"):
+                        val = data.get(key, "")
+                        if val:
+                            parts.append(val)
+                    addr = " ".join(parts) if parts else data.get("query", "未知位置")
+                    self.navigation["current_location"] = addr
+                    self.navigation["latitude"] = data.get("lat")
+                    self.navigation["longitude"] = data.get("lon")
+                    logger.info(f"Location updated via IP (ip-api): {addr}")
+                    return addr
+        except Exception as e:
+            logger.warning(f"IP geolocation (ip-api.com) failed: {e}")
+
+        # 3. 降级：返回坐标字符串（已存储坐标，不缓存地址）
+        if latitude is not None and longitude is not None:
+            fallback = f"坐标 ({latitude:.4f}, {longitude:.4f})（逆地理编码服务暂不可用）"
+            logger.warning(f"All reverse geocoding failed, using coordinates: ({latitude}, {longitude})")
+            return fallback
+
+        fallback = "未知位置（定位服务不可用）"
+        logger.warning("All geolocation methods failed, location unknown")
+        return fallback
 
     def vehicle_media(
         self,
@@ -292,8 +438,18 @@ class MockVehicleBus(BaseVehicleAdapter):
             data={"media": dict(self.media)},
         )
 
-    def vehicle_status(self) -> VehicleCommandResult:
+    def vehicle_status(self, op: str = "status") -> VehicleCommandResult:
         """返回完整车辆状态，包含所有子系统数据。"""
+        # 如果是查询位置，返回导航中的位置信息
+        if op in ("location", "current_location", "where", "位置", "我在哪"):
+            loc = self.navigation.get("current_location", "")
+            if not loc:
+                loc = self._fetch_ip_location()
+            return VehicleCommandResult(
+                success=True,
+                message=f"您当前位于{loc}，朝{self.navigation.get('heading', '北')}方向行驶。",
+                data={"navigation": dict(self.navigation)},
+            )
         summary = (
             f"胎压{self.status['tire_pressure']}，续航{self.status['range_km']}公里，"
             f"油量{self.status['fuel_percent']}%，电量{self.status['battery_percent']}%，"

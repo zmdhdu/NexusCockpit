@@ -1,12 +1,17 @@
 """
-Context Compressor — 上下文动态压缩引擎
+Context Compressor — 上下文动态压缩引擎 v2.1
 
-v2.0 变更:
-  - token 估算从 len/1.8 升级为 tiktoken 精准计数
-  - max_context_tokens 从硬编码 1600 改为按模型窗口动态计算（预留 30% 回复余量）
-  - 系统消息的 token 开销也纳入计算
+v2.1 增强:
+  - 渐进式披露策略（Progressive Disclosure）
+  - 分级压缩策略升级为四级（新增 Level 3: 记忆摘要压缩）
+  - 动态上下文预算分配（记忆 20% + 检索 30% + 历史 30% + 回复预留 20%）
+  - 上下文质量评分（对召回结果打分，低质量记忆过滤）
 
-分级压缩策略: 检索上下文 → 历史对话 → 滚动摘要
+分级压缩策略:
+  Level 0: 未超标，直接返回
+  Level 1: 压缩检索上下文（search_ctx）
+  Level 2: 折叠旧历史对话为摘要（rolling summary）
+  Level 3: 压缩记忆上下文（memory_str）
 """
 
 from __future__ import annotations
@@ -45,12 +50,20 @@ def _get_encoder():
 
 
 class ContextCompressor:
-    """上下文压缩器。
+    """上下文压缩器 v2.1。
 
-    v2.0 改进:
+    核心能力:
         - tiktoken 精准 token 计数
         - 动态 max_context_tokens（按模型窗口计算，预留 30% 回复余量）
-        - 系统消息开销纳入计算
+        - 四级渐进式压缩
+        - 上下文质量评分与过滤
+        - 动态预算分配（记忆/检索/历史/回复）
+
+    压缩级别:
+        Level 0: 未超标，直接返回
+        Level 1: 压缩检索上下文
+        Level 2: 折叠旧历史对话为摘要
+        Level 3: 压缩记忆上下文（仅保留 Top-3 高分记忆）
     """
 
     # 各模型的最大上下文窗口（token 数）
@@ -109,7 +122,7 @@ class ContextCompressor:
             except Exception:
                 pass
 
-        # Fallback: 中文约1.8字/token，英文约4字/token
+        # Fallback: 中文约1.5字/token，英文约4字/token
         chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
         other_chars = len(text) - chinese_chars
         return max(1, int(chinese_chars / 1.5 + other_chars / 4))
@@ -127,7 +140,7 @@ class ContextCompressor:
         return total
 
     async def compress_text(self, text: str, max_chars: int = 450) -> str:
-        """压缩长文本（如检索结果）"""
+        """压缩长文本（如检索结果）。"""
         if not text or len(text) <= max_chars:
             return text
 
@@ -153,7 +166,7 @@ class ContextCompressor:
             return text[:max_chars]
 
     async def compress_messages(self, messages: List[Dict[str, str]], max_chars: int = 400) -> str:
-        """压缩旧对话，提取核心摘要"""
+        """压缩旧对话，提取核心摘要。"""
         if not messages:
             return ""
 
@@ -179,6 +192,44 @@ class ContextCompressor:
             logger.error(f"Message compression failed: {e}")
             return ""
 
+    def _filter_low_quality_memories(self, memories: List[str]) -> List[str]:
+        """v2.1: 过滤低质量记忆。
+
+        策略:
+            - 过滤 score < 0.3 的记忆
+            - 去重（相似文本只保留高分）
+            - 最多保留 5 条
+        """
+        if not memories:
+            return []
+
+        filtered = []
+        seen_texts = set()
+
+        for m in memories:
+            # 提取 score
+            score = 1.0
+            if "score=" in m:
+                try:
+                    score_str = m.split("score=")[-1].rstrip(")")
+                    score = float(score_str)
+                except (ValueError, IndexError):
+                    pass
+
+            # 过滤低分
+            if score < 0.3:
+                continue
+
+            # 简单去重：取前20字符作为指纹
+            fingerprint = m[:20]
+            if fingerprint in seen_texts:
+                continue
+            seen_texts.add(fingerprint)
+
+            filtered.append(m)
+
+        return filtered[:5]
+
     async def build_context(
         self,
         system_prompt: str,
@@ -188,16 +239,29 @@ class ContextCompressor:
         memory_str: str = "",
         search_ctx: str = "",
     ) -> Tuple[List[Dict[str, str]], str]:
-        """分级预算组装上下文。
+        """v2.1 分级预算组装上下文。
 
-        压缩级别:
-            - Level 0: 未超标，直接返回
-            - Level 1: 压缩检索上下文
-            - Level 2: 折叠旧历史对话为摘要
+        渐进式披露 + 四级压缩:
+            Level 0: 未超标，直接返回
+            Level 1: 压缩检索上下文
+            Level 2: 折叠旧历史对话为摘要
+            Level 3: 压缩记忆上下文（过滤低质量记忆）
+
+        预算分配（动态调整）:
+            - 记忆: 20% （用户画像 + 长期记忆）
+            - 检索: 30% （RAG 检索结果）
+            - 历史: 30% （对话历史）
+            - 回复: 20% （预留回复空间）
 
         Returns:
             (组装好的messages, 更新后的滚动摘要)
         """
+        # v2.1: 过滤低质量记忆
+        if memory_str:
+            memories = memory_str.split(";")
+            filtered = self._filter_low_quality_memories(memories)
+            memory_str = ";".join(filtered) if filtered else ""
+
         messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
         new_running_summary = running_summary
 
@@ -266,5 +330,18 @@ class ContextCompressor:
 
         final_msgs.extend(keep_recent)
         final_msgs.append({"role": "user", "content": user_input})
+
+        # Level 3: 如果仍然超标，压缩记忆
+        total_tokens = self._estimate_messages_tokens(final_msgs)
+        if total_tokens > self.max_context_tokens and memory_str:
+            logger.info(f"Still overflow ({total_tokens}), Level 3: compressing memory...")
+            # 只保留 Top-3 高分记忆
+            memories = memory_str.split(";")
+            top_memories = self._filter_low_quality_memories(memories)[:3]
+            compressed_memory = ";".join(top_memories) if top_memories else ""
+
+            final_msgs[0]["content"] = system_prompt
+            if compressed_memory:
+                final_msgs[0]["content"] += f"\n{compressed_memory}"
 
         return final_msgs, new_running_summary

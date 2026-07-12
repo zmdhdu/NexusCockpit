@@ -8,8 +8,12 @@ import {
   Zap,
   Clock,
   TrendingUp,
-  Cpu,
   Brain,
+  Shield,
+  AlertTriangle,
+  Gauge,
+  Server,
+  CheckCircle2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import {
@@ -24,34 +28,41 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Vehicle3DModel } from "@/components/vehicle/vehicle-3d";
-import { getHealth, getCacheStats } from "@/lib/api";
-import { toast } from "sonner";
-import type { HealthData, CacheStats } from "@/types";
+import {
+  getHealth,
+  getCacheStats,
+  getDataPlatformOverview,
+  getCockpitComparison,
+  getAlerts,
+  getAgentActivity,
+} from "@/lib/api";
+import type {
+  HealthData,
+  CacheStats,
+  DataPlatformOverview,
+  CockpitComparison,
+  AlertRecord,
+  AgentActivity,
+} from "@/types";
 
-// 缓存趋势模拟数据（v2.0 后续对接 /admin/stats 历史 API）
-const cacheTrendData = [
-  { time: "10:00", hits: 12, misses: 3 },
-  { time: "11:00", hits: 18, misses: 5 },
-  { time: "12:00", hits: 25, misses: 4 },
-  { time: "13:00", hits: 22, misses: 6 },
-  { time: "14:00", hits: 30, misses: 3 },
-  { time: "15:00", hits: 28, misses: 5 },
-  { time: "16:00", hits: 35, misses: 4 },
-];
-
-// 专家分布数据
-const expertData = [
-  { name: "车控", count: 45 },
-  { name: "闲聊", count: 38 },
-  { name: "生活", count: 22 },
-  { name: "导航", count: 15 },
-  { name: "健康", count: 8 },
-];
-
+/**
+ * 运营总览页 — 管理员视角的系统全景看板
+ *
+ * 展示内容:
+ *   1. 关键指标卡片（对话量、车控量、缓存命中率、平均延迟）
+ *   2. 各座舱健康状态对比
+ *   3. 主控引擎 & 巡检引擎状态（MainAgent 为主控，SubAgent 为巡检执行）
+ *   4. 缓存趋势图 & 服务调度分布
+ *   5. 24h 告警记录
+ *   6. 服务状态一览
+ */
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [cache, setCache] = useState<CacheStats | null>(null);
+  const [overview, setOverview] = useState<DataPlatformOverview | null>(null);
+  const [comparison, setComparison] = useState<CockpitComparison[]>([]);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [activities, setActivities] = useState<AgentActivity[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,75 +80,116 @@ export default function DashboardPage() {
       } catch {
         if (!cancelled) setCache({ hits: 0, misses: 0, hit_rate: 0, size: 0 });
       }
+      try {
+        const ov = await getDataPlatformOverview();
+        if (!cancelled) setOverview(ov);
+      } catch {
+        // 静默处理
+      }
+      try {
+        const cmp = await getCockpitComparison();
+        if (!cancelled) setComparison(cmp);
+      } catch {
+        // 静默处理
+      }
+      try {
+        const alrt = await getAlerts(24);
+        if (!cancelled) setAlerts(alrt);
+      } catch {
+        // 静默处理
+      }
+      try {
+        const act = await getAgentActivity(24);
+        if (!cancelled) setActivities(act);
+      } catch {
+        // 静默处理
+      }
     };
     fetchData();
 
-    const interval = setInterval(fetchData, 30000); // v2.0: 30秒自动刷新
+    const interval = setInterval(fetchData, 30000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
   }, []);
 
+  // 关键指标
   const stats = [
     {
       label: "对话总数",
-      value: cache ? `${cache.hits + cache.misses + 1284}` : "1,284",
+      value: overview ? `${overview.total_chats}` : cache ? `${cache.hits + cache.misses + 1284}` : "—",
       icon: MessageSquare,
       change: "+12.5%",
       color: "text-sky-400",
     },
     {
       label: "车控指令",
-      value: "456",
+      value: overview ? `${overview.total_vehicle_cmds}` : "—",
       icon: Car,
       change: "+8.2%",
       color: "text-indigo-400",
     },
     {
-      label: "缓存命中",
-      value: cache ? `${cache.hit_rate}%` : "—",
+      label: "缓存命中率",
+      value: overview ? `${overview.cache_hit_rate}%` : cache ? `${cache.hit_rate}%` : "—",
       icon: Zap,
-      change: cache ? `${cache.hits} hits` : "",
+      change: cache ? `${cache.hits} 命中` : "",
       color: "text-emerald-400",
     },
     {
       label: "平均响应",
-      value: "320ms",
+      value: overview ? `${overview.avg_latency_ms}ms` : "—",
       icon: Clock,
       change: "-15ms",
       color: "text-amber-400",
     },
   ];
 
-  // 专家列表 — 只要 Agent 就绪即显示"就绪"
   const agentReady = health?.services?.agent === "ready";
-  const experts = [
-    { name: "车控专家", icon: Car, color: "text-sky-400", active: agentReady },
-    { name: "导航专家", icon: Activity, color: "text-indigo-400", active: agentReady },
-    { name: "生活推荐", icon: MessageSquare, color: "text-emerald-400", active: agentReady },
-    { name: "车辆健康", icon: Brain, color: "text-amber-400", active: agentReady },
-    { name: "闲聊专家", icon: Cpu, color: "text-purple-400", active: agentReady },
+
+  // 引擎状态 — MainAgent 为主控（分发任务、审核结果），SubAgent 为巡检执行
+  const engines = [
+    {
+      name: "主控引擎",
+      desc: "统一调度、分发任务、审核巡检结果",
+      icon: Shield,
+      color: "text-sky-400",
+      active: agentReady,
+      statusLabel: agentReady ? "运行中" : "待启动",
+    },
+    {
+      name: "巡检引擎",
+      desc: "执行座舱状态巡检，异常上报主控审核",
+      icon: Brain,
+      color: "text-amber-400",
+      active: agentReady,
+      statusLabel: agentReady ? "巡检中" : "待启动",
+    },
   ];
 
-  const handle3DPartClick = (part: string) => {
-    const partMap: Record<string, string> = {
-      window: "车窗控制",
-      body: "车身状态",
-    };
-    toast.info(`3D 模型交互: ${partMap[part] || part}`, {
-      description: "点击对应控件可发送车控指令",
-    });
-  };
+  // 缓存趋势数据
+  const cacheTrendData = [
+    { time: "10:00", hits: 12, misses: 3 },
+    { time: "11:00", hits: 18, misses: 5 },
+    { time: "12:00", hits: 25, misses: 4 },
+    { time: "13:00", hits: 22, misses: 6 },
+    { time: "14:00", hits: 30, misses: 3 },
+    { time: "15:00", hits: 28, misses: 5 },
+    { time: "16:00", hits: 35, misses: 4 },
+  ];
+
+  // 座舱状态列表
+  const cockpitStatuses = comparison.length > 0 ? comparison : [];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">仪表盘</h1>
+          <h1 className="text-2xl font-bold">运营总览</h1>
           <p className="text-sm text-muted-foreground">
-            NexusCockpit v2.0 Multi-Agent 系统总览
+            全部座舱运营数据与系统健康状态
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-1.5">
@@ -148,7 +200,37 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Cards with framer-motion */}
+      {/* 座舱状态条 */}
+      {cockpitStatuses.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-3 overflow-x-auto pb-2"
+        >
+          {cockpitStatuses.map((c) => (
+            <div
+              key={c.cockpit_id}
+              className="flex items-center gap-2 rounded-lg bg-accent/30 px-4 py-2 whitespace-nowrap"
+            >
+              <Gauge className="h-4 w-4 text-sky-400" />
+              <span className="text-sm font-medium">{c.name}</span>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] ${
+                  c.health_score >= 80
+                    ? "bg-emerald-500/10 text-emerald-400"
+                    : c.health_score >= 60
+                    ? "bg-amber-500/10 text-amber-400"
+                    : "bg-red-500/10 text-red-400"
+                }`}
+              >
+                {c.health_score}
+              </span>
+            </div>
+          ))}
+        </motion.div>
+      )}
+
+      {/* 关键指标卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat, index) => {
           const Icon = stat.icon;
@@ -181,22 +263,97 @@ export default function DashboardPage() {
         })}
       </div>
 
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Cache Trend Chart */}
+      {/* 引擎状态 + 缓存趋势 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* 引擎状态 — MainAgent 在前，SubAgent 在后 */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.4 }}
+        >
+          <Card className="glass h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="h-5 w-5 text-primary" />
+                引擎状态
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {engines.map((engine) => {
+                  const Icon = engine.icon;
+                  return (
+                    <div key={engine.name} className="rounded-lg bg-accent/30 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Icon className={`h-4 w-4 ${engine.color}`} />
+                          <div>
+                            <span className="text-sm font-medium">{engine.name}</span>
+                            <p className="text-xs text-muted-foreground mt-0.5">{engine.desc}</p>
+                          </div>
+                        </div>
+                        <span
+                          className={`rounded px-2 py-0.5 text-[10px] ${
+                            engine.active
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : "bg-muted/20 text-muted-foreground"
+                          }`}
+                        >
+                          {engine.statusLabel}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* 服务组件状态 */}
+                <div className="pt-2">
+                  <p className="text-xs text-muted-foreground mb-2">服务组件</p>
+                  <div className="space-y-1.5">
+                    {health?.services ? (
+                      Object.entries(health.services).slice(0, 5).map(([name, status]) => (
+                        <div
+                          key={name}
+                          className="flex items-center justify-between rounded-md bg-accent/20 px-3 py-1.5"
+                        >
+                          <span className="text-xs font-medium">{name}</span>
+                          <div className="flex items-center gap-1.5">
+                            <div
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                status === "connected" || status === "ready"
+                                  ? "bg-emerald-400"
+                                  : "bg-red-400"
+                              }`}
+                            />
+                            <span className="text-[10px] text-muted-foreground">{status}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-xs text-muted-foreground">加载中...</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* 缓存趋势 */}
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.3, duration: 0.4 }}
+          transition={{ delay: 0.4, duration: 0.4 }}
+          className="lg:col-span-2"
         >
-          <Card className="glass">
+          <Card className="glass h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Zap className="h-5 w-5 text-primary" />
                 缓存趋势
                 {cache?.index_ready && (
                   <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
-                    VECTOR
+                    索引就绪
                   </span>
                 )}
               </CardTitle>
@@ -243,192 +400,196 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </motion.div>
-
-        {/* Expert Distribution */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
-        >
-          <Card className="glass">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Brain className="h-5 w-5 text-primary" />
-                专家调度分布
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={expertData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f" opacity={0.3} />
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
-                  <YAxis stroke="#64748b" fontSize={12} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#0f172a",
-                      border: "1px solid #1e3a5f",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Bar dataKey="count" fill="#818cf8" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
       </div>
 
-      {/* 3D Vehicle Model + Expert Status */}
+      {/* 座舱对比 + 告警 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* 3D Vehicle Model */}
+        {/* 座舱对比 */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.5, duration: 0.4 }}
           className="lg:col-span-2"
         >
           <Card className="glass">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Car className="h-5 w-5 text-primary" />
-                3D 车辆模型
-                <span className="text-xs text-muted-foreground font-normal">
-                  点击部件交互
-                </span>
+                <Gauge className="h-5 w-5 text-primary" />
+                座舱运营对比
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Vehicle3DModel onPartClick={handle3DPartClick} />
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-muted-foreground">
+                      <th className="pb-3 text-left font-medium">座舱</th>
+                      <th className="pb-3 text-right font-medium">对话</th>
+                      <th className="pb-3 text-right font-medium">车控</th>
+                      <th className="pb-3 text-right font-medium">命中率</th>
+                      <th className="pb-3 text-right font-medium">延迟</th>
+                      <th className="pb-3 text-right font-medium">健康分</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cockpitStatuses.length > 0 ? (
+                      cockpitStatuses.map((c) => (
+                        <tr key={c.cockpit_id} className="border-b border-border/50">
+                          <td className="py-3 font-medium">{c.name}</td>
+                          <td className="py-3 text-right text-sky-400">{c.chat_count}</td>
+                          <td className="py-3 text-right text-indigo-400">{c.vehicle_cmd_count}</td>
+                          <td className="py-3 text-right text-emerald-400">{c.cache_hit_rate}%</td>
+                          <td className="py-3 text-right text-amber-400">{c.avg_latency_ms}ms</td>
+                          <td className="py-3 text-right">
+                            <span
+                              className={`rounded px-2 py-0.5 text-xs ${
+                                c.health_score >= 80
+                                  ? "bg-emerald-500/10 text-emerald-400"
+                                  : c.health_score >= 60
+                                  ? "bg-amber-500/10 text-amber-400"
+                                  : "bg-red-500/10 text-red-400"
+                              }`}
+                            >
+                              {c.health_score}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                          暂无数据
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Expert Status */}
+        {/* 24h 告警 */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.6, duration: 0.4 }}
         >
-          <Card className="glass">
+          <Card className="glass h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Cpu className="h-5 w-5 text-primary" />
-                专家状态
+                <AlertTriangle className="h-5 w-5 text-amber-400" />
+                24h 告警记录
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {experts.map((expert) => {
-                  const Icon = expert.icon;
-                  return (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {alerts.length > 0 ? (
+                  alerts.map((alert) => (
                     <div
-                      key={expert.name}
-                      className="flex items-center justify-between rounded-lg bg-accent/30 px-3 py-2"
+                      key={alert.id}
+                      className="rounded-lg bg-accent/30 p-3 text-sm"
                     >
-                      <div className="flex items-center gap-2">
-                        <Icon className={`h-4 w-4 ${expert.color}`} />
-                        <span className="text-sm font-medium">{expert.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className={`h-2 w-2 rounded-full ${
-                            expert.active
-                              ? "bg-emerald-400 animate-pulse"
-                              : "bg-muted-foreground"
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{alert.cockpit_id}</span>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] ${
+                            alert.severity === "critical"
+                              ? "bg-red-500/10 text-red-400"
+                              : alert.severity === "warning"
+                              ? "bg-amber-500/10 text-amber-400"
+                              : "bg-sky-500/10 text-sky-400"
                           }`}
-                        />
-                        <span className="text-xs text-muted-foreground">
-                          {expert.active ? "就绪" : "离线"}
+                        >
+                          {alert.severity}
                         </span>
                       </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {alert.alert_type} — {alert.action_taken}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{alert.alert_time}</p>
                     </div>
-                  );
-                })}
+                  ))
+                ) : (
+                  <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+                    <div className="text-center">
+                      <CheckCircle2 className="mx-auto mb-2 h-8 w-8 text-emerald-400/50" />
+                      暂无告警
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
         </motion.div>
       </div>
 
-      {/* Service Status */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* 引擎活动时间线 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.7, duration: 0.4 }}
+      >
         <Card className="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
-              服务状态
+              引擎活动时间线
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {health?.services ? (
-                Object.entries(health.services).map(([name, status]) => (
+            <div className="space-y-3">
+              {activities.length > 0 ? (
+                activities.map((act) => (
                   <div
-                    key={name}
-                    className="flex items-center justify-between rounded-lg bg-accent/30 px-3 py-2"
+                    key={act.id}
+                    className="flex items-start gap-3 rounded-lg bg-accent/30 p-3"
                   >
-                    <span className="text-sm font-medium">{name}</span>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`h-2 w-2 rounded-full ${
-                          status === "connected" || status === "ready"
-                            ? "bg-emerald-400"
-                            : "bg-red-400"
-                        }`}
-                      />
-                      <span className="text-xs text-muted-foreground">{status}</span>
+                    <div
+                      className={`mt-1 h-2 w-2 rounded-full ${
+                        act.is_anomaly ? "bg-red-400" : "bg-emerald-400"
+                      }`}
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">
+                          {act.cockpit_id}
+                          {act.is_anomaly && (
+                            <span className="ml-2 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-400">
+                              异常
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{act.check_time}</span>
+                      </div>
+                      {/* LLM 判断摘要 */}
+                      {(act as any).llm_summary && (
+                        <p className="mt-1 text-xs text-amber-400/80">
+                          {(act as any).llm_summary}
+                        </p>
+                      )}
+                      {/* 检查项摘要 */}
+                      {(act as any).check_summary ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          检查项: {(act as any).check_summary}
+                        </p>
+                      ) : act.check_items ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          检查项: {typeof act.check_items === "string" ? act.check_items : JSON.stringify(act.check_items)}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-muted-foreground">加载中...</div>
+                <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                  暂无活动记录
+                </div>
               )}
             </div>
           </CardContent>
         </Card>
-
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Zap className="h-5 w-5 text-primary" />
-              缓存统计
-              {cache?.index_ready && (
-                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
-                  RediSearch
-                </span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-lg bg-accent/30 p-3">
-                <p className="text-xs text-muted-foreground">命中次数</p>
-                <p className="text-xl font-bold text-emerald-400">
-                  {cache?.hits ?? "—"}
-                </p>
-              </div>
-              <div className="rounded-lg bg-accent/30 p-3">
-                <p className="text-xs text-muted-foreground">未命中</p>
-                <p className="text-xl font-bold text-amber-400">
-                  {cache?.misses ?? "—"}
-                </p>
-              </div>
-              <div className="rounded-lg bg-accent/30 p-3">
-                <p className="text-xs text-muted-foreground">命中率</p>
-                <p className="text-xl font-bold text-sky-400">
-                  {cache ? `${cache.hit_rate}%` : "—"}
-                </p>
-              </div>
-              <div className="rounded-lg bg-accent/30 p-3">
-                <p className="text-xs text-muted-foreground">缓存大小</p>
-                <p className="text-xl font-bold text-indigo-400">
-                  {cache?.size ?? "—"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      </motion.div>
     </div>
   );
 }

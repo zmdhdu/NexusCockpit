@@ -94,7 +94,7 @@ class SkillRegistry:
         """兼容 v1.0：注册未被 @register_skill 标记的旧技能。"""
         # v1.0 的技能如果已经用 @register_skill 标记，_auto_discover 已处理
         # 这里只处理未标记的旧技能（通过检查 _SKILL_REGISTRY 是否覆盖了它们）
-        from nexus.skills.special import FoodDeliverySkill, RegisterVoiceSkill, WebSearchSkill
+        from nexus.skills.special import AmapPoiSearchSkill, FoodDeliverySkill, RegisterVoiceSkill, WebSearchSkill
         from nexus.skills.vehicle.climate import ClimateControlSkill
         from nexus.skills.vehicle.media import MediaControlSkill
         from nexus.skills.vehicle.navigation import NavigationSkill
@@ -105,6 +105,7 @@ class SkillRegistry:
         legacy_map = {
             "web_search": (WebSearchSkill, {}),
             "order_food": (FoodDeliverySkill, {"graph_store": self._deps["graph_store"]}),
+            "amap_poi_search": (AmapPoiSearchSkill, {}),
             "register_voice": (RegisterVoiceSkill, {}),
             "vehicle_climate": (ClimateControlSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
             "vehicle_window": (WindowControlSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
@@ -126,7 +127,7 @@ class SkillRegistry:
                             self._skills[name]._skill_group = SkillGroup.VEHICLE
                             self._skills[name]._skill_has_side_effect = True
                             self._skills[name]._skill_cache_ttl = 0
-                        elif name == "order_food" or name == "web_search":
+                        elif name == "order_food" or name == "web_search" or name == "amap_poi_search":
                             self._skills[name]._skill_group = SkillGroup.LIFESTYLE
                         elif name == "register_voice":
                             self._skills[name]._skill_group = SkillGroup.CHAT

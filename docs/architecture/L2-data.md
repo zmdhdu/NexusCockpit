@@ -69,6 +69,7 @@ profile = store.get_user_profile(user_id="u1")
 
 - 用户画像节点 + 偏好关系
 - Cypher 查询
+- `get_user_profile()` 使用 `coalesce(r.mid, -1)` 处理缺失属性，避免 Neo4j 警告
 - 继承 `BaseGraphStore` 抽象基类，支持双模式部署
 
 ### graph_base.py / graph_factory.py — 图谱存储抽象层与工厂 (双模式新增)
@@ -173,12 +174,27 @@ from nexus.memory.manager import MemoryManager
 manager = MemoryManager(vector_store, graph_store)
 manager.connect()
 
-# 召回记忆
-context = manager.recall(user_id="u1", query="空调温度")
+# 召回记忆（v2.1: GraphRAG 三路融合 + Rerank + 渐进式披露）
+memories = await manager.recall(query="空调温度", user_id="u1", top_k=5)
 
-# 存储记忆
-manager.store(user_id="u1", content="用户喜欢24度", metadata={"type": "preference"})
+# 从用户文本提取记忆并存储（三元组 → Milvus + Neo4j）
+count = await manager.store_from_text(user_text="我喜欢24度", user_id="u1")
+
+# 非阻塞存储（fire-and-forget，不阻塞主流程）
+manager.store_from_text_async(user_text="我喜欢24度", user_id="u1")
+manager.store_conversation_async(
+    user_input="把空调调到24度",
+    assistant_response="已为您设置到24度",
+    user_id="u1",
+    cockpit_id="cockpit-01",
+)
 ```
+
+- v2.1: `recall()` 使用 GraphRAGRetriever 三路融合 + Rerank 管道
+- v2.1: `store_from_text_async()` / `store_conversation_async()` 使用 `asyncio.create_task()` 非阻塞调度
+  - v2.1.1 修复: 原线程+新事件循环方案导致 `httpx.AsyncClient` 跨循环报 "Event loop is closed"，改为共享当前事件循环
+- v2.1: 渐进式披露 — 简单指令召回 3 条，复杂查询召回 8 条
+- v2.1: 用户习惯注入 — 从 MySQL `user_habits` 表加载高频操作
 
 ### compressor.py — 上下文压缩 (v2.0 增强)
 

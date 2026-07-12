@@ -21,6 +21,7 @@ import os
 import uuid
 from typing import Any, Dict, List, Optional
 
+from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.rag.embedding import EmbeddingService
 
@@ -61,7 +62,6 @@ class CherryKnowledgeBase:
         self._client = milvus_client
         self._connected = False
         # Milvus 连接别名，从配置读取 (与 MilvusVectorStore 使用相同的别名)
-        from nexus.config import get_config
         self._milvus_alias = get_config().milvus.alias
 
         # 初始化 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter
@@ -109,7 +109,7 @@ class CherryKnowledgeBase:
                 FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=4096),
                 FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=256),
                 FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=64),
-                FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=1024),
+                FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=get_config().llm.embedding_dim),
             ]
             schema = CollectionSchema(fields, description="NexusCockpit Knowledge Base Docs")
             collection = Collection(_COLLECTION_NAME, schema, using=self._milvus_alias)

@@ -1,9 +1,96 @@
 # ============================================================
-# NexusCockpit Infrastructure Stack
+# NexusCockpit v2.1 Infrastructure Stack
+# Multi-Cockpit CS Architecture: Go Gateway + Python AI + TS Frontend
 # Start all middleware: docker compose up -d
+# Start full stack: docker compose --profile app up -d
 # ============================================================
 
 services:
+  # ============================================================
+  # v2.1 Application Services (profiles: app)
+  # ============================================================
+
+  # --- Go Gateway (NexusGate) ---
+  nexus_gate:
+    profiles: ["app"]
+    build:
+      context: ./backend_design/nexus_gate
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - NEXUS_AI_HOST=nexus_ai
+      - NEXUS_AI_PORT=8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # --- Python AI Backend ---
+  nexus_ai:
+    profiles: ["app"]
+    build:
+      context: ./backend_design
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - MILVUS_URI=http://milvus:19530
+      - NEO4J_URI=bolt://neo4j:7687
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./docs:/app/docs
+    depends_on:
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # --- Frontend (Next.js) ---
+  nexus_frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend_design
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+    depends_on:
+      - nexus_gate
+    restart: unless-stopped
+
+  # ============================================================
+  # Infrastructure Services (always started)
+  # ============================================================
+
   # --- Milvus Vector Store ---
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
@@ -70,7 +157,8 @@ services:
       - "7687:7687"
 
   # --- Redis Stack (Cache + Vector Search + Rate Limit + PubSub) ---
-  # v2.0: 升级为 redis-stack-server，支持 RediSearch + VECTOR 向量索引
+  # v2.0: redis-stack-server 支持 RediSearch + VECTOR 向量索引
+  # v2.1: 多座舱 DB 分区隔离 (cockpit-01→DB1, cockpit-02→DB2, cockpit-03→DB3)
   redis:
     image: redis/redis-stack-server:7.2.0-v4
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --protected-mode no
@@ -102,7 +190,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # --- MySQL (User Data + Audit Log) ---
+  # --- MySQL (User Data + Audit Log + v2.1 Multi-Cockpit Isolation) ---
   mysql:
     image: mysql:8.0
     environment:
@@ -112,8 +200,10 @@ services:
       MYSQL_COLLATION: utf8mb4_unicode_ci
     volumes:
       - mysql_data:/var/lib/mysql
+      # v2.1: 启动时自动执行迁移脚本
+      - ./backend_design/scripts/v2.1_migration.sql:/docker-entrypoint-initdb.d/v2.1_migration.sql
     ports:
-      # 宿主机 13306 → 容器 3306 (避让本机已安装的 MySQL, 前缀 1 统一规则)
+      # 宿主机 13306 → 容器 3306 (避让本机已安装的 MySQL)
       - "13306:3306"
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
@@ -121,6 +211,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # --- Loki (Log Aggregation) ---
+  loki:
+    image: grafana/loki:2.9.5
+    volumes:
+      - ./config/loki/loki-config.yml:/etc/loki/local-config.yml
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yml
 
   # --- Prometheus (Metrics) ---
   prometheus:
@@ -142,7 +242,8 @@ services:
     ports:
       - "3001:3000"
     depends_on:
-      - prometheus 
+      - prometheus
+      - loki
 
 volumes:
   etcd_data:
@@ -155,3 +256,4 @@ volumes:
   mysql_data:
   prometheus_data:
   grafana_data:
+  loki_data:

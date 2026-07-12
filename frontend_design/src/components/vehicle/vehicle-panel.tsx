@@ -27,7 +27,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getVehicleStatus, sendVehicleCommand } from "@/lib/api";
+import { getVehicleStatus, sendVehicleCommand, updateVehicleLocation } from "@/lib/api";
+import { onVehicleRefresh } from "@/lib/vehicle-events";
+import { useAuth } from "@/stores/auth-store";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { VehicleStatus } from "@/types";
@@ -54,12 +56,50 @@ const CLIMATE_MODES = [
 ];
 
 export function VehiclePanel() {
+  const { cockpitId } = useAuth();
   const [status, setStatus] = useState<VehicleStatus | null>(null);
-  const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
   const [navInput, setNavInput] = useState("");
-  const [executingCmd, setExecutingCmd] = useState<string | null>(null);
+  /** 正在执行的命令集合（支持多命令并行，不阻塞其他按钮） */
+  const [executingCmds, setExecutingCmds] = useState<Set<string>>(new Set());
   const mountedRef = useRef(true);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // 初始化音频元素
+  useEffect(() => {
+    audioRef.current = new Audio();
+    audioRef.current.loop = false;
+    audioRef.current.addEventListener("ended", () => {
+      // 自动播放下一首
+      if (status?.media) {
+        handleCommand("vehicle_media", { op: "next" });
+      }
+    });
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // 根据媒体状态控制音频播放
+  useEffect(() => {
+    if (!audioRef.current || !status?.media) return;
+    const media = status.media as any;
+    const trackIndex = media.track_index ?? 0;
+    const trackUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/audio/music/track_${String(trackIndex + 1).padStart(2, "0")}.wav`;
+
+    if (media.playing) {
+      if (audioRef.current.src !== trackUrl) {
+        audioRef.current.src = trackUrl;
+      }
+      audioRef.current.volume = Math.min(1, (media.volume || 18) / 30);
+      audioRef.current.play().catch(() => {});
+    } else {
+      audioRef.current.pause();
+    }
+  }, [status?.media?.playing, (status?.media as any)?.track_index, (status?.media as any)?.volume]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,17 +126,70 @@ export function VehiclePanel() {
     }
   };
 
+useEffect(() => {
+fetchStatus();
+}, []);
+
+// v2.1: 座舱切换时重新拉取车辆状态（每个座舱数据独立）
+useEffect(() => {
+fetchStatus();
+}, [cockpitId]);
+
+  // v2.2.2: GPS 定位已提取到全局 hook (use-gps-location.ts)，在根布局中统一管理
+  // 此处仅保留位置更新后的状态刷新
   useEffect(() => {
-    fetchStatus();
+    if (typeof navigator !== "undefined" && navigator.geolocation) {
+      const fetchLocation = () => {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            try {
+              await updateVehicleLocation(
+                position.coords.latitude,
+                position.coords.longitude
+              );
+              // 定位更新后重新拉取状态
+              setTimeout(() => fetchStatus(), 500);
+            } catch {
+              // 静默失败
+            }
+          },
+          () => {
+            // 用户拒绝或定位失败，静默处理（后端会自动使用 IP 定位）
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        );
+      };
+
+      // 首次获取（全局 hook 也会更新，但这里需要刷新车辆面板状态）
+      fetchLocation();
+
+      // v2.2.3: 降低轮询频率到 5 分钟，仅刷新坐标缓存
+      const interval = setInterval(fetchLocation, 300000);
+      return () => clearInterval(interval);
+    }
   }, []);
+
+  // 订阅语音助手触发的车控状态刷新事件
+  useEffect(() => {
+    const unsubscribe = onVehicleRefresh(() => {
+      // 延迟 500ms 等后端处理完成后再拉取
+      setTimeout(() => fetchStatus(), 500);
+    });
+    return unsubscribe;
+  }, []);
+
+  /** 检查某个命令是否正在执行 */
+  const isCmdLoading = (command: string, args: Record<string, any>) =>
+    executingCmds.has(`${command}_${JSON.stringify(args)}`);
 
   const handleCommand = async (command: string, args: Record<string, any>) => {
     const cmdKey = `${command}_${JSON.stringify(args)}`;
-    setLoading(true);
-    setExecutingCmd(cmdKey);
+    // 标记当前命令正在执行（不阻塞其他按钮）
+    setExecutingCmds(prev => new Set(prev).add(cmdKey));
     try {
       await sendVehicleCommand({ command, arguments: args });
-      await fetchStatus();
+      // 命令发送成功后，异步刷新状态（不阻塞按钮）
+      fetchStatus();
       toast.success("操作成功", {
         description: getCommandDescription(command, args),
       });
@@ -105,8 +198,12 @@ export function VehiclePanel() {
         description: offline ? "当前为离线模式" : "请检查网络连接",
       });
     } finally {
-      setLoading(false);
-      setExecutingCmd(null);
+      // 命令完成后立即释放按钮，不等 fetchStatus
+      setExecutingCmds(prev => {
+        const next = new Set(prev);
+        next.delete(cmdKey);
+        return next;
+      });
     }
   };
 
@@ -137,9 +234,6 @@ export function VehiclePanel() {
       </div>
     );
   }
-
-  const isCmdLoading = (command: string, args: Record<string, any>) =>
-    executingCmd === `${command}_${JSON.stringify(args)}`;
 
   return (
     <div className="space-y-4">
@@ -173,7 +267,7 @@ export function VehiclePanel() {
                 size="icon"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_climate", { op: "temp_down" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_climate", { op: "temp_down" })}
                 className="h-10 w-10 rounded-full"
               >
                 <Minus className="h-5 w-5" />
@@ -188,7 +282,7 @@ export function VehiclePanel() {
                 size="icon"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_climate", { op: "temp_up" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_climate", { op: "temp_up" })}
                 className="h-10 w-10 rounded-full"
               >
                 <Plus className="h-5 w-5" />
@@ -203,7 +297,7 @@ export function VehiclePanel() {
                   <button
                     key={m.key}
                     onClick={() => handleCommand("vehicle_climate", { op: "set_mode", mode: m.key })}
-                    disabled={loading}
+                    disabled={isCmdLoading("vehicle_climate", { op: "set_mode", mode: m.key })}
                     className={cn(
                       "flex flex-col items-center gap-1 rounded-lg py-2 text-xs transition-all",
                       status.climate.mode === m.key
@@ -224,7 +318,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_climate", { op: "set_fan", fan_speed: Math.max(1, status.climate.fan_speed - 1) })}
-                disabled={loading || status.climate.fan_speed <= 1}
+                disabled={isCmdLoading("vehicle_climate", { op: "set_fan", fan_speed: Math.max(1, status.climate.fan_speed - 1) }) || status.climate.fan_speed <= 1}
                 className="h-8 w-8 p-0"
               >
                 <Minus className="h-3 w-3" />
@@ -246,7 +340,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_climate", { op: "set_fan", fan_speed: Math.min(7, status.climate.fan_speed + 1) })}
-                disabled={loading || status.climate.fan_speed >= 7}
+                disabled={isCmdLoading("vehicle_climate", { op: "set_fan", fan_speed: Math.min(7, status.climate.fan_speed + 1) }) || status.climate.fan_speed >= 7}
                 className="h-8 w-8 p-0"
               >
                 <Plus className="h-3 w-3" />
@@ -281,7 +375,7 @@ export function VehiclePanel() {
                   size="sm"
                   variant={status.seats.driver.heat > 0 ? "default" : "outline"}
                   onClick={() => handleCommand("vehicle_seat", { op: "heat_on", position: "driver", level: 1 })}
-                  disabled={loading || status.seats.driver.heat > 0}
+                  disabled={isCmdLoading("vehicle_seat", { op: "heat_on", position: "driver", level: 1 }) || status.seats.driver.heat > 0}
                   className="flex-1"
                 >
                   开启
@@ -290,7 +384,7 @@ export function VehiclePanel() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleCommand("vehicle_seat", { op: "heat_off", position: "driver" })}
-                  disabled={loading || status.seats.driver.heat === 0}
+                  disabled={isCmdLoading("vehicle_seat", { op: "heat_off", position: "driver" }) || status.seats.driver.heat === 0}
                   className="flex-1"
                 >
                   关闭
@@ -314,7 +408,7 @@ export function VehiclePanel() {
                   size="sm"
                   variant={status.seats.driver.massage ? "default" : "outline"}
                   onClick={() => handleCommand("vehicle_seat", { op: "massage_on", position: "driver", level: 1 })}
-                  disabled={loading || status.seats.driver.massage}
+                  disabled={isCmdLoading("vehicle_seat", { op: "massage_on", position: "driver", level: 1 }) || status.seats.driver.massage}
                   className="flex-1"
                 >
                   开启
@@ -323,7 +417,7 @@ export function VehiclePanel() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleCommand("vehicle_seat", { op: "massage_off", position: "driver" })}
-                  disabled={loading || !status.seats.driver.massage}
+                  disabled={isCmdLoading("vehicle_seat", { op: "massage_off", position: "driver" }) || !status.seats.driver.massage}
                   className="flex-1"
                 >
                   关闭
@@ -362,7 +456,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_media", { op: "prev" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_media", { op: "prev" })}
                 className="h-9 w-9 p-0"
               >
                 <SkipBack className="h-4 w-4" />
@@ -371,7 +465,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant={status.media.playing ? "default" : "outline"}
                 onClick={() => handleCommand("vehicle_media", { op: status.media.playing ? "pause" : "play" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_media", { op: status.media.playing ? "pause" : "play" })}
                 className="flex-1 h-9"
               >
                 {status.media.playing ? <Pause className="h-4 w-4 mr-1" /> : <Play className="h-4 w-4 mr-1" />}
@@ -381,7 +475,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_media", { op: "next" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_media", { op: "next" })}
                 className="h-9 w-9 p-0"
               >
                 <SkipForward className="h-4 w-4" />
@@ -394,7 +488,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_media", { op: "set_volume", volume: Math.max(0, status.media.volume - 2) })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_media", { op: "set_volume", volume: Math.max(0, status.media.volume - 2) })}
                 className="h-7 w-7 p-0"
               >
                 <Minus className="h-3 w-3" />
@@ -409,7 +503,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_media", { op: "set_volume", volume: Math.min(30, status.media.volume + 2) })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_media", { op: "set_volume", volume: Math.min(30, status.media.volume + 2) })}
                 className="h-7 w-7 p-0"
               >
                 <Plus className="h-3 w-3" />
@@ -424,7 +518,7 @@ export function VehiclePanel() {
                   <button
                     key={idx}
                     onClick={() => handleCommand("vehicle_media", { op: "play_track", track: idx })}
-                    disabled={loading}
+                    disabled={isCmdLoading("vehicle_media", { op: "play_track", track: idx })}
                     className={cn(
                       "w-full text-left text-xs px-2 py-1.5 rounded truncate transition-colors flex items-center gap-2",
                       (status.media as any).track_index === idx
@@ -480,7 +574,7 @@ export function VehiclePanel() {
                     handleCommand("vehicle_navigation", { destination: navInput.trim(), mode: "drive" });
                   }
                 }}
-                disabled={loading || !navInput.trim()}
+                disabled={isCmdLoading("vehicle_navigation", { destination: navInput.trim(), mode: "drive" }) || !navInput.trim()}
               >
                 开始
               </Button>
@@ -495,7 +589,7 @@ export function VehiclePanel() {
                   setNavInput("");
                   handleCommand("vehicle_navigation", { destination: "", mode: "drive" });
                 }}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_navigation", { destination: "", mode: "drive" })}
                 className="w-full"
               >
                 <X className="h-4 w-4 mr-1" />
@@ -531,7 +625,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_window", { op: "open", position: "all" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_window", { op: "open", position: "all" })}
                 className="flex-1"
               >
                 全开
@@ -540,7 +634,7 @@ export function VehiclePanel() {
                 size="sm"
                 variant="outline"
                 onClick={() => handleCommand("vehicle_window", { op: "close", position: "all" })}
-                disabled={loading}
+                disabled={isCmdLoading("vehicle_window", { op: "close", position: "all" })}
                 className="flex-1"
               >
                 全关

@@ -150,7 +150,7 @@ class Neo4jGraphStore(BaseGraphStore):
         """获取用户完整画像"""
         cypher = """
         MATCH (u:User {id: $user_id})-[r]->(t)
-        RETURN type(r) as relation, t.name as target, labels(t) as labels, r.mid as mid
+        RETURN type(r) as relation, t.name as target, labels(t) as labels, coalesce(r.mid, -1) as mid
         """
         profile: Dict[str, Any] = {"user_id": user_id, "relations": []}
         try:

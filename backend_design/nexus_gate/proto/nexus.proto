@@ -1,0 +1,275 @@
+syntax = "proto3";
+
+package nexus;
+
+option go_package = "nexus_gate/internal/grpc;nexusgrpc";
+
+// ============================================================
+// NexusCockpit v2.1 gRPC 服务定义
+// Phase 2: 从 HTTP/REST 迁移到 gRPC（高性能内部通信）
+//
+// 服务列表:
+//   1. CockpitService  — 座舱对话/车控/状态
+//   2. AgentService     — SubAgent/MainAgent 监控
+//   3. DataService      — 数据中台查询
+//   4. SettingsService  — 设置中心 CRUD
+// ============================================================
+
+// ============================================================
+// 通用消息
+// ============================================================
+
+message Empty {}
+
+message RequestMetadata {
+  string cockpit_id = 1;
+  string user_id = 2;
+  string role = 3;
+  string request_id = 4;
+  int64 timestamp = 5;
+}
+
+message StatusResponse {
+  int32 code = 1;           // 0=success, 非0=error
+  string message = 2;
+  bytes data = 3;           // JSON 编码的响应体
+}
+
+// ============================================================
+// 1. CockpitService — 座舱核心服务
+// ============================================================
+
+service CockpitService {
+  // 对话（同步）
+  rpc Chat(ChatRequest) returns (ChatResponse);
+  // 流式对话
+  rpc ChatStream(ChatRequest) returns (stream ChatChunk);
+  // 车控指令
+  rpc VehicleCommand(VehicleCommandRequest) returns (VehicleCommandResponse);
+  // 车辆状态查询
+  rpc VehicleStatus(VehicleStatusRequest) returns (VehicleStatusResponse);
+  // ASR 语音识别
+  rpc RecognizeSpeech(ASRRequest) returns (ASRResponse);
+  // TTS 语音合成
+  rpc SynthesizeSpeech(TTSRequest) returns (TTSResponse);
+}
+
+message ChatRequest {
+  RequestMetadata metadata = 1;
+  string text = 2;
+  string session_id = 3;
+}
+
+message ChatResponse {
+  string response = 1;
+  bool cache_hit = 2;
+  double latency_ms = 3;
+  map<string, string> metadata = 4;
+}
+
+message ChatChunk {
+  string chunk = 1;
+  bool done = 2;
+}
+
+message VehicleCommandRequest {
+  RequestMetadata metadata = 1;
+  string command = 2;
+  map<string, string> arguments = 3;
+}
+
+message VehicleCommandResponse {
+  bool success = 1;
+  string result = 2;
+  string error = 3;
+}
+
+message VehicleStatusRequest {
+  RequestMetadata metadata = 1;
+}
+
+message VehicleStatusResponse {
+  string status_json = 1;  // JSON 编码的车辆状态
+}
+
+message ASRRequest {
+  RequestMetadata metadata = 1;
+  bytes audio_data = 2;
+  string audio_format = 3;  // wav, mp3, etc.
+}
+
+message ASRResponse {
+  string text = 1;
+  double confidence = 2;
+  double latency_ms = 3;
+}
+
+message TTSRequest {
+  RequestMetadata metadata = 1;
+  string text = 2;
+  string voice = 3;  // 语音人设
+}
+
+message TTSResponse {
+  bytes audio_data = 1;
+  string audio_format = 2;
+  double latency_ms = 3;
+}
+
+// ============================================================
+// 2. AgentService — Agent 监控服务
+// ============================================================
+
+service AgentService {
+  // 获取所有座舱的 SubAgent 状态
+  rpc GetSubAgentStats(GetStatsRequest) returns (SubAgentStatsResponse);
+  // 获取 MainAgent 告警列表
+  rpc GetAlerts(GetAlertsRequest) returns (AlertsResponse);
+  // 获取 Agent 活动日志
+  rpc GetAgentActivity(GetActivityRequest) returns (AgentActivityResponse);
+}
+
+message GetStatsRequest {
+  RequestMetadata metadata = 1;
+  string cockpit_id = 2;  // 为空则返回所有座舱
+}
+
+message SubAgentStatsResponse {
+  string stats_json = 1;  // JSON 编码的统计数据
+}
+
+message GetAlertsRequest {
+  RequestMetadata metadata = 1;
+  string cockpit_id = 2;
+  string severity = 3;    // 过滤严重程度
+  int32 limit = 4;
+}
+
+message AlertsResponse {
+  string alerts_json = 1;  // JSON 编码的告警列表
+}
+
+message GetActivityRequest {
+  RequestMetadata metadata = 1;
+  int32 hours = 2;         // 查询最近多少小时
+  string cockpit_id = 3;
+}
+
+message AgentActivityResponse {
+  string activity_json = 1;
+}
+
+// ============================================================
+// 3. DataService — 数据中台服务
+// ============================================================
+
+service DataService {
+  // 总览数据
+  rpc GetOverview(RequestMetadata) returns (OverviewResponse);
+  // 单座舱数据
+  rpc GetCockpitData(CockpitDataRequest) returns (CockpitDataResponse);
+  // 并发数据
+  rpc GetConcurrency(RequestMetadata) returns (ConcurrencyResponse);
+  // 对比数据
+  rpc GetComparison(RequestMetadata) returns (ComparisonResponse);
+}
+
+message OverviewResponse {
+  string overview_json = 1;
+}
+
+message CockpitDataRequest {
+  RequestMetadata metadata = 1;
+  string cockpit_id = 2;
+}
+
+message CockpitDataResponse {
+  string data_json = 1;
+}
+
+message ConcurrencyResponse {
+  string concurrency_json = 1;
+}
+
+message ComparisonResponse {
+  string comparison_json = 1;
+}
+
+// ============================================================
+// 4. SettingsService — 设置中心服务
+// ============================================================
+
+service SettingsService {
+  // 座舱 CRUD
+  rpc ListCockpits(RequestMetadata) returns (CockpitListResponse);
+  rpc CreateCockpit(CreateCockpitRequest) returns (CockpitResponse);
+  rpc UpdateCockpit(UpdateCockpitRequest) returns (CockpitResponse);
+  rpc DeleteCockpit(DeleteCockpitRequest) returns (StatusResponse);
+
+  // 用户 CRUD
+  rpc ListUsers(RequestMetadata) returns (UserListResponse);
+  rpc CreateUser(CreateUserRequest) returns (UserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (StatusResponse);
+
+  // 中间件配置
+  rpc GetMiddlewareConfig(RequestMetadata) returns (MiddlewareConfigResponse);
+  rpc UpdateMiddlewareConfig(UpdateMiddlewareConfigRequest) returns (StatusResponse);
+}
+
+message CockpitListResponse {
+  string cockpits_json = 1;
+}
+
+message CreateCockpitRequest {
+  RequestMetadata metadata = 1;
+  string name = 2;
+  string user_id = 3;
+  string vehicle_adapter = 4;
+  string theme_color = 5;
+}
+
+message UpdateCockpitRequest {
+  RequestMetadata metadata = 1;
+  string cockpit_id = 2;
+  map<string, string> updates = 3;
+}
+
+message DeleteCockpitRequest {
+  RequestMetadata metadata = 1;
+  string cockpit_id = 2;
+}
+
+message CockpitResponse {
+  string cockpit_json = 1;
+}
+
+message UserListResponse {
+  string users_json = 1;
+}
+
+message CreateUserRequest {
+  RequestMetadata metadata = 1;
+  string user_id = 2;
+  string username = 3;
+  string password = 4;
+  string cockpit_id = 5;
+  string role = 6;
+}
+
+message DeleteUserRequest {
+  RequestMetadata metadata = 1;
+  string user_id = 2;
+}
+
+message UserResponse {
+  string user_json = 1;
+}
+
+message MiddlewareConfigResponse {
+  string config_json = 1;
+}
+
+message UpdateMiddlewareConfigRequest {
+  RequestMetadata metadata = 1;
+  map<string, string> updates = 2;
+}

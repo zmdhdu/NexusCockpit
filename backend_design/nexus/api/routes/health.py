@@ -91,7 +91,7 @@ async def health_check(request: Request):
     )
     status = "healthy" if all_healthy else "degraded"
 
-    return HealthResponse(status=status, version="1.0.0", services=services)
+    return HealthResponse(status=status, version="2.1.0", services=services)
 
 
 @router.get("/")
@@ -99,7 +99,7 @@ async def root():
     """根路径"""
     return {
         "name": "NexusCockpit",
-        "version": "1.0.0",
+        "version": "2.1.0",
         "description": "Enterprise Vehicle Voice Agent",
         "docs": "/docs",
         "health": "/health",

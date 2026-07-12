@@ -427,6 +427,18 @@ class TavilyConfig(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
 
+class AmapConfig(BaseSettings):
+    """高德地图 API 配置。
+
+    用于逆地理编码（坐标→地址）和 POI 周边搜索（周边美食/加油站/停车场等）。
+    申请: https://lbs.amap.com/api/webservice/guide/create-project/get-key
+    """
+
+    api_key: str = Field(default="", validation_alias="AMAP_KEY")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
 class ProvidersConfig(BaseSettings):
     """双模式部署开关 — 控制各组件使用本地中间件还是云端托管。
 
@@ -554,6 +566,38 @@ class OSSConfig(BaseSettings):
             )
 
 
+class CockpitSettings(BaseSettings):
+    """v2.1 多座舱配置。
+
+    控制多座舱行为，包括座舱数量、隔离模式、SubAgent 巡检等。
+    """
+
+    # 默认座舱数量
+    default_cockpit_count: int = Field(default=3, validation_alias="COCKPIT_COUNT")
+    # SubAgent 巡检间隔范围（秒）
+    subagent_check_interval_min: int = Field(default=30, validation_alias="SUBAGENT_CHECK_MIN")
+    subagent_check_interval_max: int = Field(default=60, validation_alias="SUBAGENT_CHECK_MAX")
+    # MainAgent 确认是否启用
+    mainagent_confirm_enabled: bool = Field(default=True, validation_alias="MAINAGENT_CONFIRM_ENABLED")
+    # 隔离模式: strict(每座舱独立DB) / shared(共享DB+前缀)
+    isolation_mode: str = Field(default="shared", validation_alias="COCKPIT_ISOLATION_MODE")
+    # SubAgent 使用的 LLM 模型（降本策略：用便宜模型）
+    subagent_llm_model: str = Field(default="Qwen/Qwen2.5-7B-Instruct", validation_alias="SUBAGENT_LLM_MODEL")
+    # Go 网关配置
+    gate_host: str = Field(default="0.0.0.0", validation_alias="NEXUS_GATE_HOST")
+    gate_port: int = Field(default=8080, validation_alias="NEXUS_GATE_PORT")
+    gate_mode: str = Field(default="proxy", validation_alias="NEXUS_GATE_MODE")  # proxy / grpc
+    # RBAC 配置
+    rbac_default_role: str = Field(default="cockpit_user", validation_alias="RBAC_DEFAULT_ROLE")
+    rbac_admin_username: str = Field(default="admin", validation_alias="RBAC_ADMIN_USERNAME")
+    # 声纹配置
+    voiceprint_model: str = Field(default="cam_plus", validation_alias="VOICEPRINT_MODEL")
+    voiceprint_threshold: float = Field(default=0.7, validation_alias="VOICEPRINT_THRESHOLD")
+    voiceprint_enroll_count: int = Field(default=3, validation_alias="VOICEPRINT_ENROLL_COUNT")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
 class AppConfig(BaseSettings):
     """全局应用配置 — 所有子配置的聚合入口。
 
@@ -575,8 +619,10 @@ class AppConfig(BaseSettings):
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     tavily: TavilyConfig = Field(default_factory=TavilyConfig)
+    amap: AmapConfig = Field(default_factory=AmapConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    cockpit: CockpitSettings = Field(default_factory=CockpitSettings)
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 

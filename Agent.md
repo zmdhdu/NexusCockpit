@@ -81,16 +81,24 @@ NexusCockpit/
 ├── .pre-commit-config.yaml          # 代码质量钩子
 ├── .editorconfig                    # 编辑器配置 (强制 UTF-8)
 │
-├── backend_design/                  # ===== 后端代码 (Python) =====
+├── backend_design/                  # ===== 后端代码 (Python + Go) =====
 │   ├── nexus/                       # 主 Python 包
 │   │   ├── main.py                  #   FastAPI 应用入口
 │   │   ├── config.py                #   配置中心 (自动定位 .env)
 │   │   ├── core/                    #   L1 核心层 (日志/异常/熔断/OSS)
-│   │   ├── models/                  #   数据模型 (Agent状态/API模型)
+│   │   │   ├── cockpit_manager.py   #   v2.1: 座舱管理器
+│   │   │   ├── tenant_context.py    #   v2.1: 多租户上下文
+│   │   │   ├── db_manager.py        #   v2.1: 异步数据库管理器
+│   │   │   └── voiceprint.py        #   v2.1: 声纹识别
+│   │   ├── models/                  #   数据模型 (Agent状态/API模型/座舱模型)
 │   │   ├── rag/                     #   L2 数据层 (Embedding/向量/图谱)
 │   │   ├── memory/                  #   L2 数据层 (记忆管理)
 │   │   ├── agent/                   #   L4 Agent 层 (Multi-Agent)
-│   │   ├── skills/                  #   L3 服务层 (9个技能+编排)
+│   │   │   ├── supervisor_graph.py  #   v2.0 编排核心
+│   │   │   ├── subagent_monitor.py  #   v2.1: SubAgent 监控器
+│   │   │   ├── mainagent_confirm.py #   v2.1: MainAgent 确认层
+│   │   │   └── experts/             #   v2.0 专家 Agent
+│   │   ├── skills/                  #   L3 服务层 (21个技能+编排)
 │   │   ├── vehicle/                 #   L3 服务层 (车控适配)
 │   │   ├── intent/                  #   L3 服务层 (意图路由)
 │   │   ├── asr/                     #   L3 服务层 (语音识别)
@@ -98,19 +106,32 @@ NexusCockpit/
 │   │   ├── mcp/                     #   L3 服务层 (MCP 网关)
 │   │   ├── middleware/              #   L5 中间件 (缓存/限流/队列)
 │   │   ├── api/                     #   L6 API 层 (REST/SSE/WS)
-│   │   └── observability/           #   L7 可观测层 (追踪/指标)
-│   ├── tests/                       # 测试用例
-│   ├── scripts/                     # 初始化脚本
+│   │   │   └── routes/              #   路由 (chat/vehicle/cockpit/dataplatform/middleware_status/settings)
+│   │   └── observability/           #   L7 可观测层 (追踪/指标/座舱指标/数据保留)
+│   ├── nexus_gate/                  # v2.1: Go 并发网关
+│   │   ├── cmd/main.go              #   Go 网关入口
+│   │   ├── internal/                #   内部包
+│   │   │   ├── auth/                #   JWT 鉴权 + RBAC
+│   │   │   ├── config/              #   配置加载
+│   │   │   ├── handlers/            #   Go 原生处理器 (非 AI 请求)
+│   │   │   ├── proxy/               #   反向代理到 Python
+│   │   │   ├── ratelimit/           #   优先级令牌桶限流
+│   │   │   ├── router/              #   Gin 路由分发
+│   │   │   └── ws/                  #   WebSocket Hub
+│   │   ├── proto/                   #   gRPC Proto 定义 (Phase 2)
+│   │   └── go.mod
+│   ├── tests/                       # 测试用例 (test_api + test_core + test_v21)
+│   ├── scripts/                     # 初始化脚本 + v2.1 迁移 SQL + 混沌测试
 │   ├── requirements.txt             # Python 依赖
 │   └── pyproject.toml               # 项目配置
 │
 ├── frontend_design/                 # ===== 前端代码 (Next.js) =====
 │   ├── src/
-│   │   ├── app/                     # 页面 (dashboard/chat/vehicle/settings)
+│   │   ├── app/                     # 页面 (cockpit/chat/settings/dashboard/middleware/admin)
 │   │   ├── components/              # 组件 (ui/chat/vehicle/layout)
 │   │   ├── lib/                     # API 客户端 + 工具函数
-│   │   ├── stores/                  # Zustand 状态管理
-│   │   ├── hooks/                   # 自定义 Hooks
+│   │   ├── stores/                  # Zustand 状态管理 (含 auth-store v2.1)
+│   │   ├── hooks/                   # 自定义 Hooks (useAsync + useSpeechRecognition v2.1)
 │   │   └── types/                   # TypeScript 类型
 │   ├── package.json
 │   ├── next.config.js
@@ -208,6 +229,12 @@ NexusCockpit/
 | **v2.1: 数据中台 API** | `backend_design/nexus/api/routes/dataplatform.py` |
 | **v2.1: 中间件看板 API** | `backend_design/nexus/api/routes/middleware_status.py` |
 | **v2.1: 设置中心 API** | `backend_design/nexus/api/routes/settings.py` |
+| **v2.1: Go 网关** | `backend_design/nexus_gate/internal/router/router.go` |
+| **v2.1: Go 原生处理器** | `backend_design/nexus_gate/internal/handlers/handlers.go` |
+| **v2.1: 声纹识别** | `backend_design/nexus/core/voiceprint.py` |
+| **v2.1: 数据库管理** | `backend_design/nexus/core/db_manager.py` |
+| **v2.1: 座舱指标** | `backend_design/nexus/observability/cockpit_metrics.py` |
+| **v2.1: 数据保留** | `backend_design/nexus/observability/data_retention.py` |
 
 ## 代码修改后的质量保障流程（强制执行）
 

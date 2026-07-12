@@ -1,308 +1,550 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
+import {
+  Settings,
+  Mic,
+  Upload,
+  Fingerprint,
+  CheckCircle2,
+  AlertCircle,
+  User,
+  Volume2,
+  Lock,
+  LogIn,
+  LogOut,
+} from "lucide-react";
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Key, Server, Database, Cpu, BookOpen, Upload, RefreshCw } from "lucide-react";
-import { getHealth, saveConfig, getKBStats, uploadKBDocument, reindexKB } from "@/lib/api";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import type { HealthData } from "@/types";
+import { useAuth } from "@/stores/auth-store";
+import {
+  getVoiceprintStatus,
+  enrollVoiceprint,
+  verifyVoiceprint,
+  deleteVoiceprint,
+  changePassword,
+  login as apiLogin,
+  logout as apiLogout,
+} from "@/lib/api";
+import type { VoiceprintStatus } from "@/types";
 
+/**
+ * 个人设置页 — 面向终端用户
+ *
+ * 展示内容:
+ *   1. 个人信息（用户ID、当前座舱、角色）
+ *   2. 声纹注册 — 录制/上传音频完成注册
+ *   3. 声纹验证 — 测试声纹识别是否生效
+ *   4. 已注册声纹列表
+ *
+ * 不展示任何技术名词，纯粹面向用户个人配置。
+ */
 export default function SettingsPage() {
-  const [health, setHealth] = useState<HealthData | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [kbStats, setKbStats] = useState<{ connected: boolean; total_docs?: number } | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { userId, role, cockpitId, isAuthenticated, logout: authLogout } = useAuth();
+  const [voiceprintStatus, setVoiceprintStatus] = useState<VoiceprintStatus | any>(null);
+  const [loading, setLoading] = useState(true);
+
+  // 声纹注册
+  const [enrollFile, setEnrollFile] = useState<File | null>(null);
+  const [enrolling, setEnrolling] = useState(false);
+
+  // 声纹验证
+  const [verifyFile, setVerifyFile] = useState<File | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+
+  // 修改密码
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  // 登录表单
+  const [loginUserId, setLoginUserId] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const vp = await getVoiceprintStatus(cockpitId).catch(() => null);
+      setVoiceprintStatus(vp);
+    } catch {
+      // 静默处理
+    } finally {
+      setLoading(false);
+    }
+  }, [cockpitId]);
 
   useEffect(() => {
-    let cancelled = false;
-    const checkHealth = async () => {
-      try {
-        const h = await getHealth();
-        if (!cancelled) setHealth(h);
-      } catch {
-        if (!cancelled) setHealth({ status: "offline", services: {} });
-      }
-    };
-    const fetchKBStats = async () => {
-      try {
-        const stats = await getKBStats();
-        if (!cancelled) setKbStats(stats);
-      } catch {
-        if (!cancelled) setKbStats({ connected: false });
-      }
-    };
-    checkHealth();
-    fetchKBStats();
-    return () => { cancelled = true; };
-  }, []);
+    fetchData();
+  }, [fetchData]);
 
-  const isConnected = health?.status === "healthy";
-
-  // v2.0: 对接后端真实保存
-  const handleSave = async () => {
-    setSaving(true);
+  // 声纹注册
+  const handleEnroll = async () => {
+    if (!enrollFile) {
+      toast.error("请先选择音频文件");
+      return;
+    }
+    setEnrolling(true);
     try {
-      await saveConfig({
-        ark_api_key: (document.getElementById("ark-key") as HTMLInputElement)?.value || "",
-        tavily_api_key: (document.getElementById("tavily-key") as HTMLInputElement)?.value || "",
-        api_url: (document.getElementById("api-url") as HTMLInputElement)?.value || "",
+      const result = await enrollVoiceprint(cockpitId, userId || "default", enrollFile);
+      toast.success("声纹注册成功", {
+        description: result.message || "您现在可以通过语音快速登录",
       });
-      toast.success("配置已保存", { description: "API 密钥与连接配置已更新到后端。" });
+      setEnrollFile(null);
+      fetchData();
     } catch {
-      toast.error("保存失败", { description: "后端接口不可用，请检查连接。" });
+      toast.error("声纹注册失败", {
+        description: "请确保音频清晰且时长不少于3秒",
+      });
     } finally {
-      setSaving(false);
+      setEnrolling(false);
     }
   };
 
-  // v2.0: 知识库文档上传
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
+  // 声纹验证
+  const handleVerify = async () => {
+    if (!verifyFile) {
+      toast.error("请先选择音频文件");
+      return;
+    }
+    setVerifying(true);
+    setVerifyResult(null);
     try {
-      const result = await uploadKBDocument(file, "manual");
-      toast.success("文档已上传", { description: `${result.chunks} 个分块已索引。` });
-      // 刷新统计
-      const stats = await getKBStats();
-      setKbStats(stats);
+      const result = await verifyVoiceprint(cockpitId, verifyFile);
+      setVerifyResult(result);
+      if (result.verified) {
+        toast.success("验证通过", {
+          description: `已识别为用户: ${result.user_id}`,
+        });
+      } else {
+        toast.warning("验证未通过", {
+          description: result.message || "请重新注册声纹后重试",
+        });
+      }
     } catch {
-      toast.error("上传失败", { description: "请检查文件格式和后端连接。" });
+      toast.error("声纹验证失败");
     } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      setVerifying(false);
     }
   };
 
-  // v2.0: 重建索引
-  const handleReindex = async () => {
+  // 删除声纹
+  const handleDeleteVoiceprint = async (uid: string) => {
+    if (!confirm(`确认删除用户 ${uid} 的声纹数据？`)) return;
     try {
-      await reindexKB();
-      toast.success("索引重建已触发", { description: "后台正在处理..." });
+      await deleteVoiceprint(uid, cockpitId);
+      toast.success("声纹已删除");
+      fetchData();
     } catch {
-      toast.error("重建失败", { description: "后端接口不可用。" });
+      toast.error("删除失败");
     }
+  };
+
+  // 修改密码
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      toast.error("新密码至少 6 位");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("两次输入的密码不一致");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await changePassword(oldPassword, newPassword);
+      toast.success("密码修改成功");
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      toast.error("密码修改失败");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  // 登录
+  const handleLogin = async () => {
+    if (!loginUserId.trim()) {
+      toast.error("请输入用户 ID");
+      return;
+    }
+    setLoggingIn(true);
+    try {
+      await apiLogin(loginUserId.trim(), loginPassword);
+      toast.success("登录成功");
+      setLoginUserId("");
+      setLoginPassword("");
+    } catch (e: any) {
+      toast.error("登录失败", { description: e?.message || "请检查用户 ID 和密码" });
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  // 退出登录
+  const handleLogout = async () => {
+    await apiLogout();
+    authLogout();
+    toast.success("已退出登录");
+  };
+
+  // 角色显示名称
+  const roleLabels: Record<string, string> = {
+    super_admin: "管理员",
+    cockpit_admin: "座舱管理员",
+    cockpit_user: "座舱用户",
+    cockpit_viewer: "访客",
   };
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">设置</h1>
+        <h1 className="text-2xl font-bold">个人设置</h1>
         <p className="text-sm text-muted-foreground">
-          v2.0 系统配置与 API 密钥管理
+          管理您的个人信息与声纹数据
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* API Keys */}
+      {/* 个人信息 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
         <Card className="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Key className="h-5 w-5 text-primary" />
-              API 密钥
+              <User className="h-5 w-5 text-primary" />
+              个人信息
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Ark API Key</label>
-              <Input id="ark-key" type="password" placeholder="sk-..." defaultValue="" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Tavily API Key</label>
-              <Input id="tavily-key" type="password" placeholder="tvly-..." defaultValue="" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Langfuse Public Key</label>
-              <Input type="password" placeholder="pk-..." defaultValue="" />
-            </div>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? "保存中..." : "保存配置"}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Backend Config */}
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="h-5 w-5 text-primary" />
-              后端连接
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">API 地址</label>
-              <Input id="api-url" placeholder="http://localhost:8000" defaultValue="http://localhost:8000" />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">WebSocket 地址</label>
-              <Input placeholder="ws://localhost:8000/ws/chat" defaultValue="ws://localhost:8000/ws/chat" />
-            </div>
-            <div
-              className={`flex items-center gap-2 rounded-lg px-3 py-2 ${
-                isConnected ? "bg-emerald-500/10" : "bg-red-500/10"
-              }`}
-            >
-              <div
-                className={`h-2 w-2 rounded-full animate-pulse ${
-                  isConnected ? "bg-emerald-400" : "bg-red-400"
-                }`}
-              />
-              <span className={`text-sm ${isConnected ? "text-emerald-400" : "text-red-400"}`}>
-                {isConnected ? "已连接" : "未连接"}
-              </span>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="rounded-lg bg-accent/30 p-4">
+                <p className="text-xs text-muted-foreground mb-1">用户账号</p>
+                <p className="text-sm font-medium">{userId || "未登录"}</p>
+              </div>
+              <div className="rounded-lg bg-accent/30 p-4">
+                <p className="text-xs text-muted-foreground mb-1">当前座舱</p>
+                <p className="text-sm font-medium">{cockpitId}</p>
+              </div>
+              <div className="rounded-lg bg-accent/30 p-4">
+                <p className="text-xs text-muted-foreground mb-1">身份</p>
+                <p className="text-sm font-medium">{roleLabels[role] || role}</p>
+              </div>
             </div>
           </CardContent>
         </Card>
+      </motion.div>
 
-        {/* Model Info */}
+      {/* 登录/退出 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
         <Card className="glass">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Cpu className="h-5 w-5 text-primary" />
-              模型配置
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">LLM 模型</span>
-              <span className="font-medium">Qwen-Plus</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Embedding 模型</span>
-              <span className="font-medium">Qwen3-Embedding-4B</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">ASR 模型</span>
-              <span className="font-medium">SenseVoice</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">TTS 模型</span>
-              <span className="font-medium">CosyVoice-300M</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Rerank 模型</span>
-              <span className="font-medium text-emerald-400">bge-reranker-v2-m3</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">声纹模型</span>
-              <span className="font-medium">CAM++</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* v2.0: Knowledge Base Management */}
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BookOpen className="h-5 w-5 text-primary" />
-              知识库管理
-              {kbStats?.connected && (
-                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400">
-                  Cherry KB
-                </span>
+              {isAuthenticated ? (
+                <LogOut className="h-5 w-5 text-primary" />
+              ) : (
+                <LogIn className="h-5 w-5 text-primary" />
               )}
+              {isAuthenticated ? "账号管理" : "登录"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-lg bg-accent/30 p-3">
-                <p className="text-xs text-muted-foreground">连接状态</p>
-                <p className="text-lg font-bold">
-                  {kbStats?.connected ? (
-                    <span className="text-emerald-400">已连接</span>
-                  ) : (
-                    <span className="text-muted-foreground">未连接</span>
-                  )}
-                </p>
-              </div>
-              <div className="rounded-lg bg-accent/30 p-3">
-                <p className="text-xs text-muted-foreground">文档总数</p>
-                <p className="text-lg font-bold text-indigo-400">
-                  {kbStats?.total_docs ?? "—"}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">上传文档</label>
-              <div className="flex gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".txt,.md"
-                  onChange={handleUpload}
-                  className="hidden"
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading || !kbStats?.connected}
-                  className="flex-1"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {uploading ? "上传中..." : "选择文件"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleReindex}
-                  disabled={!kbStats?.connected}
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  重建索引
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                支持 .txt / .md 文件，自动分块向量化入库
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Database Status */}
-        <Card className="glass">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-primary" />
-              数据库状态
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {["Milvus", "Neo4j", "Redis", "RabbitMQ", "MySQL", "OSS"].map(
-              (db) => {
-                const dbKey = db.toLowerCase();
-                const dbStatus = health?.services?.[dbKey];
-                const isRunning = dbStatus === "connected" || dbStatus === "ready";
-                return (
-                  <div
-                    key={db}
-                    className="flex items-center justify-between rounded-lg bg-accent/30 px-3 py-2"
-                  >
-                    <span className="text-sm font-medium">{db}</span>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`h-2 w-2 rounded-full ${
-                          isRunning
-                            ? "bg-emerald-400"
-                            : dbStatus
-                            ? "bg-red-400"
-                            : "bg-muted-foreground"
-                        }`}
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {dbStatus ?? (isConnected ? "未监控" : "未知")}
-                      </span>
-                    </div>
+          <CardContent>
+            {isAuthenticated ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                    <User className="h-5 w-5 text-primary" />
                   </div>
-                );
-              }
+                  <div>
+                    <p className="text-sm font-medium">{userId}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {roleLabels[role] || role} · {cockpitId}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleLogout}
+                  className="text-red-400 hover:bg-red-500/10"
+                >
+                  <LogOut className="mr-1 h-4 w-4" />
+                  退出登录
+                </Button>
+              </div>
+            ) : (
+              <div className="max-w-md space-y-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">
+                    用户 ID
+                  </label>
+                  <Input
+                    value={loginUserId}
+                    onChange={(e) => setLoginUserId(e.target.value)}
+                    placeholder="输入您的用户 ID"
+                    className="bg-background/50"
+                    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">
+                    密码（可选）
+                  </label>
+                  <Input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="开发环境可留空"
+                    className="bg-background/50"
+                    onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  />
+                </div>
+                <Button
+                  onClick={handleLogin}
+                  disabled={loggingIn || !loginUserId.trim()}
+                  className="w-full"
+                >
+                  {loggingIn ? "登录中..." : "登录"}
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
+      </motion.div>
+
+      {/* 声纹管理 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* 声纹注册 */}
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <Card className="glass h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Mic className="h-5 w-5 text-primary" />
+                声纹注册
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                上传一段不少于3秒的语音，完成声纹注册后即可通过语音快速登录座舱。
+              </p>
+              <div className="flex items-center gap-2">
+                <label className="flex-1 cursor-pointer rounded-lg border border-dashed border-border px-4 py-3 text-center text-sm text-muted-foreground hover:border-primary">
+                  <Upload className="mx-auto mb-1 h-4 w-4" />
+                  {enrollFile ? enrollFile.name : "选择音频文件 (wav)"}
+                  <input
+                    type="file"
+                    accept="audio/wav,audio/*"
+                    className="hidden"
+                    onChange={(e) => setEnrollFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <Button
+                  onClick={handleEnroll}
+                  disabled={!enrollFile || enrolling}
+                  className="px-6"
+                >
+                  {enrolling ? "注册中..." : "注册"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        {/* 声纹验证 */}
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.2 }}
+        >
+          <Card className="glass h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Fingerprint className="h-5 w-5 text-primary" />
+                声纹验证
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                上传一段语音进行验证，测试声纹识别是否正常工作。
+              </p>
+              <div className="flex items-center gap-2">
+                <label className="flex-1 cursor-pointer rounded-lg border border-dashed border-border px-4 py-3 text-center text-sm text-muted-foreground hover:border-primary">
+                  <Upload className="mx-auto mb-1 h-4 w-4" />
+                  {verifyFile ? verifyFile.name : "选择音频文件 (wav)"}
+                  <input
+                    type="file"
+                    accept="audio/wav,audio/*"
+                    className="hidden"
+                    onChange={(e) => setVerifyFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <Button
+                  onClick={handleVerify}
+                  disabled={!verifyFile || verifying}
+                  className="px-6"
+                >
+                  {verifying ? "验证中..." : "验证"}
+                </Button>
+              </div>
+              {verifyResult && (
+                <div
+                  className={`rounded-lg p-3 ${
+                    verifyResult.verified
+                      ? "bg-emerald-500/10"
+                      : "bg-red-500/10"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {verifyResult.verified ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-red-400" />
+                    )}
+                    <span className="text-sm font-medium">
+                      {verifyResult.verified
+                        ? `验证通过: ${verifyResult.user_id}`
+                        : "验证未通过"}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    相似度: {((verifyResult.similarity || 0) * 100).toFixed(1)}%
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
+
+      {/* 已注册声纹 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <Card className="glass">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Volume2 className="h-5 w-5 text-primary" />
+              已注册声纹
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {voiceprintStatus?.users && voiceprintStatus.users.length > 0 ? (
+              <div className="space-y-2">
+                {voiceprintStatus.users.map((u: any) => (
+                  <div
+                    key={u.user_id}
+                    className="flex items-center justify-between rounded-lg bg-accent/30 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+                        <User className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{u.user_id}</p>
+                        <p className="text-xs text-muted-foreground">
+                          注册次数: {u.enroll_count}
+                          {u.completed && (
+                            <span className="ml-2 text-emerald-400">已完成</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteVoiceprint(u.user_id)}
+                      className="rounded-lg px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                {loading ? "加载中..." : "暂无已注册的声纹"}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      {/* 修改密码 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+      >
+        <Card className="glass">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-primary" />
+              修改密码
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="max-w-md space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">
+                  旧密码
+                </label>
+                <Input
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="输入当前密码"
+                  className="bg-background/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">
+                  新密码
+                </label>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="至少 6 位"
+                  className="bg-background/50"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-muted-foreground">
+                  确认新密码
+                </label>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次输入新密码"
+                  className="bg-background/50"
+                />
+              </div>
+              <Button
+                onClick={handleChangePassword}
+                disabled={changingPassword || !newPassword || !confirmPassword}
+                className="w-full"
+              >
+                {changingPassword ? "修改中..." : "确认修改"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 }
