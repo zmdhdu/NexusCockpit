@@ -2,7 +2,7 @@
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
-﻿"""NexusCockpit Skills 包。
+"""NexusCockpit Skills 包。
 
 v2.0 新增: 导入新技能模块以触发 @register_skill 装饰器注册。
 

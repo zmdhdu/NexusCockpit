@@ -2,7 +2,7 @@
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
-﻿"""
+"""
 Vehicle Base Skill — 车载技能基类
 统一通过 vehicle adapter 访问车控总线
 
