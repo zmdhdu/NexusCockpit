@@ -862,3 +862,332 @@ MemoryManager 让 AI 能"记住"这些信息，实现个性化服务。
 # Neo4j 关系
 (User {id: "u1"}) -[:LIKES {mid: 42, timestamp: 1720785600}]-> (Music {name: "爵士乐"})
 ```
+
+---
+
+## 附录 E: 技术栈深度解读 (新手进阶)
+
+> 以下内容对项目中每个核心技术进行"是什么 → 为什么选 → 在哪看 → 怎么学"四维解读，帮助新人从"知道有这个技术"进阶到"理解为什么这样选"。
+
+### E.1 前端技术栈深度解读
+
+#### Next.js 14 App Router
+
+**是什么**: React 的全栈框架，v14 引入 App Router，用文件夹定义路由。
+
+**为什么选它而非 Create React App / Vite**:
+- **文件即路由**: `src/app/cockpit/page.tsx` 自动映射到 `/cockpit` 路由，无需手动配置路由表
+- **内置 API 代理**: `next.config.js` 中的 `rewrites` 可将 `/api/*` 代理到 Go 网关，解决跨域
+- **SSR/SSG**: 服务端渲染首屏，对 SEO 和首屏加载速度友好
+- **代码分割**: 每个页面自动按需加载，不会一次性加载所有 JS
+
+**在项目中的关键文件**:
+```
+frontend_design/src/app/
+├── layout.tsx          ← 根布局（所有页面共享 Sidebar + Toaster）
+├── page.tsx            ← 首页（redirect 到 /cockpit）
+├── cockpit/page.tsx    ← 座舱页（聊天 + 车控 + 3D 模型）
+├── chat/page.tsx       ← 独立聊天页
+├── dashboard/page.tsx  ← 运营总览（图表 + 统计）
+├── middleware/page.tsx ← 中间件看板
+├── settings/page.tsx   ← 设置中心
+└── dataplatform/page.tsx ← 数据中台
+```
+
+**学习要点**:
+1. `layout.tsx` 是所有页面的"外壳"——Sidebar、Toaster、GpsProvider 都挂在这里
+2. `"use client"` 声明客户端组件——用了 `useState`/`useEffect` 的页面必须加
+3. `next.config.js` 的 `rewrites` 把 `/api/*` 转发到 `localhost:8080`（Go 网关）
+
+**动手实验**:
+```bash
+# 1. 在 src/app/ 下新建 demo 文件夹
+mkdir frontend_design/src/app/demo
+
+# 2. 创建 page.tsx
+cat > frontend_design/src/app/demo/page.tsx << 'EOF'
+"use client"
+export default function DemoPage() {
+  return <div className="p-8 text-2xl">Hello NexusCockpit!</div>
+}
+EOF
+
+# 3. 访问 http://localhost:3000/demo
+```
+
+---
+
+#### Zustand 状态管理
+
+**是什么**: 轻量级 React 状态管理库，用一个 `create()` 函数创建全局 store。
+
+**为什么选它而非 Redux/Context**:
+- **比 Redux 简单**: 不需要 action/type/reducer/dispatch，直接 `set()` 修改
+- **比 Context 高效**: Zustand 使用 selector 订阅，只有用到的字段变化才 re-render
+- **内置持久化**: `persist` 中间件一行代码实现 localStorage 持久化
+
+**在项目中的两个核心 Store**:
+
+| Store | 文件 | 管理什么 |
+|-------|------|----------|
+| `useChatStore` | `src/stores/chat-store.ts` | 消息列表、会话管理、流式状态、座舱切换 |
+| `useAuth` | `src/stores/auth-store.ts` | JWT Token、用户 ID、角色、座舱 ID |
+
+**关键代码解读**:
+```typescript
+// chat-store.ts 的持久化 + 座舱切换清空
+export const useChatStore = create<ChatState>()(
+  persist(                           // ← persist 中间件: 自动存到 localStorage
+    (set) => ({
+      messages: [],
+      // ...
+      newSession: () => set({ messages: [], streamingContent: "" }),
+      // 座舱切换时调用，清空旧消息
+    }),
+    { name: "chat-storage" }         // ← localStorage 的 key
+  )
+)
+```
+
+**学习要点**:
+1. `create<T>()(persist((set) => ({...}), {name: "..."}))` 是标准模式
+2. 组件中用 `useChatStore((s) => s.messages)` 选择性订阅，避免全量 re-render
+3. `persist` 会自动在页面刷新后恢复状态
+
+---
+
+#### SSE 流式通信 (Server-Sent Events)
+
+**是什么**: 服务器单向推送技术，基于 HTTP 长连接。
+
+**为什么选 SSE 而非 WebSocket**:
+- AI 回复是"服务器 → 客户端"单向流，SSE 更合适
+- SSE 基于 HTTP，不需要额外的协议升级
+- SSE 自带断线重连机制
+- 但 WebSocket 也有用——实时双向通信场景（如 WebSocket Hub）
+
+**完整数据流**:
+```
+前端 ChatWindow.handleSend()
+  │
+  ├─ 调用 api.streamMessage(text, cockpitId)
+  │   └─ fetch("/api/chat/stream", {method: POST, body: ...})
+  │       └─ Go 网关代理到 Python FastAPI
+  │           └─ chat_stream() 返回 StreamingResponse
+  │               └─ 逐块 yield f"data: {json.dumps(chunk)}\n\n"
+  │
+  ├─ 前端 reader.read() 逐块读取
+  │   └─ TextDecoder 解码 → 按 "\n" 分行 → 解析 "data: " 前缀
+  │       └─ 每收到一个 chunk → updateMessage() 更新 UI
+  │
+  └─ 收到 "data: [DONE]" → 流结束 → 标记完成
+```
+
+**关键代码定位**:
+- 前端发送: `src/lib/api.ts` → `streamMessage()` 函数
+- 前端接收: `src/components/chat/chat-window.tsx` → `handleSend()` 函数
+- 后端发送: `backend_design/nexus/api/routes/chat.py` → `chat_stream()` 函数
+- 取消机制: `AbortController` — 用户点"停止"时 `controller.abort()`
+
+---
+
+### E.2 Go 网关技术栈深度解读
+
+#### Go + Gin 路由分发
+
+**是什么**: Go 语言 + Gin Web 框架，处理 HTTP 请求路由。
+
+**为什么需要 Go 网关（不直接用 Python FastAPI）**:
+- **性能**: Go 编译为机器码，并发处理能力远超 Python
+- **职责分离**: Go 处理"快请求"（健康检查/限流/鉴权），Python 处理"慢请求"（AI 推理）
+- **连接管理**: Go 的 goroutine 轻量级，适合管理千级 WebSocket 连接
+
+**路由分类策略**（最重要的设计决策）:
+```
+请求进来
+  ├── /health, /auth/token, /metrics        → Go 原生处理 (无需 AI)
+  ├── /dataplatform/overview, /alerts       → Go 原生查 Redis (无需 AI)
+  ├── /middleware/*                          → Go 原生 TCP 检查 (无需 AI)
+  ├── /settings/cockpits (GET)              → Go 原生返回配置 (无需 AI)
+  ├── /cockpit/*/chat, /vehicle, /asr, /tts → 转发 Python (需要 AI)
+  └── /cockpit/*/ws/chat                    → WebSocket Hub
+```
+
+**关键文件阅读顺序**:
+1. `cmd/main.go` → 理解启动流程
+2. `internal/router/router.go` → 理解路由分类
+3. `internal/proxy/proxy.go` → 理解反向代理转发
+4. `internal/auth/jwt.go` → 理解 JWT 鉴权
+5. `internal/ratelimit/ratelimit.go` → 理解限流
+6. `internal/ws/hub.go` → 理解 WebSocket
+
+---
+
+#### Redis Lua 原子限流
+
+**是什么**: 用 Redis + Lua 脚本实现多优先级令牌桶限流。
+
+**为什么用 Lua 脚本**:
+- 限流需要"读取计数 → 判断 → 写入"三步操作
+- 如果分三条 Redis 命令执行，高并发下会有竞态条件
+- Lua 脚本在 Redis 中**原子执行**，不会被其他命令打断
+
+**三级优先级设计**:
+| 优先级 | 场景 | 令牌分配 |
+|--------|------|----------|
+| High | 用户对话（/chat） | 60% 令牌 |
+| Normal | 车控指令（/vehicle） | 30% 令牌 |
+| Low | 管理操作（/admin） | 10% 令牌 |
+
+**学习建议**: 阅读 `ratelimit.go` 中的 Lua 脚本，画出令牌添加和消费的流程图。
+
+---
+
+### E.3 Python AI 服务技术栈深度解读
+
+#### LangGraph Multi-Agent 编排
+
+**是什么**: LangChain 的图式 Agent 编排框架，用"图"来组织多个 AI Agent 的协作流程。
+
+**核心概念**:
+| 概念 | 通俗解释 | 项目对应 |
+|------|----------|----------|
+| **StateGraph** | 一张有向图，节点是函数，边是流转方向 | `supervisor_graph.py` 中的 `StateGraph(SupervisorState)` |
+| **Node** | 图中的一个处理节点，是一个函数 | Supervisor/Experts/Responder/Reviewer |
+| **Edge** | 节点之间的连线，表示执行顺序 | `add_edge("supervisor", "experts")` |
+| **Conditional Edge** | 条件边，根据状态决定下一个节点 | `add_conditional_edges("supervisor", route_fn)` |
+| **State** | 所有节点共享的状态对象 | `SupervisorState` TypedDict |
+
+**项目中的 Agent 工作流**:
+```
+用户输入
+  ↓
+Supervisor (调度节点)
+  ├── 意图路由: 判断需要哪些专家
+  └── 条件边 → 激活对应专家
+       ↓
+  ┌────┬────┬────┬────┐
+  │车控 │导航 │生活 │健康 │  ← 并行执行
+  └─┬──┴─┬──┴─┬──┴─┬──┘
+     └────┴────┴────┘
+        ↓
+  Responder (汇总节点)
+  └── 合并多专家结果 + LLM 生成最终回复
+        ↓
+  Reviewer (审查节点)
+  └── 质量检查 + 触发记忆存储
+        ↓
+  返回前端
+```
+
+**学习建议**:
+1. 先理解"图"的概念——节点是函数，边是执行顺序
+2. 阅读 `supervisor_graph.py` 的 `_build_graph()` 方法
+3. 画出图结构，标注条件路由
+4. 尝试新增一个 Expert 节点
+
+---
+
+#### GraphRAG 三路检索 + Rerank
+
+**是什么**: 不是简单的一次向量搜索，而是三路并行检索 + 融合排序 + 精排。
+
+**为什么需要三路**:
+| 检索方式 | 擅长 | 不擅长 |
+|----------|------|--------|
+| 向量搜索 (Milvus) | 语义相似（"开心" ≈ "快乐"） | 精确关键词匹配 |
+| 图谱遍历 (Neo4j) | 关系查询（用户喜欢什么） | 模糊语义 |
+| 关键词 (BM25) | 精确匹配（故障码 P0301） | 语义理解 |
+
+三路互补，覆盖不同类型的查询需求。
+
+**RRF 融合算法**:
+```
+# 三个检索器各返回 Top-10 结果
+# RRF 公式: score(d) = Σ 1/(k + rank_i(d))
+# k=60 (常数，平衡头部和尾部结果)
+
+文档A: 向量排名1 → 1/61=0.0164, 图谱排名3 → 1/63=0.0159, BM25未上榜 → 0
+  总分 = 0.0164 + 0.0159 = 0.0323
+
+文档B: 向量排名5 → 1/65=0.0154, 图谱未上榜 → 0, BM25排名1 → 1/61=0.0164
+  总分 = 0.0154 + 0.0164 = 0.0318
+
+→ 文档A 排在文档B 前面
+```
+
+**Rerank 二次排序**:
+- RRF 融合后的 Top-K 结果送入 BGE CrossEncoder
+- CrossEncoder 对 (query, document) 对做精细打分
+- 比向量相似度更准确，但计算成本更高
+
+**关键文件**: `nexus/rag/retriever.py` → `retrieve()` 方法
+
+---
+
+### E.4 数据存储技术栈深度解读
+
+#### 四数据库分工
+
+| 数据库 | 存什么 | 为什么选它 | 项目位置 |
+|--------|--------|------------|----------|
+| **Milvus** | 向量（文本的数字表示） | 十亿级向量毫秒搜索 | `nexus/rag/vector_store.py` |
+| **Neo4j** | 关系图谱（用户→喜欢→食物） | 高效遍历关系 | `nexus/rag/graph_store.py` |
+| **MySQL** | 结构化数据（用户、座舱、日志） | ACID 事务、成熟稳定 | `nexus/core/db_manager.py` |
+| **Redis** | 缓存/限流/会话/指标 | 内存级速度、多数据结构 | `nexus/middleware/redis_cache.py` |
+
+**多租户隔离策略**:
+| 数据库 | 隔离方式 | 示例 |
+|--------|----------|------|
+| Redis | DB 编号分区 | cockpit-01 → DB 1, cockpit-02 → DB 2 |
+| Milvus | Collection 前缀 | `cockpit_01_memories`, `cockpit_02_memories` |
+| MySQL | 行级隔离 | `WHERE cockpit_id = 'cockpit-01'` |
+
+---
+
+### E.5 技术选型决策树
+
+当你在项目中遇到"为什么用 A 而不用 B"的疑问时，参考以下决策树：
+
+```
+Q: 为什么用 Go + Python 双语言，而不是纯 Python？
+A: Go 处理并发连接/限流/鉴权（性能敏感），Python 处理 AI 推理（生态丰富）
+
+Q: 为什么用 Zustand 而不是 Redux？
+A: Redux 模板代码太多（action/reducer/dispatch），Zustand 一个 create() 搞定
+
+Q: 为什么用 SSE 而不是 WebSocket 做聊天？
+A: AI 回复是单向流，SSE 更轻量。但 WebSocket 也用了——Hub 管理实时连接
+
+Q: 为什么用 Milvus 而不是 Pinecone？
+A: Milvus 可本地部署（数据安全），Pinecone 是 SaaS（数据出境风险）
+
+Q: 为什么用 Neo4j 而不是只用 MySQL？
+A: "用户喜欢什么食物"这种关系查询，图数据库遍历 O(1) vs 关系型 JOIN O(n)
+
+Q: 为什么用 Celery 而不是 asyncio.create_task？
+A: Celery 支持跨进程/跨机器分布式任务，asyncio.create_task 只在单进程内
+
+Q: 为什么用 LangGraph 而不是直接写 if-else？
+A: Agent 工作流有并行/条件/回环，图结构比 if-else 更清晰可维护
+```
+
+---
+
+### E.6 推荐学习资源汇总
+
+| 技术 | 官方文档 | 互动教程 | 视频推荐 |
+|------|----------|----------|----------|
+| Next.js | [nextjs.org/docs](https://nextjs.org/docs) | [nextjs.org/learn](https://nextjs.org/learn) | B站搜"Next.js App Router" |
+| TypeScript | [typescriptlang.org](https://www.typescriptlang.org/zh/) | [typescript-exercises](https://typescript-exercises.github.io/) | B站搜"TypeScript 入门" |
+| Tailwind CSS | [tailwindcss.com/docs](https://tailwindcss.com/docs) | [tailwindcss.com/docs/installation](https://tailwindcss.com/docs/installation) | 官方交互式文档 |
+| Zustand | [GitHub README](https://github.com/pmndrs/zustand) | - | B站搜"Zustand" |
+| Go | [go.dev/tour](https://go.dev/tour) | [go.dev/tour](https://go.dev/tour) | B站搜"Go 入门" |
+| Gin | [gin-gonic.com/docs](https://gin-gonic.com/docs/) | - | - |
+| FastAPI | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/zh/) | 官方文档自带交互示例 | B站搜"FastAPI" |
+| LangGraph | [langchain-ai.github.io/langgraph](https://langchain-ai.github.io/langgraph/) | - | - |
+| Milvus | [milvus.io/docs](https://milvus.io/docs) | [milvus.io/bootcamp](https://milvus.io/bootcamp) | - |
+| Neo4j | [neo4j.com/docs](https://neo4j.com/docs/) | [neo4j.com/graphacademy](https://neo4j.com/graphacademy/) | - |
+| Redis | [redis.io/docs](https://redis.io/docs/) | [university.redis.com](https://university.redis.com/) | - |
+| Docker | [docs.docker.com](https://docs.docker.com/) | [docker-curriculum.com](https://docker-curriculum.com/) | B站搜"Docker 入门" |
+| Prometheus | [prometheus.io/docs](https://prometheus.io/docs/) | - | - |

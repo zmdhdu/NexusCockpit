@@ -182,6 +182,7 @@ make monitor               # Grafana → http://localhost:3001
 | `fronted-design` | `.catpaw/skills/fronted-design/` | 前端页面/组件设计 |
 | `doc-sync` | `.catpaw/skills/doc-sync/` | 代码修改后自动检查文档一致性并同步更新 |
 | `post-code-guardian` | `.catpaw/skills/post-code-guardian/` | 代码修改后自动编排守护（code-review→code-doc→doc-sync） |
+| `tech-stack-guide` | `.catpaw/skills/tech-stack-guide/` | 技术栈学习导航，帮助新人系统学习项目技术栈 |
 
 ## 技术栈覆盖（V2 完整版）
 

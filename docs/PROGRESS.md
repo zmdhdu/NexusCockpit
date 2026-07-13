@@ -43,7 +43,7 @@
 | OSS 对象存储集成 | ✅ 已完成 | 100% | 阿里云 OSS 已接入，支持上传/下载/公开读 |
 | 工程化配置 | ✅ 已完成 | 100% | Makefile/pre-commit/CI/CD/.gitignore |
 | 前后端分离 | ✅ 已完成 | 100% | backend_design/ 与 frontend_design/ 独立 |
-| Skills 体系 | ✅ 已完成 | 100% | 8 个 catpaw skill + 21 个业务技能 |
+| Skills 体系 | ✅ 已完成 | 100% | 9 个 catpaw skill + 21 个业务技能 |
 | 测试文档 | ✅ 已完成 | 100% | VERIFICATION.md + TESTING.md |
 | 模型下载与部署 | ⏳ 待执行 | 0% | 需用户按 SETUP.md 下载 |
 | API Key 配置 | ⏳ 待执行 | 0% | 需用户填入 ARK_API_KEY 等 |
@@ -329,7 +329,8 @@ NexusCockpit/
 │   ├── rapid-dev/                  # 快速开发
 │   ├── beginner-code-comment/      # 小白代码注释
 │   ├── doc-sync/                   # 文档同步检查
-│   └── post-code-guardian/         # 代码修改后自动编排守护
+│   ├── post-code-guardian/         # 代码修改后自动编排守护
+│   └── tech-stack-guide/           # 技术栈学习导航
 │
 ├── docs/                           # 文档中心
 │   ├── architecture/               # L0-L7 架构文档

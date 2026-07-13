@@ -49,7 +49,7 @@ NexusCockpit/
 │   ├── src/hooks/               #   自定义 Hooks
 │   └── package.json
 │
-├── .catpaw/skills/              # 🤖 AI 开发技能 (8 个)
+├── .catpaw/skills/              # 🤖 AI 开发技能 (9 个)
 ├── docs/                        # 📚 文档中心
 ├── config/                      # 基础设施配置
 ├── models/                      # AI 模型文件 (需下载)

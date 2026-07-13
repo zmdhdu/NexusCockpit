@@ -1,3 +1,22 @@
+/**
+ * 车辆控制面板组件 — 可视化车控交互界面
+ *
+ * 功能模块:
+ *   - 空调控制: 温度调节/模式切换/风量调节
+ *   - 座椅控制: 加热/按摩开关
+ *   - 媒体播放: 播放/暂停/上一首/下一首/音量/播放列表
+ *   - 导航控制: 输入目的地/取消导航
+ *   - 车窗控制: 各车窗开度显示/全开全关
+ *   - 车辆状态: 油量/电量/续航/胎压概览
+ *
+ * 数据来源:
+ *   - 初始化时调用 getVehicleStatus() 拉取完整状态
+ *   - 用户操作通过 sendVehicleCommand() 发送指令后异步刷新
+ *   - 语音助手触发车控时通过 vehicle-events 事件总线通知刷新
+ *   - 后端不可用时自动降级到 Mock 数据（离线模式）
+ *
+ * v2.1: 支持多座舱切换，每个座舱有独立的车控状态
+ */
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -108,6 +127,7 @@ export function VehiclePanel() {
     };
   }, []);
 
+/** 拉取车辆状态 — 从后端获取最新车控数据，失败时降级到 Mock 数据 */
   const fetchStatus = async () => {
     try {
       const s = await getVehicleStatus();
@@ -182,6 +202,15 @@ fetchStatus();
   const isCmdLoading = (command: string, args: Record<string, any>) =>
     executingCmds.has(`${command}_${JSON.stringify(args)}`);
 
+/**
+   * 发送车控命令 — 向后端发送指令并刷新状态
+   *
+   * 支持多命令并行: 每个命令用 `command_args` 组合作为唯一 key，
+   * 正在执行的命令会禁用对应按钮，但不阻塞其他按钮操作。
+   *
+   * @param command - 命令名称，如 vehicle_climate / vehicle_media / vehicle_navigation
+   * @param args - 命令参数，如 { op: "temp_up" } 或 { destination: "上海虹桥" }
+   */
   const handleCommand = async (command: string, args: Record<string, any>) => {
     const cmdKey = `${command}_${JSON.stringify(args)}`;
     // 标记当前命令正在执行（不阻塞其他按钮）
@@ -207,6 +236,10 @@ fetchStatus();
     }
   };
 
+/**
+   * 生成命令执行成功后的 Toast 描述文案
+   * 根据命令类型和参数返回用户可读的操作反馈
+   */
   const getCommandDescription = (command: string, args: Record<string, any>): string => {
     if (command === "vehicle_climate") {
       if (args.op === "temp_up") return `温度已调高至 ${status?.climate.temperature || 22}°C`;

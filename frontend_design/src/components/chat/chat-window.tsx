@@ -1,3 +1,19 @@
+/**
+ * 聊天窗口组件 — 用户与 AI 语音助手交互的核心界面
+ *
+ * 功能:
+ *   - 文本输入 + SSE 流式接收 AI 回复
+ *   - 浏览器 Web Speech API 语音识别（实时转写）
+ *   - 本地 ASR 录音 → 上传后端 SenseVoice 模型识别
+ *   - TTS 语音合成朗读 AI 回复
+ *   - 多会话管理（新建/切换/加载历史消息）
+ *   - 车控指令联动刷新（检测到车控动作时通知 VehiclePanel 刷新）
+ *   - 流式请求可取消（AbortController）
+ *   - 降级策略：流式失败时自动回退到非流式请求
+ *
+ * 数据流:
+ *   用户输入 → streamMessage() → 后端 SSE → 逐块更新消息 → TTS 朗读
+ */
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -142,7 +158,12 @@ export function ChatWindow() {
     };
   }, []);
 
-  /** 节流更新消息内容，使用 rAF 避免高频重渲染阻塞 UI */
+  /**
+   * 节流刷新流式内容到 UI — 使用 requestAnimationFrame 避免高频 setState 阻塞主线程
+   *
+   * 流式 SSE 每秒可能产生数十个 chunk，直接 setState 会导致 UI 卡顿。
+   * 通过 rAF 合并多个 chunk 为一次渲染，保持 60fps 流畅度。
+   */
   const flushStreamingContent = useCallback((assistantId: string) => {
     rafScheduledRef.current = false;
     updateMessage(assistantId, { content: streamingContentRef.current, loading: false });
@@ -155,6 +176,18 @@ export function ChatWindow() {
     }
   }, [flushStreamingContent]);
 
+  /**
+   * 发送消息 — 核心交互逻辑
+   *
+   * 流程:
+   *   1. 将用户消息加入消息列表
+   *   2. 创建 AI 回复占位消息（显示"思考中..."）
+   *   3. 通过 SSE 流式接收 AI 回复，逐块更新占位消息
+   *   4. 收到 done 事件后，触发 TTS 朗读 + 车控面板刷新
+   *   5. 若流式失败（404/501），自动降级为非流式请求
+   *
+   * @param overrideText - 可选的覆盖文本（语音识别结果直接传入，不经过输入框）
+   */
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText || input).trim();
     if (!text) return;
@@ -303,6 +336,7 @@ export function ChatWindow() {
     }
   };
 
+  /** 停止正在进行的流式生成 — 调用 AbortController.abort() 中断 fetch 请求 */
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -311,6 +345,7 @@ export function ChatWindow() {
     }
   };
 
+  /** 键盘事件处理 — Enter 发送，Shift+Enter 换行 */
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();

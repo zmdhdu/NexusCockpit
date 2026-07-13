@@ -23,6 +23,14 @@ import (
 	"nexus_gate/internal/ws"
 )
 
+// main 是 NexusGate Go 网关的入口函数。
+// 启动流程:
+//  1. 解析命令行参数（可选 --env 指定 .env 文件路径）
+//  2. 加载配置（config.Load）
+//  3. 初始化反向代理（proxy.Init）
+//  4. 启动 WebSocket Hub（后台协程）
+//  5. 创建限流器并设置路由
+//  6. 启动 HTTP 服务并监听信号实现优雅关闭
 func main() {
 	// 解析命令行参数
 	envFile := flag.String("env", "", "Path to .env file")
@@ -108,6 +116,13 @@ func loadEnvFile(path string) error {
 	return nil
 }
 
+// splitLines 将字符串按 '\n' 分割为行切片。
+// 不依赖 strings.Split，避免引入额外包。
+//
+// 参数:
+//   - s: 原始字符串
+//
+// 返回值: 不含换行符的行字符串切片
 func splitLines(s string) []string {
 	var lines []string
 	start := 0
@@ -123,6 +138,13 @@ func splitLines(s string) []string {
 	return lines
 }
 
+// trimSpace 去除字符串首尾的空格、制表符和回车符。
+// 不依赖 strings.TrimSpace，避免引入额外包。
+//
+// 参数:
+//   - s: 原始字符串
+//
+// 返回值: 去除首尾空白字符后的字符串
 func trimSpace(s string) string {
 	start := 0
 	end := len(s)
@@ -135,6 +157,14 @@ func trimSpace(s string) string {
 	return s[start:end]
 }
 
+// indexOf 查找字符 c 在字符串 s 中首次出现的索引。
+// 不依赖 strings.Index，避免引入额外包。
+//
+// 参数:
+//   - s: 源字符串
+//   - c: 要查找的字节字符
+//
+// 返回值: 首次出现的索引（从 0 开始），未找到返回 -1
 func indexOf(s string, c byte) int {
 	for i := 0; i < len(s); i++ {
 		if s[i] == c {

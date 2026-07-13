@@ -27,7 +27,15 @@ import (
 	"nexus_gate/internal/config"
 )
 
-// MiddlewareStatus 中间件状态
+// MiddlewareStatus 中间件状态结构体。
+// 用于描述单个中间件（Redis/MySQL/Milvus 等）的连通性检查结果。
+//
+// 字段说明:
+//   - Name:    中间件名称（如 "redis"、"mysql"）
+//   - Status:  连通状态，"online" 或 "offline"
+//   - Latency: TCP 连接延迟（毫秒）
+//   - Error:   连接失败时的错误信息（仅 offline 时存在）
+//   - Extra:   附加信息（如版本号、连接池大小等，可选）
 type MiddlewareStatus struct {
 	Name    string `json:"name"`
 	Status  string `json:"status"`
@@ -36,7 +44,17 @@ type MiddlewareStatus struct {
 	Extra   map[string]interface{} `json:"extra,omitempty"`
 }
 
-// CockpitInfo 座舱信息
+// CockpitInfo 座舱信息结构体。
+// 描述一个智能座舱的基本元数据，由 Go 网关原生返回（与 Python CockpitManager 保持一致）。
+//
+// 字段说明:
+//   - CockpitID:      座舱唯一标识（如 "cockpit-01"）
+//   - Name:           座舱显示名称（如 "座舱1"）
+//   - UserID:         绑定用户 ID
+//   - RedisDB:        该座舱独占的 Redis 数据库编号
+//   - IsActive:       座舱是否处于活跃状态
+//   - ThemeColor:     前端主题色（十六进制色值）
+//   - SubAgentStatus: 子 Agent 运行状态（"running"/"stopped"）
 type CockpitInfo struct {
 	CockpitID   string `json:"cockpit_id"`
 	Name        string `json:"name"`
@@ -51,7 +69,16 @@ type CockpitInfo struct {
 // 中间件状态检查
 // ============================================================
 
-// checkTCP 检查 TCP 端口连通性
+// checkTCP 通过 TCP 拨号检查目标端口的连通性。
+// 超时时间固定为 3 秒，返回连接延迟（毫秒）和可能的错误。
+//
+// 参数:
+//   - host: 目标主机地址（如 "127.0.0.1"）
+//   - port: 目标端口（如 6379）
+//
+// 返回值:
+//   - latency: TCP 连接耗时（毫秒），无论成功失败都会返回
+//   - err:     连接失败时的错误对象
 func checkTCP(host string, port int) (int64, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	start := time.Now()
@@ -353,7 +380,13 @@ func GetDataPlatformAlerts(c *gin.Context) {
 	})
 }
 
-// generateCockpitConcurrency 生成每个座舱的并发信息
+// generateCockpitConcurrency 生成每个座舱的并发信息列表（Demo 模式）。
+// 当前返回的并发数和 QPS 均为 0，实际指标应从 Prometheus 获取。
+//
+// 参数:
+//   - count: 座舱数量
+//
+// 返回值: 每个座舱的并发信息 map 列表
 func generateCockpitConcurrency(count int) []map[string]interface{} {
 	result := []map[string]interface{}{}
 	for i := 1; i <= count; i++ {
@@ -447,6 +480,13 @@ func HealthCheck(c *gin.Context) {
 // 辅助函数
 // ============================================================
 
+// getEnv 从环境变量读取字符串，若不存在则返回默认值。
+//
+// 参数:
+//   - key:        环境变量名
+//   - defaultVal: 默认值（环境变量未设置或为空时使用）
+//
+// 返回值: 环境变量值或默认值
 func getEnv(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -454,6 +494,13 @@ func getEnv(key, defaultVal string) string {
 	return defaultVal
 }
 
+// getEnvInt 从环境变量读取整型值，若不存在或解析失败则返回默认值。
+//
+// 参数:
+//   - key:        环境变量名
+//   - defaultVal: 默认值（环境变量未设置或解析失败时使用）
+//
+// 返回值: 解析后的整型值或默认值
 func getEnvInt(key string, defaultVal int) int {
 	val := os.Getenv(key)
 	if val == "" {
@@ -466,7 +513,12 @@ func getEnvInt(key string, defaultVal int) int {
 	return n
 }
 
-// RespondJSON 统一 JSON 响应（用于非 Gin 场景）
+// RespondJSON 向 HTTP 响应写入 JSON 数据，用于非 Gin 场景（如 WebSocket 处理器）。
+//
+// 参数:
+//   - w:      http.ResponseWriter
+//   - status: HTTP 状态码（如 200、404、500）
+//   - data:   要序列化为 JSON 的数据对象
 func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

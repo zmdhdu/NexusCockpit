@@ -91,6 +91,7 @@ func (c *Config) AIBaseURL() string {
 	return fmt.Sprintf("http://%s:%d", c.AIHost, c.AIPort)
 }
 
+// getEnv 从环境变量读取字符串，不存在时返回默认值
 func getEnv(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
@@ -98,6 +99,7 @@ func getEnv(key, defaultVal string) string {
 	return defaultVal
 }
 
+// getEnvInt 从环境变量读取整数，不存在或格式错误时返回默认值
 func getEnvInt(key string, defaultVal int) int {
 	if val := os.Getenv(key); val != "" {
 		if n, err := strconv.Atoi(val); err == nil {
@@ -107,6 +109,7 @@ func getEnvInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
+// getEnvFloat 从环境变量读取浮点数，不存在或格式错误时返回默认值
 func getEnvFloat(key string, defaultVal float64) float64 {
 	if val := os.Getenv(key); val != "" {
 		if f, err := strconv.ParseFloat(val, 64); err == nil {
