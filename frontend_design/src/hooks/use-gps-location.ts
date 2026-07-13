@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 全局 GPS 定位 Hook — 仅获取并缓存浏览器坐标
  *
  * v2.2.3 重构:

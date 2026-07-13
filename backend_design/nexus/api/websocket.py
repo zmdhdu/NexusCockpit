@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 WebSocket Handler — 实时语音/文本 WebSocket 接口
 

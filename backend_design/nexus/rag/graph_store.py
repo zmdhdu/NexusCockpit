@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 Neo4j Knowledge Graph Store — 知识图谱存储与检索
 管理用户画像关系图谱，支持 Milvus ID 双向绑定

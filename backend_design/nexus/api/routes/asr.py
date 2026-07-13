@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 ASR 语音识别 API 路由 — 提供本地语音转文字服务
 

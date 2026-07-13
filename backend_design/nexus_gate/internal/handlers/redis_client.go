@@ -1,3 +1,7 @@
+// Copyright (c) 2026 zhangmengdi (NexusCockpit)
+// Licensed under the MIT License. See LICENSE in the project root for details.
+// Source: https://github.com/zmdhdu/NexusCockpit
+
 // 简易 Redis 客户端 — 使用 RESP 协议通过 TCP 直接通信
 //
 // 避免引入 go-redis 依赖，Demo 阶段够用。

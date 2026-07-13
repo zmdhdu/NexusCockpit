@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 HTTP Vehicle Bus Adapter — 通过 HTTP/REST 对接真实车控服务
 """

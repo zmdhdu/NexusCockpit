@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 座舱数据模型 — v2.1 Pydantic Schema 定义
 

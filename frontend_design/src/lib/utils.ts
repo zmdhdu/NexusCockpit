@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 通用工具函数 — 前端各组件共用的辅助方法
  *
  * 包含: CSS 类名合并、时间格式化、延时等待

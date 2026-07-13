@@ -1,3 +1,7 @@
+// Copyright (c) 2026 zhangmengdi (NexusCockpit)
+// Licensed under the MIT License. See LICENSE in the project root for details.
+// Source: https://github.com/zmdhdu/NexusCockpit
+
 // Package config — NexusGate 配置加载
 //
 // 从环境变量 / .env 文件加载 Go 网关配置。

@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 根布局组件 — 所有页面共享的外层结构
  *
  * 包含: HTML 骨架、全局样式、侧边栏、主内容区、Sonner Toast 容器

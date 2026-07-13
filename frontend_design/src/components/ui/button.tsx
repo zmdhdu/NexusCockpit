@@ -1,3 +1,9 @@
+/**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";

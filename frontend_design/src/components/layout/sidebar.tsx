@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 侧边栏组件 — 以用户视角设计的导航
  *
  * v2.2.2 改进:

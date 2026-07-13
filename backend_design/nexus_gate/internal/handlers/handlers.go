@@ -1,3 +1,7 @@
+// Copyright (c) 2026 zhangmengdi (NexusCockpit)
+// Licensed under the MIT License. See LICENSE in the project root for details.
+// Source: https://github.com/zmdhdu/NexusCockpit
+
 // Package handlers — Go 原生处理非 AI 请求（W1/N2）
 //
 // 设计思想: Go 网关直接处理不需要 AI 的请求，减少 Python 服务负载。

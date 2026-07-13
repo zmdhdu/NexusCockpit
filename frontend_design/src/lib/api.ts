@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * API 客户端 — 前端与后端通信的统一入口
  *
  * 使用 axios 创建实例，自动处理:

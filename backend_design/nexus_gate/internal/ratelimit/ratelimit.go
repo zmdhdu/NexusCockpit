@@ -1,3 +1,7 @@
+// Copyright (c) 2026 zhangmengdi (NexusCockpit)
+// Licensed under the MIT License. See LICENSE in the project root for details.
+// Source: https://github.com/zmdhdu/NexusCockpit
+
 // Package ratelimit — 优先级令牌桶限流
 //
 // 支持三级优先级:

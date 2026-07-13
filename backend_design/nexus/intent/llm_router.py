@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 LLM Intent Router — 基于 LLM 的意图路由
 使用 Function Calling 从技能列表中选择最合适的技能

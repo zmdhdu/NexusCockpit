@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 认证状态管理 — v2.1 RBAC + 座舱选择
  *
  * 从 JWT Token 中解析用户角色和座舱 ID，

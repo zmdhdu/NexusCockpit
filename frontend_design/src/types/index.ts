@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 统一类型定义 — 全局共享的 TypeScript 接口与类型
  *
  * 所有跨模块复用的类型都集中在此文件导出，
