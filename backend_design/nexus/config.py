@@ -121,6 +121,12 @@ class LLMConfig(BaseSettings):
     max_tokens: int = Field(default=512)
     # API 调用超时时间 (秒)
     timeout: float = Field(default=30.0)
+    # v2.1.2: 反思校验开关 (关闭可减少一次 LLM 调用，适合免费 API 限流场景)
+    reflection_enabled: bool = Field(default=True, validation_alias="REFLECTION_ENABLED")
+    # v2.1.2: 记忆提取开关 (关闭可减少 1-2 次 LLM 调用，适合免费 API 限流场景)
+    memory_extraction_enabled: bool = Field(default=True, validation_alias="MEMORY_EXTRACTION_ENABLED")
+    # v2.1.2: LLM 并发限流 (同时最多发起的 chat/completions 请求数，0=不限)
+    llm_concurrency_limit: int = Field(default=0, validation_alias="LLM_CONCURRENCY_LIMIT")
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 

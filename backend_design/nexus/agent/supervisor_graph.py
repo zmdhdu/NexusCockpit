@@ -557,6 +557,8 @@ class SupervisorGraph:
               2. 检查搜索结果时效性是否被正确传达
             - 无工具数据时：轻量检查（非空、长度合理）
 
+        v2.1.2: 可通过 REFLECTION_ENABLED=false 关闭以减少 LLM 调用。
+
         Args:
             state: 包含 final_response 和 tool_result 的 SupervisorState
 
@@ -570,6 +572,18 @@ class SupervisorGraph:
         search_context = state.get("search_context", "")
 
         update: Dict[str, Any] = {"metadata": {}}
+
+        # v2.1.2: 反思开关 — 关闭时跳过所有 LLM 反思，仅做轻量检查
+        if not get_config().llm.reflection_enabled:
+            if not final_response or len(final_response.strip()) < 2:
+                update["final_response"] = "抱歉，我没有理解你的意思，能再说一次吗？"
+                update["metadata"]["reflection_result"] = "fallback_empty"
+            else:
+                update["metadata"]["reflection_result"] = "disabled_by_config"
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            logger.info(f"Reflection skipped (disabled by config): latency={latency_ms}ms")
+            return update
 
         # v2.2.2: 搜索类回复也做反思校验
         if not tool_result or not tool_result.get("message"):

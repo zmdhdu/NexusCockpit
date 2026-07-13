@@ -210,6 +210,8 @@ class MemoryManager:
             3. 冲突裁决：DELETE 旧 / IGNORE 新 / NONE 无冲突
             4. 双向写入：Milvus 向量 + Neo4j 图谱
 
+        v2.1.2: 可通过 MEMORY_EXTRACTION_ENABLED=false 关闭以减少 LLM 调用。
+
         Args:
             user_text: 用户输入文本
             user_id: 用户 ID
@@ -217,6 +219,12 @@ class MemoryManager:
         Returns:
             存储的记忆数量
         """
+        # v2.1.2: 记忆提取开关 — 关闭时跳过 LLM 提取和冲突检测
+        from nexus.config import get_config
+        if not get_config().llm.memory_extraction_enabled:
+            logger.debug("Memory extraction skipped (disabled by config)")
+            return 0
+
         triplets = await self.extractor.extract(user_text)
         if not triplets:
             return 0
