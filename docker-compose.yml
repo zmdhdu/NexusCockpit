@@ -230,12 +230,15 @@ services:
       - prometheus_data:/prometheus
     ports:
       - "9200:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # --- Grafana (Dashboard) ---
   grafana:
     image: grafana/grafana:10.4.0
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning
