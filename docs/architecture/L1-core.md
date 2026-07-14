@@ -46,6 +46,8 @@ config.asr.resolved_funasr_path()  # 解析为绝对路径
 | `LangfuseConfig` | 追踪配置 | `LANGFUSE_*` |
 | `ServerConfig` | 服务器配置 | `HOST`, `PORT`, `DEBUG` |
 | `TavilyConfig` | 搜索配置 | `TAVILY_*` |
+| `ProvidersConfig` | 双模式部署开关 | `VECTOR_STORE_PROVIDER`, `GRAPH_STORE_PROVIDER`, `CACHE_PROVIDER`, `RERANKER_PROVIDER` |
+| `RerankerConfig` | Rerank 重排配置 | `RERANK_MODEL` |
 
 ### core/logger.py — 结构化日志
 
@@ -119,3 +121,4 @@ signed = oss.sign_url("file.txt", expires=3600)  # 生成签名 URL
 2. **零依赖** — 核心层不依赖项目中其他任何层
 3. **全局单例** — 配置通过 `lru_cache` 实现单例，避免重复加载
 4. **路径解析** — 所有文件路径使用相对路径配置，通过 `resolved_*()` 方法获取绝对路径
+5. **双模式部署** — `ProvidersConfig` 控制 Milvus/Neo4j/Redis/Reranker 使用本地 Docker 还是云端托管，切线只需改 `.env` |

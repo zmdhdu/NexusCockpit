@@ -1,6 +1,7 @@
 # L6 API 层 (API Gateway)
 
 > 对应代码: `nexus/api/` + `nexus/main.py`
+> 最后更新: 2026-07-14
 
 ## 职责
 
@@ -19,6 +20,10 @@
 | `/health` | GET | 健康检查 |
 | `/chat` | POST | 文本对话 (非流式) |
 | `/chat/stream` | POST | 文本对话 (SSE 流式，含心跳+断开检测) |
+| `/chat/sessions` | GET | 获取当前座舱的会话列表 |
+| `/chat/sessions` | POST | 创建新会话 |
+| `/chat/sessions/{id}` | DELETE | 删除会话及其消息记录 |
+| `/chat/sessions/{id}/messages` | GET | 获取会话消息记录 |
 | `/vehicle/command` | POST | 车控命令 (JWT 认证) |
 | `/vehicle/status` | GET | 车辆状态查询 (JWT 认证) |
 | `/auth/token` | POST | JWT 令牌签发 |
@@ -42,8 +47,8 @@ from nexus.main import app
 # 应用生命周期 (lifespan):
 # 1. 加载配置 + 初始化日志 + 初始化 Prometheus 指标
 # 2. 初始化 Embedding 服务
-# 3. 连接 Milvus 向量存储
-# 4. 连接 Neo4j 图谱存储
+# 3. 初始化向量存储 (工厂模式: 本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定)
+# 4. 初始化图谱存储 (工厂模式: 本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定)
 # 5. 构建车控适配器 (mock/http/mcp)
 # 6. 初始化 OSS 对象存储
 # 7. 连接 Redis 语义缓存
@@ -63,7 +68,8 @@ from nexus.main import app
 POST /chat
 {
     "text": "把空调调到24度",
-    "user_id": "u1"
+    "user_id": "u1",
+    "session_id": "sess_abc123"
 }
 
 # 流式 (SSE)
@@ -71,13 +77,25 @@ POST /chat/stream
 {
     "text": "今天天气怎么样",
     "user_id": "u1",
+    "session_id": "sess_abc123",
     "stream": true
 }
-→ data: {"node": "planner", "data": {"intent": "weather"}}
-→ data: {"node": "responder", "data": {"chunk": "今天"}}
-→ data: {"node": "responder", "data": {"chunk": "天气"}}
-→ data: [DONE]
+→ data: {"type": "intent", "data": {"intent": "weather", "source": "llm"}}
+→ data: {"type": "experts", "data": {"active": ["chat_expert"]}}
+→ data: {"type": "action", "data": {"skill": "web_search", "status": "ok"}}
+→ data: {"type": "chunk", "data": {"text": "今天"}}
+→ data: {"type": "chunk", "data": {"text": "天气"}}
+→ data: {"type": "done", "data": {"response": "今天天气..."}}
 ```
+
+> **v2.2.4 会话并发锁**: 同一 session_id 的请求通过 `asyncio.Lock` 串行化，
+> 防止并发请求交叉污染会话历史。锁上限 500 个，超限时自动清理空闲锁。
+>
+> **v2.2.5 会话隔离修复**: `session_id` 为空时生成唯一临时 ID（`temp_xxx`），
+> 禁止回退到 `user_id`，确保不同对话之间的历史完全隔离。
+>
+> **v2.2.2 多会话管理**: 支持 POST/GET/DELETE `/chat/sessions` 管理会话，
+> 消息记录持久化到 MySQL `chat_logs` 表（按 `cockpit_id` + `session_id` 隔离）。
 
 ### routes/vehicle.py — 车控 API
 

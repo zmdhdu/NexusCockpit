@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 Memory Conflict Detector — 记忆冲突检测与一致性维护
 当新记忆与旧记忆冲突时，自动裁决并删除过期记忆

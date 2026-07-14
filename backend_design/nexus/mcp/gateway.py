@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 MCP Gateway — MCP (Model Context Protocol) 网关
 统一管理外部工具调用，支持车控工具的 MCP 协议暴露

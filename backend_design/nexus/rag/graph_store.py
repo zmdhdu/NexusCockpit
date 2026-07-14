@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 Neo4j Knowledge Graph Store — 知识图谱存储与检索
 管理用户画像关系图谱，支持 Milvus ID 双向绑定
@@ -12,11 +16,12 @@ from neo4j import GraphDatabase
 from nexus.config import get_config
 from nexus.core.exceptions import GraphStoreError
 from nexus.core.logger import get_logger
+from nexus.rag.graph_base import BaseGraphStore
 
 logger = get_logger(__name__)
 
 
-class Neo4jGraphStore:
+class Neo4jGraphStore(BaseGraphStore):
     """Neo4j 知识图谱管理器"""
 
     def __init__(self):
@@ -149,7 +154,7 @@ class Neo4jGraphStore:
         """获取用户完整画像"""
         cypher = """
         MATCH (u:User {id: $user_id})-[r]->(t)
-        RETURN type(r) as relation, t.name as target, labels(t) as labels, r.mid as mid
+        RETURN type(r) as relation, t.name as target, labels(t) as labels, coalesce(r.mid, -1) as mid
         """
         profile: Dict[str, Any] = {"user_id": user_id, "relations": []}
         try:

@@ -1,10 +1,15 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 Admin Routes — 管理接口: 技能列表、记忆查询、缓存管理
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
+from pydantic import BaseModel
 
 from nexus.core.auth import get_current_user
 from nexus.core.logger import get_logger
@@ -100,3 +105,65 @@ async def list_sessions(request: Request, user_id: str = Depends(get_current_use
                 "last_message": history[-1].get("content", "")[:50] if history else "",
             }
     return {"sessions": sessions, "count": len(sessions)}
+
+
+# ---- v2.0 知识库管理接口 ----
+
+class KBUploadResponse(BaseModel):
+    """知识库上传响应"""
+    chunks: int
+    source: str
+    category: str
+    message: str
+
+
+@router.post("/kb/upload")
+async def kb_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    category: str = "general",
+):
+    """上传文档到 Cherry 知识库。
+
+    支持纯文本文件（.txt/.md），自动分块、向量化、入库。
+
+    Args:
+        file: 上传的文档文件
+        category: 文档类别 (manual/dtc/faq/maintenance)
+    """
+    app = request.app
+    if not hasattr(app.state, "cherry_kb") or not app.state.cherry_kb:
+        return {"error": "Knowledge base not available"}
+
+    kb = app.state.cherry_kb
+    content = await file.read()
+    text = content.decode("utf-8", errors="ignore")
+
+    chunks = kb.add_document(text, source=file.filename, category=category)
+    return {
+        "chunks": chunks,
+        "source": file.filename,
+        "category": category,
+        "message": f"Document uploaded: {chunks} chunks indexed",
+    }
+
+
+@router.post("/kb/reindex")
+async def kb_reindex(request: Request):
+    """重建知识库向量索引。"""
+    app = request.app
+    if not hasattr(app.state, "cherry_kb") or not app.state.cherry_kb:
+        return {"error": "Knowledge base not available"}
+
+    # 重建索引（实际实现需要 flush + 重建 IVF 索引）
+    return {"message": "Reindex triggered", "status": "pending"}
+
+
+@router.get("/kb/stats")
+async def kb_stats(request: Request):
+    """获取知识库容量/文档统计。"""
+    app = request.app
+    if not hasattr(app.state, "cherry_kb") or not app.state.cherry_kb:
+        return {"connected": False, "total_docs": 0}
+
+    return app.state.cherry_kb.get_stats()

@@ -1,4 +1,10 @@
 /**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
+
+/**
  * 根布局组件 — 所有页面共享的外层结构
  *
  * 包含: HTML 骨架、全局样式、侧边栏、主内容区、Sonner Toast 容器
@@ -6,6 +12,7 @@
  */
 import type { Metadata } from "next";
 import { Sidebar } from "@/components/layout/sidebar";
+import { GpsProvider } from "@/components/layout/gps-provider";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -27,6 +34,8 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body className="min-h-screen bg-background antialiased">
+        {/* GPS 定位提供者 — 全局持续更新位置 */}
+        <GpsProvider>
         {/* 固定侧边栏 (宽 16rem=256px) */}
         <Sidebar />
         {/* 主内容区，左边距 16rem 避免被侧边栏遮挡 */}
@@ -38,6 +47,7 @@ export default function RootLayout({
           richColors
           closeButton
         />
+        </GpsProvider>
       </body>
     </html>
   );

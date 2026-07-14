@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 NexusCockpit 配置中心 (Configuration Center)
 
@@ -32,8 +36,41 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-# .env 文件统一放在项目根目录，前后端共享
-_ENV_FILE = os.path.join(_PROJECT_ROOT, ".env")
+
+# ============================================================
+# 环境文件加载策略 (local / prod 自动切换)
+# ============================================================
+# 优先级 (从高到低):
+#   1. 环境变量 APP_ENV=prod → 加载 .env.prod
+#   2. 环境变量 APP_ENV=local → 加载 .env.local
+#   3. 默认 (未设置 APP_ENV) → 加载 .env.local (本地开发默认)
+#   4. 如果目标文件不存在 → 回退到 .env (兼容旧逻辑)
+#
+# 使用方式:
+#   本地开发: 无需设置，默认加载 .env.local
+#   线上生产: export APP_ENV=prod  (或 docker 环境变量 APP_ENV=prod)
+
+_APP_ENV = os.getenv("APP_ENV", "local").strip().lower()
+_ENV_LOCAL = os.path.join(_PROJECT_ROOT, ".env.local")
+_ENV_PROD = os.path.join(_PROJECT_ROOT, ".env.prod")
+_ENV_FALLBACK = os.path.join(_PROJECT_ROOT, ".env")
+
+if _APP_ENV == "prod" and os.path.exists(_ENV_PROD):
+    _ENV_FILE = _ENV_PROD
+elif _APP_ENV == "local" and os.path.exists(_ENV_LOCAL):
+    _ENV_FILE = _ENV_LOCAL
+elif os.path.exists(_ENV_LOCAL):
+    _ENV_FILE = _ENV_LOCAL
+else:
+    _ENV_FILE = _ENV_FALLBACK
+
+# 显式加载环境文件到 os.environ，确保 .env.local 中的值不会被 .env 中的空值覆盖
+# pydantic-settings 在读取 env_file 时可能会被其他 .env 文件干扰
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(_ENV_FILE, override=True)
+except ImportError:
+    pass
 
 
 def _resolve_path(relative_path: str) -> str:
@@ -60,14 +97,14 @@ def _resolve_path(relative_path: str) -> str:
 class LLMConfig(BaseSettings):
     """大语言模型 (LLM) 配置。
 
-    管理与火山方舟 (Ark) API 的连接参数，包括模型选择、温度、超时等。
+    管理与 LLM 供应商 (硅基流动 / 火山方舟) 的连接参数，两者均为 OpenAI 兼容 API。
     """
 
-    # 火山方舟 API Key，从 .env 的 ARK_API_KEY 读取
+    # LLM API Key (硅基流动 / 火山方舟均兼容)，从 .env 的 ARK_API_KEY 读取
     ark_api_key: str = Field(default="", validation_alias="ARK_API_KEY")
-    # Ark API 基础地址 (北京区域)
+    # API 基础地址 (默认硅基流动，可切换为火山方舟)
     ark_base_url: str = Field(
-        default="https://ark.cn-beijing.volces.com/api/v3",
+        default="https://api.siliconflow.cn/v1",
         validation_alias="ARK_BASE_URL",
     )
     # 对话使用的 LLM 模型名称
@@ -84,6 +121,12 @@ class LLMConfig(BaseSettings):
     max_tokens: int = Field(default=512)
     # API 调用超时时间 (秒)
     timeout: float = Field(default=30.0)
+    # v2.1.2: 反思校验开关 (关闭可减少一次 LLM 调用，适合免费 API 限流场景)
+    reflection_enabled: bool = Field(default=True, validation_alias="REFLECTION_ENABLED")
+    # v2.1.2: 记忆提取开关 (关闭可减少 1-2 次 LLM 调用，适合免费 API 限流场景)
+    memory_extraction_enabled: bool = Field(default=True, validation_alias="MEMORY_EXTRACTION_ENABLED")
+    # v2.1.2: LLM 并发限流 (同时最多发起的 chat/completions 请求数，0=不限)
+    llm_concurrency_limit: int = Field(default=0, validation_alias="LLM_CONCURRENCY_LIMIT")
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
@@ -394,6 +437,66 @@ class TavilyConfig(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
 
+class AmapConfig(BaseSettings):
+    """高德地图 API 配置。
+
+    用于逆地理编码（坐标→地址）和 POI 周边搜索（周边美食/加油站/停车场等）。
+    申请: https://lbs.amap.com/api/webservice/guide/create-project/get-key
+    """
+
+    api_key: str = Field(default="", validation_alias="AMAP_KEY")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
+class ProvidersConfig(BaseSettings):
+    """双模式部署开关 — 控制各组件使用本地中间件还是云端托管。
+
+    每个开关取值:
+        - local:  使用本地 Docker 部署的中间件/模型 (开发默认)
+        - cloud:  使用云端托管服务 (Zilliz/AuraDB/云Redis/硅基流动)
+        - none:   仅 RERANKER_PROVIDER 支持，跳过重排省成本
+
+    切换线上时，把对应开关改为 cloud 并在下方各组件配置中填入云端 AK/SK，
+    代码无需改动。详见 docs/deployment/SETUP.md 双模式部署章节。
+    """
+
+    # 向量库: local=本地 Milvus | cloud=Zilliz Cloud
+    vector_store: str = Field(default="local", validation_alias="VECTOR_STORE_PROVIDER")
+    # 图谱: local=本地 Neo4j | cloud=Neo4j AuraDB
+    graph_store: str = Field(default="local", validation_alias="GRAPH_STORE_PROVIDER")
+    # 语义缓存: local=本地 Redis Stack | cloud=云 Redis (无 RediSearch 时自动降级 scan)
+    cache: str = Field(default="local", validation_alias="CACHE_PROVIDER")
+    # 重排: local=本地 BGE | cloud=硅基流动 Rerank | none=跳过
+    reranker: str = Field(default="local", validation_alias="RERANKER_PROVIDER")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+    def normalized(self) -> dict[str, str]:
+        """返回小写归一化后的 provider 取值，便于工厂函数比较。"""
+        return {
+            "vector_store": (self.vector_store or "local").strip().lower(),
+            "graph_store": (self.graph_store or "local").strip().lower(),
+            "cache": (self.cache or "local").strip().lower(),
+            "reranker": (self.reranker or "local").strip().lower(),
+        }
+
+
+class RerankerConfig(BaseSettings):
+    """Rerank 重排配置。
+
+    RERANKER_PROVIDER=cloud 时使用硅基流动 Rerank API (复用 ARK_API_KEY/ARK_BASE_URL)。
+    本地模式 (RERANKER_PROVIDER=local) 加载 ./models/reranker/bge-reranker-v2-m3 模型。
+    """
+
+    # 硅基流动 Rerank 模型 ID (云端模式)
+    model: str = Field(
+        default="BAAI/bge-reranker-v2-m3", validation_alias="RERANK_MODEL"
+    )
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
 class DataConfig(BaseSettings):
     """数据目录配置 — 所有路径使用项目根目录的相对路径。"""
 
@@ -473,6 +576,38 @@ class OSSConfig(BaseSettings):
             )
 
 
+class CockpitSettings(BaseSettings):
+    """v2.1 多座舱配置。
+
+    控制多座舱行为，包括座舱数量、隔离模式、SubAgent 巡检等。
+    """
+
+    # 默认座舱数量
+    default_cockpit_count: int = Field(default=3, validation_alias="COCKPIT_COUNT")
+    # SubAgent 巡检间隔范围（秒）
+    subagent_check_interval_min: int = Field(default=30, validation_alias="SUBAGENT_CHECK_MIN")
+    subagent_check_interval_max: int = Field(default=60, validation_alias="SUBAGENT_CHECK_MAX")
+    # MainAgent 确认是否启用
+    mainagent_confirm_enabled: bool = Field(default=True, validation_alias="MAINAGENT_CONFIRM_ENABLED")
+    # 隔离模式: strict(每座舱独立DB) / shared(共享DB+前缀)
+    isolation_mode: str = Field(default="shared", validation_alias="COCKPIT_ISOLATION_MODE")
+    # SubAgent 使用的 LLM 模型（降本策略：用便宜模型）
+    subagent_llm_model: str = Field(default="Qwen/Qwen2.5-7B-Instruct", validation_alias="SUBAGENT_LLM_MODEL")
+    # Go 网关配置
+    gate_host: str = Field(default="0.0.0.0", validation_alias="NEXUS_GATE_HOST")
+    gate_port: int = Field(default=8080, validation_alias="NEXUS_GATE_PORT")
+    gate_mode: str = Field(default="proxy", validation_alias="NEXUS_GATE_MODE")  # proxy / grpc
+    # RBAC 配置
+    rbac_default_role: str = Field(default="cockpit_user", validation_alias="RBAC_DEFAULT_ROLE")
+    rbac_admin_username: str = Field(default="admin", validation_alias="RBAC_ADMIN_USERNAME")
+    # 声纹配置
+    voiceprint_model: str = Field(default="cam_plus", validation_alias="VOICEPRINT_MODEL")
+    voiceprint_threshold: float = Field(default=0.7, validation_alias="VOICEPRINT_THRESHOLD")
+    voiceprint_enroll_count: int = Field(default=3, validation_alias="VOICEPRINT_ENROLL_COUNT")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
 class AppConfig(BaseSettings):
     """全局应用配置 — 所有子配置的聚合入口。
 
@@ -494,6 +629,10 @@ class AppConfig(BaseSettings):
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     tavily: TavilyConfig = Field(default_factory=TavilyConfig)
+    amap: AmapConfig = Field(default_factory=AmapConfig)
+    providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    cockpit: CockpitSettings = Field(default_factory=CockpitSettings)
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 

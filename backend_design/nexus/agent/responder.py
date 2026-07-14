@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 Responder Agent — 最终响应生成
 
@@ -61,35 +65,35 @@ class ResponderAgent:
         full_response = ""
 
         # 分支 A: 需要澄清
-        if state.need_clarification and state.clarification_prompt:
-            full_response = state.clarification_prompt
+        if state.get("need_clarification") and state.get("clarification_prompt"):
+            full_response = state["clarification_prompt"]
 
         # 分支 B: 技能已处理
-        elif state.skill_handled:
-            skill_result = state.skill_result
+        elif state.get("skill_handled"):
+            skill_result = state.get("skill_result")
             if skill_result and skill_result.reply:
                 full_response = skill_result.reply
 
             # 如果是搜索类技能，需要 LLM 组织回答
-            if state.skill_action == "web_search" and state.search_context:
+            if state.get("skill_action") == "web_search" and state.get("search_context"):
                 full_response = await self._generate_llm_response(
-                    state, search_ctx=state.search_context
+                    state, search_ctx=state.get("search_context", "")
                 )
 
         # 分支 C: LLM 闲聊兜底
         else:
             full_response = await self._generate_llm_response(state)
 
-        state.final_response = full_response
-        state.metadata["responder_latency_ms"] = round((perf_counter() - t0) * 1000, 2)
+        state["final_response"] = full_response
+        state.setdefault("metadata", {})["responder_latency_ms"] = round((perf_counter() - t0) * 1000, 2)
 
         # 更新历史
-        state.history.append({"role": "user", "content": state.user_input})
-        state.history.append({"role": "assistant", "content": full_response})
+        state.setdefault("history", []).append({"role": "user", "content": state.get("user_input", "")})
+        state["history"].append({"role": "assistant", "content": full_response})
 
         logger.info(
             f"Responder done: response_len={len(full_response)}, "
-            f"latency={state.metadata['responder_latency_ms']}ms"
+            f"latency={state['metadata']['responder_latency_ms']}ms"
         )
         return state
 
@@ -108,46 +112,58 @@ class ResponderAgent:
         full_response = ""
 
         # 分支 A: 需要澄清
-        if state.need_clarification and state.clarification_prompt:
-            full_response = state.clarification_prompt
+        if state.get("need_clarification") and state.get("clarification_prompt"):
+            full_response = state["clarification_prompt"]
             yield full_response
 
         # 分支 B: 技能已处理 (非搜索类)
-        elif state.skill_handled and state.skill_action != "web_search":
-            skill_result = state.skill_result
+        elif state.get("skill_handled") and state.get("skill_action") != "web_search":
+            skill_result = state.get("skill_result")
             if skill_result and skill_result.reply:
                 full_response = skill_result.reply
                 yield skill_result.reply
 
         # 分支 C: 搜索类 / LLM 闲聊
         else:
-            search_ctx = state.search_context if state.skill_action == "web_search" else ""
+            search_ctx = state.get("search_context", "") if state.get("skill_action") == "web_search" else ""
             async for chunk in self._stream_llm_response(state, search_ctx=search_ctx):
                 full_response += chunk
                 yield chunk
 
-        state.final_response = full_response
-        state.metadata["responder_latency_ms"] = round((perf_counter() - t0) * 1000, 2)
+        state["final_response"] = full_response
+        state.setdefault("metadata", {})["responder_latency_ms"] = round((perf_counter() - t0) * 1000, 2)
 
         # 更新历史
-        state.history.append({"role": "user", "content": state.user_input})
-        state.history.append({"role": "assistant", "content": full_response})
+        state.setdefault("history", []).append({"role": "user", "content": state.get("user_input", "")})
+        state["history"].append({"role": "assistant", "content": full_response})
 
     async def _generate_llm_response(
         self, state: AgentState, search_ctx: str = ""
     ) -> str:
         """非流式 LLM 回复"""
-        system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
+        # 搜索类技能使用专用提示词
+        if state.get("skill_action") == "web_search" and search_ctx:
+            system_msg = (
+                "你是车载语音助手小千。用户进行了联网搜索，请根据以下搜索结果组织回答。\n\n"
+                f"搜索结果：\n{search_ctx}\n\n"
+                "回答要求：\n"
+                "1. 根据搜索结果中的信息回答用户问题，不要编造\n"
+                "2. 回答要简洁实用，直接给出用户关心的核心信息\n"
+                "3. 如果搜索结果与问题相关，请总结关键信息\n"
+                "4. 回答不超过200字，使用自然口语化的表达"
+            )
+        else:
+            system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
 
         msgs, new_summary = await self.compressor.build_context(
             system_prompt=system_msg,
-            user_input=state.user_input,
-            history=state.history,
-            running_summary=state.running_summary,
-            memory_str=state.memory_str,
+            user_input=state.get("user_input", ""),
+            history=state.get("history", []),
+            running_summary=state.get("running_summary", ""),
+            memory_str=state.get("memory_str", ""),
             search_ctx=search_ctx,
         )
-        state.running_summary = new_summary
+        state["running_summary"] = new_summary
 
         try:
             response = await self.client.chat.completions.create(
@@ -165,17 +181,29 @@ class ResponderAgent:
         self, state: AgentState, search_ctx: str = ""
     ) -> AsyncGenerator[str, None]:
         """流式 LLM 回复"""
-        system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
+        # 搜索类技能使用专用提示词
+        if state.get("skill_action") == "web_search" and search_ctx:
+            system_msg = (
+                "你是车载语音助手小千。用户进行了联网搜索，请根据以下搜索结果组织回答。\n\n"
+                f"搜索结果：\n{search_ctx}\n\n"
+                "回答要求：\n"
+                "1. 根据搜索结果中的信息回答用户问题，不要编造\n"
+                "2. 回答要简洁实用，直接给出用户关心的核心信息\n"
+                "3. 如果搜索结果与问题相关，请总结关键信息\n"
+                "4. 回答不超过200字，使用自然口语化的表达"
+            )
+        else:
+            system_msg = "你叫小千，是一个活泼可爱的车载语音助手。请结合上下文极简回答用户，不超过30字。"
 
         msgs, new_summary = await self.compressor.build_context(
             system_prompt=system_msg,
-            user_input=state.user_input,
-            history=state.history,
-            running_summary=state.running_summary,
-            memory_str=state.memory_str,
+            user_input=state.get("user_input", ""),
+            history=state.get("history", []),
+            running_summary=state.get("running_summary", ""),
+            memory_str=state.get("memory_str", ""),
             search_ctx=search_ctx,
         )
-        state.running_summary = new_summary
+        state["running_summary"] = new_summary
 
         try:
             response = await self.client.chat.completions.create(

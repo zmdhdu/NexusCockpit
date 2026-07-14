@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 LLM Intent Router — 基于 LLM 的意图路由
 使用 Function Calling 从技能列表中选择最合适的技能
@@ -85,8 +89,9 @@ class LLMIntentRouter:
 1. 只能选择技能列表中的 name。
 2. 车控类请求优先选择对应 vehicle_* 技能。
 3. 搜索、点餐、注册声纹也必须走对应技能。
-4. 不要编造参数；缺参数时请明确请求澄清。
-5. confidence 取 0 到 1 之间的小数。
+4. 当用户询问"附近"、"周边"的美食、餐厅、加油站、停车场等基于当前位置的信息时，优先选择 amap_poi_search 技能，而非 web_search。
+5. 不要编造参数；缺参数时请明确请求澄清。
+6. confidence 取 0 到 1 之间的小数。
 
 用户输入:
 {text}

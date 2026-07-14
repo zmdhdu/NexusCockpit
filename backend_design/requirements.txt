@@ -19,6 +19,7 @@ starlette==0.50.0
 openai==2.15.0
 langgraph==1.0.6
 langgraph-checkpoint==4.0.0
+langgraph-checkpoint-sqlite>=2.0.0
 langgraph-prebuilt==1.0.6
 langgraph-sdk>=1.0.0
 langchain==1.2.3
@@ -30,16 +31,16 @@ langsmith>=1.0.0
 # --- RAG / Vector Store ---
 pymilvus==2.6.6
 neo4j>=5.18.0
+rank-bm25>=0.2.2
+sentence-transformers>=2.7.0
 
 # --- Middleware ---
 redis==5.0.0
 celery==5.3.0
 kombu==5.3.0
 
-# --- Database ---
-SQLAlchemy==2.0.45
+# --- Database (MySQL async driver) ---
 aiomysql>=0.2.0
-alembic==1.17.2
 
 # --- Config / Validation ---
 pydantic==2.12.5
@@ -77,8 +78,6 @@ orjson==3.11.5
 tenacity==9.1.2
 tiktoken==0.12.0
 PyYAML==6.0.3
-tiktoken-ext>=0.6.0
-
 # --- Search ---
 tavily==1.1.0
 duckduckgo-search>=4.0.0

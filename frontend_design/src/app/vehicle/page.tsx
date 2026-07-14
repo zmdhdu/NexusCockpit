@@ -1,15 +1,12 @@
-import { VehiclePanel } from "@/components/vehicle/vehicle-panel";
+/**
+ * Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ * Licensed under the MIT License. See LICENSE in the project root for details.
+ * Source: https://github.com/zmdhdu/NexusCockpit
+ */
 
+import { redirect } from "next/navigation";
+
+/** /vehicle 已合并到 /cockpit，自动跳转 */
 export default function VehiclePage() {
-  return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">车控面板</h1>
-        <p className="text-sm text-muted-foreground">
-          可视化控制车辆各子系统
-        </p>
-      </div>
-      <VehiclePanel />
-    </div>
-  );
+  redirect("/cockpit");
 }

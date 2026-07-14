@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 Intent Router Service — 统一意图路由服务
 
@@ -42,6 +46,7 @@ class IntentRouterService:
         "Call_elm", "Food_candidate", "Need_Search", "Register_Action",
         "Climate_Action", "Window_Action", "Seat_Action",
         "Navigation_Action", "Media_Action", "Vehicle_Status_Action",
+        "Poi_Search_Action",  # v2.2.3: 高德 POI 周边搜索
     )
 
     def __init__(
@@ -73,6 +78,12 @@ class IntentRouterService:
     async def route(self, text: str) -> Dict[str, Any]:
         """路由用户意图，返回标准意图字典。
 
+        优化路由顺序（v2.1 性能优化）:
+          Level 1: 启发式规则 — 关键词匹配，<1ms，覆盖常见车控指令
+          Level 2: LLM 路由 — 语义理解，1-3s，处理复杂/模糊意图
+          Level 3: BERT 路由 — 微调模型分类（可选）
+          Level 4: 默认闲聊
+
         Args:
             text: 用户输入文本
 
@@ -81,7 +92,14 @@ class IntentRouterService:
         """
         default = self._build_default_intent()
 
-        # Level 1: LLM 路由
+        # Level 1: 启发式规则（快速路径，<1ms）
+        # 常见车控指令（空调/车窗/座椅/导航/音乐/车况）直接命中，无需等 LLM
+        heuristic_intent = self.heuristic.route(text)
+        if heuristic_intent:
+            return {**default, **heuristic_intent, "Route_Source": "heuristic"}
+
+        # Level 2: LLM 路由（慢速路径，1-3s）
+        # 启发式未命中时，用 LLM 理解复杂/模糊意图
         if self.llm_enabled and self.llm_router:
             try:
                 decision = await self.llm_router.route(text)
@@ -91,11 +109,6 @@ class IntentRouterService:
                         return resolved
             except Exception as e:
                 logger.warning(f"LLM routing failed, falling back: {e}")
-
-        # Level 2: 启发式规则
-        heuristic_intent = self.heuristic.route(text)
-        if heuristic_intent:
-            return {**default, **heuristic_intent, "Route_Source": "heuristic"}
 
         # Level 3: BERT 路由 (可选)
         if self.bert_router:
@@ -131,6 +144,7 @@ class IntentRouterService:
             "Navigation_Action": {},
             "Media_Action": {},
             "Vehicle_Status_Action": {},
+            "Poi_Search_Action": {},  # v2.2.3: 高德 POI 周边搜索
             "Need_Clarification": False,
             "Clarification_Prompt": "",
             "Route_Source": "default",
@@ -180,6 +194,19 @@ class IntentRouterService:
             if not query:
                 return {}
             default["Need_Search"] = query
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "amap_poi_search":
+            keyword = str(arguments.get("keyword") or "").strip()
+            if not keyword:
+                return {}
+            default["Poi_Search_Action"] = {
+                "keyword": keyword,
+                "poi_type": str(arguments.get("poi_type") or ""),
+                "radius": arguments.get("radius", 3000),
+            }
             default["Route_Source"] = "llm"
             default["Route_Confidence"] = confidence
             return default
@@ -234,7 +261,22 @@ class IntentRouterService:
             return default
 
         if tool_name == "vehicle_navigation":
+            op = str(arguments.get("op") or "").strip()
             dest = str(arguments.get("destination") or "").strip()
+
+            # 位置查询（op=location 或类似值）不需要目的地
+            if op in ("location", "current_location", "where", "位置", "我在哪"):
+                default["Navigation_Action"] = {
+                    "op": "location",
+                    "destination": "",
+                    "waypoint": "",
+                    "mode": "drive",
+                }
+                default["Route_Source"] = "llm"
+                default["Route_Confidence"] = confidence
+                return default
+
+            # 导航到目的地需要 destination
             if not dest:
                 return {}
             default["Navigation_Action"] = {
@@ -258,7 +300,8 @@ class IntentRouterService:
             return default
 
         if tool_name == "vehicle_status":
-            default["Vehicle_Status_Action"] = {"op": "status"}
+            op = str(arguments.get("op") or "status")
+            default["Vehicle_Status_Action"] = {"op": op}
             default["Route_Source"] = "llm"
             default["Route_Confidence"] = confidence
             return default

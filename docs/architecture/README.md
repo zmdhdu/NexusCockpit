@@ -1,16 +1,28 @@
 # project_knowledge 目录索引
 
 > 本目录包含 M-RAG-Voice 项目的全部知识文档和技术方案。
-> 最后更新：2026-07-07
+> 最后更新：2026-07-08
 
 ## 文件清单
 
 | 文件 | 说明 | 目标读者 |
 |------|------|----------|
 | `structure.md` | 项目架构全景文档（架构图、学习路径、面试题、flowchart） | 新人小白 / 面试备战 / 架构理解 |
-| `vehicle_agent_improvement_plan.md` | **深度技术方案 V2**（多 Agent + GraphRAG + 中间件 + 前端 + 监控） | 架构师 / 高级开发 / 面试展示 |
-| `vehicle_agent_architecture_landing.md` | **落地实施 v3**（C++/Go/Rust/Python 作为选型池按场景取用 + 三档落地范围 + 技术栈复用矩阵 + IPC 契约 + 显存预算 + 安全闸 + Win11 本地落地 Runbook） | 实施工程师 / 全栈开发 / 落地交付 |
-| `gap_analysis.md` | **查缺补漏**（对 structure.md 与 V2 方案的 21 项 gap 诊断 + 优先级落地建议） | 架构师 / 技术负责人 |
+| `overview.md` | 7 层架构总览 | 架构师 / 新人 |
+| `L0-infrastructure.md` | Docker Compose 编排 | 运维 / 部署 |
+| `L1-core.md` | 配置/日志/异常/熔断/OSS | 后端开发 |
+| `L2-data.md` | v2.0: GraphRAG 三路检索 + Rerank + CherryKB + 记忆系统 | 后端开发 |
+| `L3-service.md` | ASR/TTS/技能系统 (21 个)/车控/意图路由 | 后端开发 |
+| `L4-agent.md` | v2.0: Supervisor + 5 Expert Agents 工作流 | 后端开发 / 架构师 |
+| `L5-middleware.md` | v2.0: RediSearch KNN 缓存/限流/会话/队列 | 后端开发 |
+| `L6-api.md` | REST/SSE/WebSocket + 知识库管理路由 | 后端开发 / 前端联调 |
+| `L7-observability.md` | Langfuse + Prometheus + Grafana | 运维 / 架构师 |
+| `v2.0_improve.md` | v2.0 改进方案 (规划文档) | 架构师 |
+| `v2.0_code_review.md` | v2.0 代码审查报告 | 架构师 / 技术 Lead |
+| `v2.0_change_impact.md` | v2.0 变更影响评估 | 架构师 / 技术 Lead |
+| `vehicle_agent_improvement_plan.md` | **深度技术方案 V2** | 架构师 / 高级开发 |
+| `vehicle_agent_architecture_landing.md` | **落地实施 v3** | 实施工程师 / 全栈开发 |
+| `gap_analysis.md` | **查缺补漏** | 架构师 / 技术负责人 |
 
 > **阅读顺序建议**：先 `structure.md` 建立全景 → `vehicle_agent_improvement_plan.md` 看深度方案 → `gap_analysis.md` 知道哪里要补 → `vehicle_agent_architecture_landing.md` 据此写代码落地。
 > **冲突裁决**：当 `vehicle_agent_architecture_landing.md` 附录 A 与 V2 方案冲突时，以 Landing 文档为准。
@@ -170,6 +182,7 @@ make monitor               # Grafana → http://localhost:3001
 | `fronted-design` | `.catpaw/skills/fronted-design/` | 前端页面/组件设计 |
 | `doc-sync` | `.catpaw/skills/doc-sync/` | 代码修改后自动检查文档一致性并同步更新 |
 | `post-code-guardian` | `.catpaw/skills/post-code-guardian/` | 代码修改后自动编排守护（code-review→code-doc→doc-sync） |
+| `tech-stack-guide` | `.catpaw/skills/tech-stack-guide/` | 技术栈学习导航，帮助新人系统学习项目技术栈 |
 
 ## 技术栈覆盖（V2 完整版）
 

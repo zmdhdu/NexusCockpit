@@ -13,6 +13,8 @@
 - Prometheus (指标采集)
 - Grafana (可视化面板)
 
+> **双模式部署**: 所有中间件均可通过 `.env` 的 `*_PROVIDER` 开关切换为云端托管服务（Zilliz Cloud / AuraDB / 云 Redis / 硅基流动 Rerank），详见 `docs/deployment/dual_云端与本地部署.md`。
+
 ## 组件清单
 
 | 服务 | 镜像 | 端口 | 用途 |
@@ -23,7 +25,7 @@
 | Neo4j | neo4j:5.19.0 | 7474, 7687 | 知识图谱 |
 | Redis | redis:7.2-alpine | 6379 | 缓存/限流/PubSub |
 | RabbitMQ | rabbitmq:3.13-management | 5672, 15672 | 消息队列 |
-| MySQL | mysql:8.0 | 3306 | 关系型数据 |
+| MySQL | mysql:8.0 | 3306 | 用户数据/审计日志 |
 | Prometheus | prom/prometheus:v2.51.0 | 9090 | 指标采集 |
 | Grafana | grafana/grafana:10.4.0 | 3001 | 可视化面板 |
 
@@ -61,7 +63,7 @@ docker compose down -v
 - `neo4j_data` — Neo4j 图谱数据
 - `redis_data` — Redis AOF 持久化
 - `rabbitmq_data` — RabbitMQ 消息持久化
-- `mysql_data` — MySQL 数据
+- `mysql_data` — MySQL 数据库数据
 - `prometheus_data` — Prometheus 指标历史
 - `grafana_data` — Grafana 面板配置
 
@@ -73,4 +75,4 @@ docker compose down -v
 | Redis | `redis-cli ping` |
 | RabbitMQ | `rabbitmq-diagnostics check_running` |
 | Neo4j | `http://localhost:7474` |
-| MySQL | MySQL 连接测试 |
+| MySQL | `mysqladmin ping -h localhost` |

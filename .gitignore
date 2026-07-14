@@ -10,8 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -32,10 +32,11 @@ ENV/
 *.swp
 *.swo
 
-# Environment
-.env
+# Environment (敏感配置，不提交到 GitHub)
 .env.local
+.env.prod
 .env.production
+# .env 作为模板文件可提交 (不含真实密钥)
 
 # Docker
 docker-compose.override.yml
@@ -78,6 +79,8 @@ models/tts/cosyvoice/*
 !models/tts/cosyvoice/README.md
 models/llm/qwen/*
 !models/llm/qwen/README.md
+# Ignore entire bge-reranker-v2-m3 model directory (contains .git from HuggingFace clone + 2.1GB model weights)
+models/reranker/bge-reranker-v2-m3/
 
 # Keep model directory structure
 !models/asr/
@@ -88,6 +91,7 @@ models/llm/qwen/*
 !models/tts/cosyvoice/
 !models/llm/
 !models/llm/qwen/
+!models/reranker/
 
 # ============================================================
 # Data files (user-generated, not tracked)
@@ -115,3 +119,21 @@ data/temp/*
 *.onnx
 *.safetensors
 *.zip
+
+# ============================================================
+# Installer packages (do not track)
+# ============================================================
+*.whl
+
+# ============================================================
+# Frontend (Next.js under frontend_design/)
+# ============================================================
+frontend_design/node_modules/
+frontend_design/.next/
+frontend_design/out/
+frontend_design/build/
+
+# ============================================================
+# Backend runtime data (SQLite checkpoints, etc.)
+# ============================================================
+backend_design/data/

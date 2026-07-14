@@ -1,3 +1,7 @@
+# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Licensed under the MIT License. See LICENSE in the project root for details.
+# Source: https://github.com/zmdhdu/NexusCockpit
+
 """
 MCP Vehicle Bus Adapter — 通过 MCP (Model Context Protocol) 对接车控服务
 使用 stdio JSON-RPC 传输层

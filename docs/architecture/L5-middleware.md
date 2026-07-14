@@ -10,7 +10,9 @@
 - **任务队列** — Celery + RabbitMQ 异步任务
 - **会话存储** — Redis 持久化会话历史（降级内存回退）
 
-## 语义缓存 (redis_cache.py)
+## 语义缓存 (redis_cache.py) — v2.0 Redis Stack KNN
+
+v2.0 从 O(n) 遍历升级为 RediSearch VECTOR KNN 向量检索 O(log n)。
 
 ```python
 from nexus.middleware.redis_cache import SemanticCache
@@ -18,7 +20,7 @@ from nexus.middleware.redis_cache import SemanticCache
 cache = SemanticCache(embedding_service)
 await cache.connect()
 
-# 查询缓存
+# 查询缓存 (KNN 向量检索)
 hit = await cache.get(query="把空调调到24度", user_id="u1")
 if hit:
     return hit["response"]  # 缓存命中
@@ -28,19 +30,31 @@ await cache.set(
     query="把空调调到24度",
     response={"response": "好的，已为您将空调调到24度"},
     user_id="u1",
-    has_side_effect=False,  # 车控指令必须设为 True，防止缓存命中后不执行
+    ttl=3600,                # v2.0: TTL 分级（闲聊 1h、知识库 24h）
+    has_side_effect=False,   # 车控指令必须设为 True，防止缓存命中后不执行
 )
 ```
 
-### 工作原理
+### 工作原理 (v2.0 KNN)
 
 ```
 用户查询
   → Embedding 向量化
-  → Redis 向量搜索 (相似度 > 0.92)
+  → RediSearch FT.SEARCH KNN (相似度 > 0.92)
     ├─ 命中 → 返回缓存的响应
     └─ 未命中 → 走正常流程 → 结果写入缓存
+
+Fallback: RediSearch 不可用时自动回退到 O(n) 遍历模式
 ```
+
+### v2.0 新增特性
+
+- **KNN 向量检索**: RediSearch VECTOR FLAT 索引，O(log n) 复杂度
+- **按用户分片**: `user_id` TAG 字段隔离
+- **TTL 分级**: 闲聊 1h、知识库 24h、车控永不上缓存
+- **副作用隔离**: `has_side_effect=True` 的响应永不写入缓存
+- **降级模式**: Redis Stack 不可用时自动回退到 O(n) 遍历
+- **双模式支持**: `CACHE_PROVIDER=cloud` 时自动跳过 RediSearch 索引初始化，使用 scan 降级模式，兼容无 RediSearch 模块的云 Redis
 
 ### 配置
 

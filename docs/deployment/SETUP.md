@@ -316,8 +316,21 @@ cp .env.example .env
 
 | 变量 | 说明 | 获取方式 |
 |------|------|----------|
-| `ARK_API_KEY` | 火山引擎 Ark API Key | [console.volcengine.com/ark](https://console.volcengine.com/ark) |
+| `ARK_API_KEY` | LLM/Embedding API Key (火山方舟或硅基流动) | [console.volcengine.com/ark](https://console.volcengine.com/ark) 或 [cloud.siliconflow.cn](https://cloud.siliconflow.cn) |
 | `TAVILY_API_KEY` | Tavily 搜索 API Key | [tavily.com](https://tavily.com) |
+
+### 双模式部署开关 (本地 ⇄ 云端)
+
+所有中间件均可通过 `.env` 的 `*_PROVIDER` 开关切换本地 Docker 或云端托管：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `VECTOR_STORE_PROVIDER` | `local` | `local`=本地 Milvus / `cloud`=Zilliz Cloud |
+| `GRAPH_STORE_PROVIDER` | `local` | `local`=本地 Neo4j / `cloud`=AuraDB |
+| `CACHE_PROVIDER` | `local` | `local`=本地 Redis / `cloud`=云 Redis |
+| `RERANKER_PROVIDER` | `local` | `local`=本地 BGE / `cloud`=硅基流动 / `none`=跳过 |
+
+> 切换云端时只需改 provider 为 `cloud` 并填入对应云端 AK/SK，代码无需改动。详见 `docs/deployment/dual_云端与本地部署.md`。
 
 ### 可选配置
 
