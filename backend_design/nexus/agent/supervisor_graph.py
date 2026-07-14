@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from datetime import datetime, timezone, timedelta
 from time import perf_counter
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -580,6 +581,14 @@ class SupervisorGraph:
                 update["metadata"]["reflection_result"] = "fallback_empty"
             else:
                 update["metadata"]["reflection_result"] = "disabled_by_config"
+
+            # v2.2.5: 即使反思禁用，也要做幻觉兜底检查
+            # 防止 LLM 编造对话历史（如"您最初是问..."）
+            hallucination_fix = self._post_check_chat_response(state, final_response)
+            if hallucination_fix is not None:
+                update["final_response"] = hallucination_fix
+                update["metadata"]["reflection_result"] = "hallucination_guard"
+
             latency_ms = round((perf_counter() - t0) * 1000, 2)
             update["metadata"]["reflection_latency_ms"] = latency_ms
             logger.info(f"Reflection skipped (disabled by config): latency={latency_ms}ms")
@@ -848,12 +857,25 @@ class SupervisorGraph:
         memory_str = state.get("memory_str", "")
         habits_str = state.get("habits_str", "")
 
+        # v2.2.4: 注入当前东八区时间，让 LLM 能正确回答时间相关问题
+        cn_tz = timezone(timedelta(hours=8))
+        now_cn = datetime.now(cn_tz)
+        weekday_map = {"Monday": "星期一", "Tuesday": "星期二", "Wednesday": "星期三",
+                        "Thursday": "星期四", "Friday": "星期五", "Saturday": "星期六",
+                        "Sunday": "星期日"}
+        weekday_cn = weekday_map.get(now_cn.strftime("%A"), now_cn.strftime("%A"))
+        current_time_str = (
+            f"{now_cn.strftime('%Y年%m月%d日')} {weekday_cn} "
+            f"{now_cn.strftime('%H:%M')}"
+        )
+
         # 默认使用 chat 提示词（v2.1 增强版）
         prompt = self.prompt_manager.render(
             "chat",
             user_profile=profile_str,
             memory=memory_str,
             user_habits=habits_str,
+            current_time=current_time_str,
         )
         if prompt:
             # v2.2.1: 追加位置状态约束
@@ -864,6 +886,7 @@ class SupervisorGraph:
         # Fallback
         fallback = (
             "你叫小千，是一个智能车载语音助手。"
+            f"当前时间: {current_time_str}\n"
             f"{profile_str}\n{memory_str}"
         )
         if location_status:
@@ -903,8 +926,92 @@ class SupervisorGraph:
 
         return ""
 
+    # ---- v2.2.5: 闲聊预校验 & 幻觉兜底 ----
+
+    # 用户询问对话历史的关键词模式
+    _HISTORY_QUERY_PATTERNS = [
+        "第一个问题", "第一句话", "第一次问", "刚才问", "之前问",
+        "刚才说", "之前说", "上次问", "刚才聊", "之前聊",
+        "还记得我", "你还记得", "我说了什么", "我问了什么",
+        "我们聊了什么", "对话历史", "聊天记录",
+    ]
+
+    # LLM 编造对话历史的可疑模式
+    _HALLUCINATED_HISTORY_PATTERNS = [
+        "您最初是问", "你最初是问", "您第一次问", "你第一次问",
+        "您刚才问的是", "你刚才问的是", "您之前问的是", "你之前问的是",
+        "您的第一个问题", "你的第一个问题", "您第一句话", "你第一句话",
+    ]
+
+    def _is_history_query(self, user_input: str) -> bool:
+        """【v2.2.5】检测用户是否在询问当前对话的历史记录。"""
+        return any(p in user_input for p in self._HISTORY_QUERY_PATTERNS)
+
+    def _has_history(self, state: SupervisorState) -> bool:
+        """【v2.2.5】检查当前对话是否有历史记录（排除当前这一轮）。"""
+        history = state.get("history", [])
+        # history 中每轮包含 user + assistant 两条，至少 2 条才算有历史
+        return bool(history) and len(history) >= 2
+
+    def _is_hallucinated_history(self, response: str) -> bool:
+        """【v2.2.5】检测 LLM 回复是否包含编造的对话历史。"""
+        return any(p in response for p in self._HALLUCINATED_HISTORY_PATTERNS)
+
+    def _pre_check_chat_response(self, state: SupervisorState) -> str | None:
+        """【v2.2.5】闲聊预校验 — 在调用 LLM 之前拦截明显的问题。
+
+        检查场景:
+            1. 用户询问对话历史，但当前对话刚刚开始（无历史）
+               → 直接返回"这是新对话"，不交给 LLM 编造
+
+        Returns:
+            如果拦截成功，返回替代回复文本；否则返回 None 表示需要继续调用 LLM。
+        """
+        user_input = state.get("user_input", "")
+
+        # 场景 1: 用户问对话历史，但当前对话没有历史
+        if self._is_history_query(user_input) and not self._has_history(state):
+            logger.info(
+                f"Pre-check intercepted: history query with empty history, "
+                f"user_input='{user_input[:50]}'"
+            )
+            return "这是一个新的对话，我们还没有之前的交流记录。请问有什么可以帮您的？"
+
+        return None
+
+    def _post_check_chat_response(self, state: SupervisorState, response: str) -> str | None:
+        """【v2.2.5】闲聊后校验 — 在 LLM 回复返回后、呈现给用户前检查。
+
+        检查场景:
+            1. 当前对话无历史，但 LLM 回复中出现了"您最初是问"等编造历史的模式
+               → 覆盖为安全回复
+
+        Returns:
+            如果检测到问题，返回修正后的回复；否则返回 None 表示原回复可用。
+        """
+        user_input = state.get("user_input", "")
+
+        # 场景 1: 无历史但 LLM 编造了对话历史
+        if (not self._has_history(state)
+                and self._is_hallucinated_history(response)):
+            logger.warning(
+                f"Post-check intercepted: hallucinated history detected, "
+                f"user_input='{user_input[:50]}', response='{response[:80]}'"
+            )
+            return "这是一个新的对话，我们还没有之前的交流记录。请问有什么可以帮您的？"
+
+        return None
+
     async def _generate_llm_response(self, state: SupervisorState) -> str:
-        """调用 LLM 生成回复（非流式）。"""
+        """调用 LLM 生成回复（非流式）。
+
+        v2.2.5: 增加预校验和后校验，防止编造对话历史。
+        """
+        # v2.2.5: 预校验 — 拦截明显的问题，不浪费 LLM 调用
+        pre_check = self._pre_check_chat_response(state)
+        if pre_check is not None:
+            return pre_check
+
         system_msg = self._get_system_prompt(state)
 
         # 搜索类技能不需要重复传入 search_ctx（已在 system_msg 中）
@@ -926,13 +1033,29 @@ class SupervisorGraph:
                 temperature=0.7,
                 max_tokens=get_config().llm.max_tokens,
             )
-            return response.choices[0].message.content.strip()
+            result = response.choices[0].message.content.strip()
+
+            # v2.2.5: 后校验 — 检测 LLM 是否编造了对话历史
+            post_check = self._post_check_chat_response(state, result)
+            if post_check is not None:
+                return post_check
+
+            return result
         except Exception as e:
             logger.error(f"LLM response failed: {e}")
             return f"抱歉，我遇到了一些问题: {e}"
 
     async def _stream_llm_response(self, state: SupervisorState) -> AsyncGenerator[str, None]:
-        """流式调用 LLM 生成回复。"""
+        """流式调用 LLM 生成回复。
+
+        v2.2.5: 增加预校验，如果预校验拦截则直接返回替代回复。
+        """
+        # v2.2.5: 预校验 — 拦截明显的问题，不浪费 LLM 调用
+        pre_check = self._pre_check_chat_response(state)
+        if pre_check is not None:
+            yield pre_check
+            return
+
         system_msg = self._get_system_prompt(state)
 
         # 搜索类技能不需要重复传入 search_ctx（已在 system_msg 中）
@@ -1122,9 +1245,10 @@ class SupervisorGraph:
 
         # 分支 C: LLM 闲聊
         if not full_response:
-            async for chunk in self._stream_llm_response(state):
-                full_response += chunk
-                yield chunk
+            # v2.2.5: 闲聊回复改为"先生成完整回复 → 校验 → 再发送"
+            # 不再直接流式输出未校验的内容，防止幻觉信息呈现给用户
+            full_response = await self._generate_llm_response(state)
+            yield full_response
 
         state["final_response"] = full_response
 
@@ -1238,9 +1362,13 @@ class SupervisorGraph:
                         break
 
         if not full_response:
-            async for chunk in self._stream_llm_response(state):
-                full_response += chunk
-                yield {"type": "chunk", "data": {"chunk": chunk}}
+            # v2.2.5: 闲聊回复改为"先生成完整回复 → 校验 → 再发送"
+            # 不再直接流式输出未校验的内容，防止幻觉信息呈现给用户
+            # 预校验（_pre_check_chat_response）已内置于 _generate_llm_response
+            # 后校验（_post_check_chat_response）也内置于 _generate_llm_response
+            yield {"type": "thinking", "data": {"message": "正在生成回复..."}}
+            full_response = await self._generate_llm_response(state)
+            yield {"type": "chunk", "data": {"chunk": full_response}}
 
         state["final_response"] = full_response
         state.setdefault("history", []).extend([

@@ -1,7 +1,7 @@
 # L4 Agent 层 (Multi-Agent)
 
 > 对应代码: `nexus/agent/` + `nexus/intent/`
-> 最后更新: 2026-07-08
+> 最后更新: 2026-07-14
 
 ## 职责
 
@@ -9,7 +9,11 @@
 - Supervisor 负责记忆召回、意图路由、专家分派决策
 - 5 个专家 Agent 并行执行各自领域的技能
 - Responder 汇总专家输出，生成最终回复
+- Reflection (v2.2) 对 LLM 输出做事实性/一致性/无幻觉检查
 - Reviewer 质量检查 + 记忆存储 + 延迟统计
+
+> **v2.2.5 更新**: 新增闲聊预校验（Pre-check）和幻觉兜底（Post-check），
+> 防止 LLM 编造对话历史。流式模式改为"先生成完整回复 → 校验 → 再发送"。
 
 ## 工作流 (v2.0)
 
@@ -45,8 +49,19 @@
                    ┌─────────▼─────────┐
                    │    Responder      │
                    │  · 汇总专家输出    │
-                   │  · LLM 流式生成    │
+                   │  · LLM 回复生成    │
                    │  · 技能结果透传    │
+                   │  · v2.2.5: 预校验  │
+                   │    + 后校验        │
+                   └─────────┬─────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │   Reflection      │
+                   │  (v2.2 新增)       │
+                   │  · 事实性检查      │
+                   │  · 无幻觉检查      │
+                   │  · v2.2.5: 兜底    │
+                   │    幻觉检测        │
                    └─────────┬─────────┘
                              │
                    ┌─────────▼─────────┐
@@ -95,6 +110,11 @@ async for event in agent.stream_with_events(state):
 - 专家并行执行: `asyncio.gather` 同时调用所有活跃专家
 - `expert_results` 通过 `Annotated[list, add]` reducer 自动累加
 - 支持 `SqliteSaver` checkpoint 持久化（thread_id = session_id）
+- v2.2: Reflection 节点对工具/搜索类回复做 LLM 反思校验
+- v2.2.4: 系统提示词注入当前东八区时间（`current_time` 变量）
+- v2.2.5: 闲聊预校验（`_pre_check_chat_response`）拦截无历史的历史查询
+- v2.2.5: 闲聊后校验（`_post_check_chat_response`）检测编造对话历史
+- v2.2.5: 流式闲聊改为"先生成完整回复 → 校验 → 再发送"，防止未校验内容呈现给用户
 
 ### experts/ — 5 个专家 Agent
 
@@ -211,7 +231,7 @@ system_msg = pm.render("chat", user_profile={}, memory="用户喜欢24度")
 
 | 模板文件 | 用途 |
 |----------|------|
-| `chat.md` | 闲聊系统提示词 |
+| `chat.md` | 闲聊系统提示词 (v2.3: 含 `current_time` + 记忆使用约束) |
 | `clarification.md` | 澄清追问提示词 |
 | `memory_extract.md` | 记忆提取提示词 |
 | `search.md` | 搜索结果组织提示词 |

@@ -262,12 +262,13 @@ class MockVehicleBus(BaseVehicleAdapter):
                1a. 高德地图 (Amap) — 国内服务，速度快
                1b. Nominatim (OpenStreetMap) — 国际备选
             2. IP 定位 — 多服务尝试
+               2a. 高德 IP 定位 API — 国内服务，速度快
+               2b. ip-api.com — 国际备选
             3. 降级：返回坐标字符串（仍存储坐标）
 
-        v2.2.3 修复:
-            - 优先使用高德地图逆地理编码（国内速度快）
-            - 即使逆地理编码失败也存储坐标
-            - 超时从 5s 降至 3s，总最大阻塞 9s → 6s
+        v2.2.4 修复:
+            - IP 定位优先使用高德 IP API（国内速度快），ip-api.com 降为备选
+            - 修复 ip-api.com 在国内超时导致定位失败的问题
         """
         # v2.2.3: 无论逆地理编码是否成功，先存储坐标
         if latitude is not None and longitude is not None:
@@ -327,13 +328,50 @@ class MockVehicleBus(BaseVehicleAdapter):
             except Exception as e:
                 logger.warning(f"GPS reverse geocoding (Nominatim) failed: {e}")
 
-        # 2a. IP 定位 — ip-api.com (国际服务)
+        # 2a. IP 定位 — 高德 IP 定位 API (国内服务，速度快)
+        try:
+            import httpx
+            from nexus.config import get_config
+            amap_key = get_config().amap.api_key
+            if amap_key:
+                resp = httpx.get(
+                    "https://restapi.amap.com/v3/ip",
+                    params={"key": amap_key, "output": "json"},
+                    timeout=3.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("status") == "1":
+                        province = data.get("province", "") or ""
+                        city = data.get("city", "") or ""
+                        # 高德 IP 定位返回的 city 可能为空（直辖市等）
+                        parts = [p for p in (province, city) if p and p != "[]"]
+                        addr = " ".join(parts) if parts else "未知位置"
+                        if addr != "未知位置":
+                            self.navigation["current_location"] = addr
+                            # 高德 IP 定位返回 rectangle（矩形区域），取中心点作为坐标
+                            rect = data.get("rectangle", "")
+                            if rect and ";" in rect:
+                                try:
+                                    lo, hi = rect.split(";")
+                                    lon1, lat1 = [float(x) for x in lo.split(",")]
+                                    lon2, lat2 = [float(x) for x in hi.split(",")]
+                                    self.navigation["latitude"] = (lat1 + lat2) / 2
+                                    self.navigation["longitude"] = (lon1 + lon2) / 2
+                                except Exception:
+                                    pass
+                            logger.info(f"Location updated via IP (Amap): {addr}")
+                            return addr
+        except Exception as e:
+            logger.warning(f"IP geolocation (Amap) failed: {e}")
+
+        # 2b. IP 定位 — ip-api.com (国际备选)
         try:
             import httpx
             resp = httpx.get(
                 "http://ip-api.com/json/",
                 params={"lang": "zh-CN", "fields": "status,country,regionName,city,lat,lon,query"},
-                timeout=3.0,
+                timeout=5.0,
             )
             if resp.status_code == 200:
                 data = resp.json()

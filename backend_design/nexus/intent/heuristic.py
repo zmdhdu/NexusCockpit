@@ -28,6 +28,7 @@ class HeuristicRouter:
             self._extract_navigation,
             self._extract_media,
             self._extract_vehicle_status,
+            self._extract_time,  # v2.2.4: 时间查询优先于搜索，避免"几点"触发 web_search
             self._extract_nearby_poi,  # v2.2.3: 周边搜索优先于普通搜索
             self._extract_food,  # v2.2.1: 点餐优先于搜索，避免"想吃外卖+附近"被搜索拦截
             self._extract_search,
@@ -179,6 +180,25 @@ class HeuristicRouter:
         if not any(k in text for k in ("车况", "胎压", "续航", "油量", "电量", "保养", "车辆状态")):
             return {}
         return {"Vehicle_Status_Action": {"op": "status"}}
+
+    def _extract_time(self, text: str) -> Dict[str, Any]:
+        """v2.2.4: 检测时间查询意图。
+
+        当用户询问当前时间、日期、星期时，直接走闲聊分支。
+        系统提示词中已注入当前时间，LLM 可以直接回答，
+        无需调用 LLM 路由（节省 3-14 秒）也无需联网搜索。
+        """
+        # 纯时间查询关键词（不包含"营业"等需搜索的词）
+        time_keywords = (
+            "几点了", "现在几点", "现在是几点", "什么时间",
+            "现在时间", "现在什么时间", "今天几号", "今天日期",
+            "星期几", "今天星期", "现在日期", "今天是几号",
+            "几月几号", "今天是几月", "现在是什么时间",
+        )
+        if any(k in text for k in time_keywords):
+            # 返回一个不匹配任何技能的意图，_determine_experts 会走 chat 兜底
+            return {"Time_Query": True}
+        return {}
 
     def _extract_nearby_poi(self, text: str) -> Dict[str, Any]:
         """v2.2.3: 检测周边 POI 搜索意图（附近美食、周边加油站等）。

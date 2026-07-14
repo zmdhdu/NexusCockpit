@@ -1,6 +1,7 @@
 # L6 API 层 (API Gateway)
 
 > 对应代码: `nexus/api/` + `nexus/main.py`
+> 最后更新: 2026-07-14
 
 ## 职责
 
@@ -19,6 +20,10 @@
 | `/health` | GET | 健康检查 |
 | `/chat` | POST | 文本对话 (非流式) |
 | `/chat/stream` | POST | 文本对话 (SSE 流式，含心跳+断开检测) |
+| `/chat/sessions` | GET | 获取当前座舱的会话列表 |
+| `/chat/sessions` | POST | 创建新会话 |
+| `/chat/sessions/{id}` | DELETE | 删除会话及其消息记录 |
+| `/chat/sessions/{id}/messages` | GET | 获取会话消息记录 |
 | `/vehicle/command` | POST | 车控命令 (JWT 认证) |
 | `/vehicle/status` | GET | 车辆状态查询 (JWT 认证) |
 | `/auth/token` | POST | JWT 令牌签发 |
@@ -63,7 +68,8 @@ from nexus.main import app
 POST /chat
 {
     "text": "把空调调到24度",
-    "user_id": "u1"
+    "user_id": "u1",
+    "session_id": "sess_abc123"
 }
 
 # 流式 (SSE)
@@ -71,6 +77,7 @@ POST /chat/stream
 {
     "text": "今天天气怎么样",
     "user_id": "u1",
+    "session_id": "sess_abc123",
     "stream": true
 }
 → data: {"type": "intent", "data": {"intent": "weather", "source": "llm"}}
@@ -80,6 +87,15 @@ POST /chat/stream
 → data: {"type": "chunk", "data": {"text": "天气"}}
 → data: {"type": "done", "data": {"response": "今天天气..."}}
 ```
+
+> **v2.2.4 会话并发锁**: 同一 session_id 的请求通过 `asyncio.Lock` 串行化，
+> 防止并发请求交叉污染会话历史。锁上限 500 个，超限时自动清理空闲锁。
+>
+> **v2.2.5 会话隔离修复**: `session_id` 为空时生成唯一临时 ID（`temp_xxx`），
+> 禁止回退到 `user_id`，确保不同对话之间的历史完全隔离。
+>
+> **v2.2.2 多会话管理**: 支持 POST/GET/DELETE `/chat/sessions` 管理会话，
+> 消息记录持久化到 MySQL `chat_logs` 表（按 `cockpit_id` + `session_id` 隔离）。
 
 ### routes/vehicle.py — 车控 API
 

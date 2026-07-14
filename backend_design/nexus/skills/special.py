@@ -9,10 +9,19 @@ Non-vehicle skills: web search, food delivery, voice registration
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from nexus.skills.base import BaseSkill, SkillResult
 from nexus.core.logger import get_logger
+
+# 东八区时区 (UTC+8)，确保无论服务器在什么时区都能获取正确的中国时间
+_CN_TZ = timezone(timedelta(hours=8))
+
+
+def _now_cn() -> datetime:
+    """获取当前东八区时间，避免 Docker 容器 UTC 时区导致时间偏差。"""
+    return datetime.now(_CN_TZ)
 
 logger = get_logger(__name__)
 
@@ -57,9 +66,8 @@ class WebSearchSkill(BaseSkill):
             )
         try:
             # v2.2.2: 在搜索查询中注入当前日期和时间，提高时效性
-            # 之前只注入日期，搜索结果可能返回早上7点的天气数据
-            from datetime import datetime
-            now = datetime.now()
+            # v2.2.4: 使用东八区时间，避免 Docker 容器 UTC 时区导致时间偏差
+            now = _now_cn()
             today_str = now.strftime("%Y年%m月%d日")
             time_str = now.strftime("%H:%M")
             enhanced_query = f"{query} {today_str} {time_str}"
@@ -83,8 +91,8 @@ class WebSearchSkill(BaseSkill):
                 compact.append(f"【{title}】{content}\n来源: {url}")
 
             # v2.2.2: 在搜索结果中注入当前时间，供 LLM 和反思节点使用
-            from datetime import datetime
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+            # v2.2.4: 使用东八区时间
+            current_time = _now_cn().strftime("%Y-%m-%d %H:%M")
             time_prefix = f"[当前时间: {current_time}]\n"
             
             return SkillResult(

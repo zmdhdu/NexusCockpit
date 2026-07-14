@@ -25,8 +25,10 @@ v2.1 变更:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
+import uuid
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -48,6 +50,28 @@ from nexus.observability.metrics import (
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+# v2.2.4: 会话级别并发锁 — 防止同一 session 的并发请求交叉污染会话历史
+# 当用户快速连续发送多条消息时，确保前一条处理完再处理下一条
+# v2.2.5: 增加上限防止内存泄漏，超过阈值时清理空闲锁
+_session_locks: dict[str, asyncio.Lock] = {}
+_SESSION_LOCKS_MAX = 500
+
+
+def _get_session_lock(session_key: str) -> asyncio.Lock:
+    """获取指定会话的并发锁（不存在则创建）。
+
+    当锁数量超过 _SESSION_LOCKS_MAX 时，清理当前未被持有的锁以防内存泄漏。
+    """
+    if session_key not in _session_locks:
+        # 清理未被持有的空闲锁，防止长期运行内存泄漏
+        if len(_session_locks) >= _SESSION_LOCKS_MAX:
+            idle_keys = [k for k, v in _session_locks.items() if not v.locked()]
+            for k in idle_keys[:_SESSION_LOCKS_MAX // 2]:
+                del _session_locks[k]
+            logger.debug(f"Cleaned up {len(idle_keys[:_SESSION_LOCKS_MAX // 2])} idle session locks")
+        _session_locks[session_key] = asyncio.Lock()
+    return _session_locks[session_key]
 
 
 async def _record_chat_metrics(
@@ -176,48 +200,56 @@ async def chat(request: Request, body: ChatRequest):
 
     # 构建 v2.0 SupervisorState 并执行
     agent_graph = app.state.agent_graph
-    session_key = body.session_id or body.user_id
+    # v2.2.5: session_id 为空时生成唯一临时 ID，禁止回退到 user_id
+    # 回退到 user_id 会导致同一用户的所有对话共享历史，破坏会话隔离
+    session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
+
+    # v2.2.4: 获取会话锁，防止同一 session 的并发请求交叉污染历史
+    session_lock = _get_session_lock(session_key)
 
     # 优先从 SessionStore 加载历史 (Redis 持久化，重启不丢失) (from main L5 fix)
     session_store = getattr(app.state, "session_store", None)
-    if session_store:
-        history = await session_store.async_get(session_key)
-    else:
-        history = app.state.session_histories.get(session_key, [])
 
-    state = create_initial_state(
-        user_input=body.text,
-        user_id=body.user_id,
-        session_id=body.session_id,
-        history=history,
-    )
-    # 注入 cockpit_id 到 state，供 MainAgent 确认层使用
-    state["cockpit_id"] = cockpit_id
+    async with session_lock:
+        # 在锁内读取历史，确保不会读到并发请求的中间状态
+        if session_store:
+            history = await session_store.async_get(session_key)
+        else:
+            history = app.state.session_histories.get(session_key, [])
 
-    # Langfuse span: 记录 Agent 执行耗时
-    agent_span = None
-    if langfuse and trace:
-        agent_span = langfuse.start_span(trace, name="agent_invoke")
+        state = create_initial_state(
+            user_input=body.text,
+            user_id=body.user_id,
+            session_id=body.session_id,
+            history=history,
+        )
+        # 注入 cockpit_id 到 state，供 MainAgent 确认层使用
+        state["cockpit_id"] = cockpit_id
 
-    try:
-        state = await agent_graph.invoke(state)
-        AGENT_INVOCATIONS.labels(agent_name="supervisor_pipeline", status="success").inc()
-    except Exception as e:
-        logger.error(f"Agent invocation failed: {e}")
-        AGENT_INVOCATIONS.labels(agent_name="supervisor_pipeline", status="error").inc()
-        state["final_response"] = f"处理失败: {e}"
-    finally:
-        if langfuse and agent_span:
-            langfuse.end_observation(
-                agent_span,
-                output=state.get("final_response", "")[:200],
-            )
+        # Langfuse span: 记录 Agent 执行耗时
+        agent_span = None
+        if langfuse and trace:
+            agent_span = langfuse.start_span(trace, name="agent_invoke")
 
-    # 更新会话历史 (优先使用 SessionStore 持久化) (from main L5 fix)
-    state_history = state.get("history", [])
-    if session_store:
-        await session_store.async_set(session_key, state_history)
-    app.state.session_histories[session_key] = state_history[-20:]
+        try:
+            state = await agent_graph.invoke(state)
+            AGENT_INVOCATIONS.labels(agent_name="supervisor_pipeline", status="success").inc()
+        except Exception as e:
+            logger.error(f"Agent invocation failed: {e}")
+            AGENT_INVOCATIONS.labels(agent_name="supervisor_pipeline", status="error").inc()
+            state["final_response"] = f"处理失败: {e}"
+        finally:
+            if langfuse and agent_span:
+                langfuse.end_observation(
+                    agent_span,
+                    output=state.get("final_response", "")[:200],
+                )
+
+        # 更新会话历史 (优先使用 SessionStore 持久化) (from main L5 fix)
+        state_history = state.get("history", [])
+        if session_store:
+            await session_store.async_set(session_key, state_history)
+        app.state.session_histories[session_key] = state_history[-20:]
 
     # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存，避免命中缓存后车控不执行 (from main L5 fix)
     final_response = state.get("final_response", "")
@@ -286,60 +318,67 @@ async def chat_stream(request: Request, body: ChatRequest):
 
     async def event_generator():
         agent_graph = app.state.agent_graph
-        session_key = body.session_id or body.user_id
+        # v2.2.5: session_id 为空时生成唯一临时 ID，禁止回退到 user_id
+        session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
         start = time.perf_counter()
+
+        # v2.2.4: 获取会话锁，防止同一 session 的并发请求交叉污染历史
+        session_lock = _get_session_lock(session_key)
 
         # 优先从 SessionStore 加载历史 (from main L5 fix)
         session_store = getattr(app.state, "session_store", None)
-        if session_store:
-            history = await session_store.async_get(session_key)
-        else:
-            history = app.state.session_histories.get(session_key, [])
 
-        state = create_initial_state(
-            user_input=body.text,
-            user_id=body.user_id,
-            session_id=body.session_id,
-            history=history,
-        )
-        # 注入 cockpit_id 到 state
-        state["cockpit_id"] = cockpit_id
-
-        full_response = ""
-        skill_action = ""
-
-        try:
-            # v2.0: 使用 stream_with_events 获取结构化事件
-            async for event in agent_graph.stream_with_events(state):
-                if event.get("type") == "done":
-                    full_response = event.get("data", {}).get("response", "")
-                    skill_action = event.get("data", {}).get("action", "")
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-
-            # 更新会话历史
-            state_history = state.get("history", [])
+        async with session_lock:
+            # 在锁内读取历史，确保不会读到并发请求的中间状态
             if session_store:
-                await session_store.async_set(session_key, state_history)
-            app.state.session_histories[session_key] = state_history[-20:]
+                history = await session_store.async_get(session_key)
+            else:
+                history = app.state.session_histories.get(session_key, [])
 
-            # v2.1: 流式完成后记录指标 + 持久化聊天日志
-            latency = round((time.perf_counter() - start) * 1000, 2)
-            await _record_chat_metrics(
-                app, cockpit_id, body.user_id, latency, False, skill_action,
-                body.text, full_response,
+            state = create_initial_state(
+                user_input=body.text,
+                user_id=body.user_id,
                 session_id=body.session_id,
+                history=history,
             )
+            # 注入 cockpit_id 到 state
+            state["cockpit_id"] = cockpit_id
 
-        except Exception as e:
-            logger.error(f"Stream failed: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}}, ensure_ascii=False)}\n\n"
+            full_response = ""
+            skill_action = ""
 
-        finally:
-            # 确保会话历史始终被更新，即使流被中断
-            if session_store and "history" in state:
-                await session_store.async_set(session_key, state["history"])
-            if "history" in state:
-                app.state.session_histories[session_key] = state["history"][-20:]
+            try:
+                # v2.0: 使用 stream_with_events 获取结构化事件
+                async for event in agent_graph.stream_with_events(state):
+                    if event.get("type") == "done":
+                        full_response = event.get("data", {}).get("response", "")
+                        skill_action = event.get("data", {}).get("action", "")
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+                # 更新会话历史
+                state_history = state.get("history", [])
+                if session_store:
+                    await session_store.async_set(session_key, state_history)
+                app.state.session_histories[session_key] = state_history[-20:]
+
+                # v2.1: 流式完成后记录指标 + 持久化聊天日志
+                latency = round((time.perf_counter() - start) * 1000, 2)
+                await _record_chat_metrics(
+                    app, cockpit_id, body.user_id, latency, False, skill_action,
+                    body.text, full_response,
+                    session_id=body.session_id,
+                )
+
+            except Exception as e:
+                logger.error(f"Stream failed: {e}")
+                yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}}, ensure_ascii=False)}\n\n"
+
+            finally:
+                # 确保会话历史始终被更新，即使流被中断
+                if session_store and "history" in state:
+                    await session_store.async_set(session_key, state["history"])
+                if "history" in state:
+                    app.state.session_histories[session_key] = state["history"][-20:]
 
     return StreamingResponse(
         event_generator(),
