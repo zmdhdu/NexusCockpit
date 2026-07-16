@@ -1,0 +1,25 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-07-16T14:19:41Z"
+modules:
+    "":
+        dir_name: NexusCockpit 项目根配置与编排
+        title: NexusCockpit 项目根配置与编排
+        scope:
+            - .editorconfig
+            - .env
+            - .env.example
+            - .gitignore
+            - .pre-commit-config.yaml
+            - Agent.md
+            - LICENSE
+            - Makefile
+            - README.md
+            - docker-compose.yml
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

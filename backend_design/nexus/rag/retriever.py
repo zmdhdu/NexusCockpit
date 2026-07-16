@@ -101,13 +101,20 @@ class GraphRAGRetriever:
             self.enable_bm25 = False
 
     def _tokenize(self, text: str) -> List[str]:
-        """简单分词：中文按字切分，英文按空格切分。"""
+        """中文分词：优先使用 jieba 分词，降级为按字切分；英文按空格切分。"""
         import re
         # 英文按空格
         tokens = re.findall(r"[a-zA-Z]+", text.lower())
-        # 中文按字
-        tokens.extend(re.findall(r"[\u4e00-\u9fff]", text))
-        return tokens
+        # 中文分词：优先 jieba
+        try:
+            import jieba
+            chinese_text = "".join(re.findall(r"[\u4e00-\u9fff]+", text))
+            if chinese_text:
+                tokens.extend(jieba.lcut(chinese_text))
+        except ImportError:
+            # 降级：按字切分
+            tokens.extend(re.findall(r"[\u4e00-\u9fff]", text))
+        return [t for t in tokens if t.strip()]
 
     def _bm25_search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
         """BM25 全文检索。"""

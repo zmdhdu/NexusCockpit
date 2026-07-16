@@ -133,7 +133,7 @@ class SupervisorGraph:
         # Checkpoint 持久化
         self.checkpoint_saver = checkpoint_saver
 
-        # 后台任务强引用集合，防止 asyncio.create_task 返回的 Task 被 GC 回收
+        # 后台任务强引用集合（防止 asyncio.Task 被 GC 回收）
         self._background_tasks: set = set()
 
         # 构建 LangGraph 图
@@ -1199,9 +1199,9 @@ class SupervisorGraph:
             state["final_response"] = state["clarification_prompt"]
             # Reviewer 后台执行，不阻塞
             try:
-                _task = asyncio.create_task(self._reviewer_node(state))
-                self._background_tasks.add(_task)
-                _task.add_done_callback(self._background_tasks.discard)
+                task = asyncio.create_task(self._reviewer_node(state))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
             except Exception as e:
                 logger.error(f"Background reviewer task failed: {e}")
             return
@@ -1265,9 +1265,9 @@ class SupervisorGraph:
 
         # Phase 5: Reviewer 后台异步执行（不阻塞流式输出）
         try:
-            _task = asyncio.create_task(self._reviewer_node(state))
-            self._background_tasks.add(_task)
-            _task.add_done_callback(self._background_tasks.discard)
+            task = asyncio.create_task(self._reviewer_node(state))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         except Exception as e:
             logger.error(f"Background reviewer task failed: {e}")
 

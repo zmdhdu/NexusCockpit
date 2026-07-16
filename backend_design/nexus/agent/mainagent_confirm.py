@@ -124,7 +124,7 @@ class MainAgentConfirmLayer:
             )
 
             # 调用 LLM 二次确认
-            confirmation = await self._confirm_alert(alert)
+            confirmation, token_usage = await self._confirm_alert(alert)
 
             # 合并原始告警和确认结果
             alert["mainagent_confirmation"] = confirmation
@@ -169,8 +169,8 @@ class MainAgentConfirmLayer:
                         cockpit_id=cockpit_id,
                         request_type="mainagent_confirm",
                         model_name=self._subagent_model,
-                        prompt_tokens=0,  # 实际应从 LLM response 获取
-                        completion_tokens=0,
+                        prompt_tokens=token_usage.get("prompt_tokens", 0),
+                        completion_tokens=token_usage.get("completion_tokens", 0),
                         cost_yuan=0.0,
                     )
             except Exception as db_err:
@@ -179,14 +179,14 @@ class MainAgentConfirmLayer:
         except Exception as e:
             logger.error(f"MainAgent alert handling error: {e}")
 
-    async def _confirm_alert(self, alert: Dict[str, Any]) -> Dict[str, Any]:
+    async def _confirm_alert(self, alert: Dict[str, Any]) -> tuple:
         """调用 LLM 对 SubAgent 上报的异常进行二次确认。
 
         Args:
             alert: SubAgent 上报的告警信息
 
         Returns:
-            LLM 的确认结果
+            (LLM 确认结果字典, token_usage 字典)
         """
         prompt = f"""你是主 Agent，SubAgent 上报了以下异常，请二次确认：
 
@@ -219,12 +219,20 @@ SubAgent 描述: {alert.get('description')}
             )
             content = response.choices[0].message.content or ""
 
+            # 提取 token 使用量
+            token_usage = {}
+            if hasattr(response, "usage") and response.usage:
+                token_usage = {
+                    "prompt_tokens": getattr(response.usage, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(response.usage, "completion_tokens", 0) or 0,
+                }
+
             import re
             json_match = re.search(r'\{[^{}]+\}', content, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                return json.loads(json_match.group()), token_usage
 
-            return {"confirmed": False, "action": "pass", "reason": "LLM parse error"}
+            return {"confirmed": False, "action": "pass", "reason": "LLM parse error"}, token_usage
 
         except Exception as e:
             logger.error(f"MainAgent LLM confirm failed: {e}")
@@ -234,7 +242,7 @@ SubAgent 描述: {alert.get('description')}
                 "should_block": False,
                 "action": "alert_only",
                 "reason": f"LLM unavailable: {e}",
-            }
+            }, {}
 
     async def check_before_response(self, cockpit_id: str) -> Optional[Dict[str, Any]]:
         """主请求路径调用：返回该座舱是否有未决告警。

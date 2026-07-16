@@ -27,7 +27,6 @@ import random
 import time
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 import redis.asyncio as aioredis
 from openai import AsyncOpenAI
 
@@ -454,6 +453,12 @@ P95 延迟: {status.get('p95_latency_ms', 'N/A')}ms
             best_match: Optional[Dict[str, Any]] = None
             best_similarity: float = 0.0
 
+            # 当前异常的类型和指标（提取到循环外，避免重复计算）
+            current_type = rule_result.get("anomaly_type", "")
+            current_cache = status.get("cache_hit_rate", 1.0)
+            current_error = status.get("error_rate", 0.0)
+            current_latency = status.get("p95_latency_ms", 0)
+
             for pattern_id, raw_data in patterns.items():
                 if isinstance(pattern_id, bytes):
                     pattern_id = pattern_id.decode()
@@ -462,47 +467,28 @@ P95 延迟: {status.get('p95_latency_ms', 'N/A')}ms
 
                 try:
                     stored = json.loads(raw_data)
-                    stored_embedding = np.array(stored.get("embedding", []), dtype=np.float32)
 
-                    if len(stored_embedding) == 0:
-                        continue
-
-                    # 如果有 embedding_service，使用它生成当前异常的 embedding
-                    if self._embedding_service and best_similarity == 0.0:
-                        current_embedding = np.array(
-                            await self._embedding_service.embed(anomaly_text),
-                            dtype=np.float32,
-                        )
-                    else:
-                        # 降级：使用文本哈希作为伪 embedding
-                        import hashlib
-                        hash_val = int(hashlib.md5(anomaly_text.encode()).hexdigest()[:8], 16)
-                        rng = np.random.RandomState(hash_val)
-                        current_embedding = rng.randn(256).astype(np.float32)
-
-                    # 计算余弦相似度
-                    if self._embedding_service and best_similarity == 0.0:
-                        # 重新计算所有已存储模式的相似度
-                        pass
-
-                    # 简化匹配：比较异常类型和关键指标
+                    # 基于异常类型 + 关键指标范围的规则匹配
                     stored_type = stored.get("anomaly_type", "")
-                    current_type = rule_result.get("anomaly_type", "")
                     stored_status = stored.get("status_snapshot", {})
 
-                    # 基于异常类型 + 指标范围匹配
-                    type_match = stored_type == current_type
+                    # 异常类型必须一致
+                    if stored_type != current_type:
+                        continue
+
+                    # 关键指标差异计算
                     cache_diff = abs(
-                        stored_status.get("cache_hit_rate", 1.0) - status.get("cache_hit_rate", 1.0)
+                        stored_status.get("cache_hit_rate", 1.0) - current_cache
                     )
                     error_diff = abs(
-                        stored_status.get("error_rate", 0.0) - status.get("error_rate", 0.0)
+                        stored_status.get("error_rate", 0.0) - current_error
                     )
                     latency_diff = abs(
-                        stored_status.get("p95_latency_ms", 0) - status.get("p95_latency_ms", 0)
+                        stored_status.get("p95_latency_ms", 0) - current_latency
                     )
 
-                    if type_match and cache_diff < 0.1 and error_diff < 0.02 and latency_diff < 100:
+                    # 指标差异在阈值内则视为匹配
+                    if cache_diff < 0.1 and error_diff < 0.02 and latency_diff < 100:
                         similarity = 1.0 - (cache_diff + error_diff + latency_diff / 5000)
                         if similarity > best_similarity:
                             best_similarity = similarity

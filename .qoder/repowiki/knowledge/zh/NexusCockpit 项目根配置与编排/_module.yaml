@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: NexusCockpit 项目根配置与编排
+scope:
+    - .editorconfig
+    - .env
+    - .env.example
+    - .gitignore
+    - .pre-commit-config.yaml
+    - Agent.md
+    - LICENSE
+    - Makefile
+    - README.md
+    - docker-compose.yml
+source_files: []
+depends_on: []
+related_to: []

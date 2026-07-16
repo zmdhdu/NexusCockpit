@@ -137,3 +137,11 @@ frontend_design/build/
 # Backend runtime data (SQLite checkpoints, etc.)
 # ============================================================
 backend_design/data/
+
+# ============================================================
+# Resume files (not for GitHub, local only)
+# ============================================================
+杭州电子科技大学-张梦迪-电子信息硕士.docx
+简历报告-NexusCockpit.md
+_resume_template.txt
+_count_lines.py
