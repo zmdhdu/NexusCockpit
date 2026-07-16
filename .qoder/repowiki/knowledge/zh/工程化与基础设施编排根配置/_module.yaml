@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: NexusCockpit 项目根配置与编排
+title: 工程化与基础设施编排根配置
 scope:
     - .editorconfig
     - .env

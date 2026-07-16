@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-16T14:19:41Z"
+exported_at: "2026-07-16T15:12:43Z"
 modules:
     "":
-        dir_name: NexusCockpit 项目根配置与编排
-        title: NexusCockpit 项目根配置与编排
+        dir_name: 工程化与基础设施编排根配置
+        title: 工程化与基础设施编排根配置
         scope:
             - .editorconfig
             - .env

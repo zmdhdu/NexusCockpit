@@ -21,6 +21,13 @@
 - [scripts/init_neo4j.py](file://scripts/init_neo4j.py)
 </cite>
 
+## 更新摘要
+**变更内容**   
+- 新增BM25搜索功能的jieba中文分词支持，提升中文检索准确性
+- Redis向量维度实现动态检测，消除硬编码假设
+- LLM token记录修复，提供更准确的使用跟踪
+- 更新了相关组件的实现细节和配置说明
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -36,15 +43,15 @@
 ## 简介
 本技术文档面向NexusCockpit的RAG（检索增强生成）检索子系统，聚焦统一检索器、向量数据库、图数据库与重排序器的实现原理与集成方式。文档涵盖：
 - 嵌入模型集成与向量化流程
-- 检索策略与结果融合算法
+- BM25搜索与向量检索融合策略
 - 后端存储配置示例（Milvus、Neo4j等）
 - 知识图谱构建流程与向量索引管理
 - 数据导入导出工具与检索效果评估方法
 
 ## 项目结构
-RAG相关代码位于 backend_design/nexus/rag 目录下，采用“接口抽象 + 工厂模式 + 多后端实现”的分层设计：
-- 统一检索器：协调向量检索与图谱检索，并执行结果融合与重排序
-- 向量存储抽象与工厂：支持多种向量数据库（如Zilliz/Milvus）
+RAG相关代码位于 backend_design/nexus/rag 目录下，采用"接口抽象 + 工厂模式 + 多后端实现"的分层设计：
+- 统一检索器：协调向量检索、BM25检索与图谱检索，并执行结果融合与重排序
+- 向量存储抽象与工厂：支持多种向量数据库（如Zilliz/Milvus），支持动态维度检测
 - 图谱存储抽象与工厂：支持多种图数据库（如Aura/Neo4j）
 - 重排序器抽象与工厂：支持本地或远程重排序服务
 - 嵌入模型：提供统一的文本到向量转换能力
@@ -65,10 +72,12 @@ RF["重排序工厂<br/>reranker_factory.py"]
 SR["SiliconFlow重排序器<br/>siliconflow_reranker.py"]
 EMB["嵌入模型<br/>embedding.py"]
 KB["Cherry知识库封装<br/>cherry_kb.py"]
+BM25["BM25搜索引擎<br/>jieba分词支持"]
 end
 UR --> VS
 UR --> GS
 UR --> RR
+UR --> BM25
 VS --> VF
 VF --> ZVS
 GS --> GF
@@ -114,11 +123,12 @@ KB --> UR
 - [backend_design/nexus/rag/cherry_kb.py](file://backend_design/nexus/rag/cherry_kb.py)
 
 ## 核心组件
-- 统一检索器：负责将用户查询转换为向量，并行调用向量检索与图谱检索，合并候选集，应用重排序，返回最终结果。
-- 向量存储抽象与工厂：定义统一的向量CRUD与相似度检索接口；通过工厂按配置创建具体后端（如Zilliz）。
+- 统一检索器：负责将用户查询转换为向量，并行调用向量检索、BM25检索与图谱检索，合并候选集，应用重排序，返回最终结果。
+- 向量存储抽象与工厂：定义统一的向量CRUD与相似度检索接口；通过工厂按配置创建具体后端（如Zilliz），支持动态维度检测。
 - 图谱存储抽象与工厂：定义统一的图遍历与查询接口；通过工厂创建具体后端（如Aura/Neo4j）。
 - 重排序器抽象与工厂：定义统一的打分接口；通过工厂选择本地或远程重排序服务。
 - 嵌入模型：提供文本到向量的一致化转换，屏蔽不同Embedding后端差异。
+- BM25搜索引擎：基于关键词匹配的检索引擎，集成jieba中文分词提升中文检索准确性。
 - Cherry KB：高层封装，聚合上述能力，提供知识库级别的检索入口。
 
 章节来源
@@ -139,7 +149,7 @@ KB --> UR
 - [backend_design/nexus/rag/cherry_kb.py](file://backend_design/nexus/rag/cherry_kb.py)
 
 ## 架构总览
-下图展示从用户查询到最终结果的完整流程，包括嵌入、向量检索、图谱检索、结果融合与重排序。
+下图展示从用户查询到最终结果的完整流程，包括嵌入、向量检索、BM25检索、图谱检索、结果融合与重排序。
 
 ```mermaid
 sequenceDiagram
@@ -148,6 +158,7 @@ participant KB as "Cherry知识库"
 participant UR as "统一检索器"
 participant EMB as "嵌入模型"
 participant VDB as "向量存储"
+participant BM25 as "BM25搜索引擎"
 participant GDB as "图谱存储"
 participant RR as "重排序器"
 U->>KB : "发起检索请求"
@@ -156,9 +167,11 @@ UR->>EMB : "将查询转为向量"
 EMB-->>UR : "返回查询向量"
 par "并行检索"
 UR->>VDB : "向量相似度检索"
+UR->>BM25 : "关键词匹配检索"
 UR->>GDB : "图查询/遍历"
 end
 VDB-->>UR : "返回候选片段"
+BM25-->>UR : "返回关键词匹配结果"
 GDB-->>UR : "返回关联节点/路径"
 UR->>RR : "提交候选集进行重排序"
 RR-->>UR : "返回排序后的结果"
@@ -178,22 +191,25 @@ KB-->>U : "返回答案/引用"
 ### 统一检索器
 职责与流程
 - 接收查询，调用嵌入模型得到查询向量
-- 并行触发向量检索与图谱检索
-- 对两类结果进行去重、融合与评分
+- 并行触发向量检索、BM25检索与图谱检索
+- 对三类结果进行去重、融合与评分
 - 调用重排序器输出最终排序结果
 
 关键要点
-- 并行性：向量与图谱检索可并发执行，降低整体延迟
+- 并行性：向量、BM25与图谱检索可并发执行，降低整体延迟
 - 融合策略：基于来源类型、相关性分数与业务权重进行加权融合
 - 可扩展性：新增检索源只需实现对应接口并通过工厂注册
+- 中文优化：BM25检索集成jieba分词，显著提升中文检索准确性
 
 ```mermaid
 flowchart TD
 Start(["开始"]) --> Embed["生成查询向量"]
 Embed --> Parallel{"并行分支"}
 Parallel --> |向量| VRet["向量相似度检索"]
+Parallel --> |关键词| BM25Ret["BM25关键词检索"]
 Parallel --> |图谱| GRet["图查询/遍历"]
 VRet --> Merge["候选集合并与去重"]
+BM25Ret --> Merge
 GRet --> Merge
 Merge --> Score["计算融合分数"]
 Score --> Rerank["重排序"]
@@ -210,6 +226,7 @@ Rerank --> End(["结束"])
 - 抽象接口：定义集合/命名空间管理、插入、删除、更新、相似度检索等通用方法
 - 工厂：根据配置动态创建具体后端实例（如Zilliz）
 - 典型后端：Zilliz（兼容Milvus协议），提供高性能向量检索能力
+- **更新**：支持Redis向量维度动态检测，消除硬编码假设，提升兼容性
 
 ```mermaid
 classDiagram
@@ -229,6 +246,7 @@ class ZillizVectorStore {
 +search(collection, query_vec, top_k)
 +delete_by_id(collection, ids)
 +update_metadata(collection, ids, fields)
++detect_dimension()
 }
 VectorStoreBase <|-- ZillizVectorStore
 VectorFactory --> VectorStoreBase : "返回实例"
@@ -329,21 +347,23 @@ RerankerFactory --> RerankerBase : "返回实例"
 - [backend_design/nexus/rag/embedding.py](file://backend_design/nexus/rag/embedding.py)
 
 ### Cherry知识库封装
-- 职责：对外暴露知识库级别API，内部组合嵌入、向量、图谱与重排序能力
+- 职责：对外暴露知识库级别API，内部组合嵌入、向量、BM25、图谱与重排序能力
 - 价值：简化上层调用，隐藏RAG管线细节，便于扩展新的检索源与策略
 
 章节来源
 - [backend_design/nexus/rag/cherry_kb.py](file://backend_design/nexus/rag/cherry_kb.py)
 
 ## 依赖关系分析
-- 统一检索器依赖嵌入模型、向量存储、图谱存储与重排序器
+- 统一检索器依赖嵌入模型、向量存储、BM25搜索引擎、图谱存储与重排序器
 - 向量与图谱均通过工厂按需创建，降低耦合度
 - 重排序器可选择本地或远程实现，便于A/B测试与灰度发布
+- **更新**：BM25搜索引擎集成jieba分词，提升中文检索效果
 
 ```mermaid
 graph LR
 UR["统一检索器"] --> EMB["嵌入模型"]
 UR --> VST["向量存储(抽象)"]
+UR --> BM25["BM25搜索引擎"]
 UR --> GST["图谱存储(抽象)"]
 UR --> RER["重排序器(抽象)"]
 VST --> VF["向量工厂"]
@@ -352,6 +372,7 @@ RER --> RF["重排序工厂"]
 VF --> ZVS["Zilliz实现"]
 GF --> AGS["Aura实现"]
 RF --> SFR["SiliconFlow实现"]
+BM25 --> JIEBA["jieba分词器"]
 ```
 
 图表来源
@@ -370,26 +391,28 @@ RF --> SFR["SiliconFlow实现"]
 - [backend_design/nexus/rag/reranker_factory.py](file://backend_design/nexus/rag/reranker_factory.py)
 
 ## 性能考虑
-- 并行检索：向量与图谱检索并发执行，减少端到端延迟
+- 并行检索：向量、BM25与图谱检索并发执行，减少端到端延迟
 - 批量写入：文档入库时尽量批量插入向量与图节点/边，降低网络往返
 - 索引优化：合理设置向量维度、索引类型与top_k，平衡召回与速度
 - 缓存策略：对高频查询结果进行短期缓存，降低重复计算
 - 重排序批处理：对候选集分批重排序，避免单次请求过大导致超时
 - 资源隔离：为不同后端（向量/图谱/重排序）配置连接池与超时参数，防止雪崩
-
-[本节为通用性能建议，不直接分析具体文件]
+- **更新**：BM25检索利用jieba分词优化中文查询处理，提升检索效率
 
 ## 故障排查指南
 常见问题与定位思路
 - 向量检索失败：检查向量库连接、集合是否存在、维度是否匹配
+- BM25检索异常：确认jieba分词器初始化状态、词典配置是否正确
 - 图谱查询异常：确认节点/边存在性、路径深度限制、权限与认证
 - 重排序超时：检查远程服务可用性、候选集大小与重试策略
 - 嵌入模型异常：验证模型加载、输入文本长度与编码格式
+- **更新**：LLM token记录问题：检查token统计逻辑，确保使用跟踪准确
 
 建议日志与指标
-- 记录各阶段耗时（嵌入、向量检索、图谱检索、重排序）
+- 记录各阶段耗时（嵌入、向量检索、BM25检索、图谱检索、重排序）
 - 统计召回率、命中率与平均响应时间
 - 监控后端健康状态与错误码分布
+- **更新**：跟踪中文检索准确率，对比BM25与向量检索效果
 
 章节来源
 - [backend_design/nexus/rag/unified_retriever.py](file://backend_design/nexus/rag/unified_retriever.py)
@@ -398,9 +421,7 @@ RF --> SFR["SiliconFlow实现"]
 - [backend_design/nexus/rag/reranker.py](file://backend_design/nexus/rag/reranker.py)
 
 ## 结论
-本RAG检索系统通过统一检索器整合向量与图谱双路检索，结合重排序器提升结果质量。借助工厂模式与抽象接口，系统具备良好的可扩展性与可维护性。配合合理的索引管理与性能调优，可在大规模知识场景下稳定高效地提供服务。
-
-[本节为总结性内容，不直接分析具体文件]
+本RAG检索系统通过统一检索器整合向量、BM25与图谱三路检索，结合重排序器提升结果质量。借助工厂模式与抽象接口，系统具备良好的可扩展性与可维护性。配合合理的索引管理与性能调优，可在大规模知识场景下稳定高效地提供服务。**最新增强包括BM25中文分词支持、向量维度动态检测和LLM token记录修复，进一步提升了系统的准确性和可靠性。**
 
 ## 附录
 
@@ -408,6 +429,7 @@ RF --> SFR["SiliconFlow实现"]
 - Milvus/Zilliz（向量）
   - 通过向量工厂按配置创建Zilliz后端
   - 初始化脚本用于创建集合与索引
+  - **更新**：支持动态维度检测，无需预先指定固定维度
   - 参考文件：
     - [backend_design/nexus/rag/vector_factory.py](file://backend_design/nexus/rag/vector_factory.py)
     - [backend_design/nexus/rag/zilliz_vector_store.py](file://backend_design/nexus/rag/zilliz_vector_store.py)
@@ -445,6 +467,7 @@ RF --> SFR["SiliconFlow实现"]
 - 索引类型：根据数据规模与查询延迟要求选择合适的索引
 - 增量更新：支持按ID更新元数据或删除旧版本
 - 容量规划：预留扩容空间，避免频繁重建索引
+- **更新**：支持动态维度检测，自动适配不同嵌入模型的输出维度
 
 章节来源
 - [backend_design/nexus/rag/vector_store.py](file://backend_design/nexus/rag/vector_store.py)
@@ -464,7 +487,26 @@ RF --> SFR["SiliconFlow实现"]
 - 离线评估：构造评测集，计算准确率、召回率、F1与MRR等指标
 - 在线评估：通过A/B测试对比不同策略的效果
 - 回归监控：持续跟踪关键指标变化，发现退化及时回滚
+- **更新**：针对中文检索场景，特别关注BM25与向量检索的互补效果
 
 章节来源
 - [backend_design/nexus/rag/unified_retriever.py](file://backend_design/nexus/rag/unified_retriever.py)
 - [backend_design/nexus/rag/reranker.py](file://backend_design/nexus/rag/reranker.py)
+
+### BM25搜索引擎配置
+- 分词器：集成jieba中文分词，支持自定义词典和停用词
+- 索引构建：基于倒排索引实现高效的关键词匹配
+- 评分算法：采用TF-IDF或BM25算法计算相关性分数
+- 融合策略：与向量检索结果进行加权融合，提升综合检索效果
+
+章节来源
+- [backend_design/nexus/rag/unified_retriever.py](file://backend_design/nexus/rag/unified_retriever.py)
+
+### LLM Token记录机制
+- 使用跟踪：准确记录每次LLM调用的token消耗
+- 成本统计：支持按租户、会话等维度统计token使用情况
+- 配额管理：基于token使用量实现访问控制和配额管理
+- **更新**：修复了token记录不准确的问题，提供更可靠的计费依据
+
+章节来源
+- [backend_design/nexus/rag/unified_retriever.py](file://backend_design/nexus/rag/unified_retriever.py)
