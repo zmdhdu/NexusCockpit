@@ -40,6 +40,10 @@ type Config struct {
 	// RBAC
 	DefaultRole   string
 	AdminUsername string
+	AdminPassword string
+
+	// CORS
+	CORSOrigins string
 
 	// 限流
 	RateLimitQPS int
@@ -72,6 +76,8 @@ func Load() *Config {
 		RedisDB:             getEnvInt("REDIS_DB", 0),
 		DefaultRole:         getEnv("RBAC_DEFAULT_ROLE", "cockpit_user"),
 		AdminUsername:       getEnv("RBAC_ADMIN_USERNAME", "admin"),
+		AdminPassword:       getEnv("RBAC_ADMIN_PASSWORD", "admin123"),
+		CORSOrigins:         getEnv("CORS_ORIGINS", "*"),
 		RateLimitQPS:        getEnvInt("RATE_LIMIT_QPS", 100),
 		CockpitCount:        getEnvInt("COCKPIT_COUNT", 3),
 		IsolationMode:       getEnv("COCKPIT_ISOLATION_MODE", "shared"),

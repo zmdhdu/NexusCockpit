@@ -608,6 +608,24 @@ class CockpitSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
 
+class ObservabilityConfig(BaseSettings):
+    """可观测性配置 — Prometheus、Grafana、Loki 等监控组件配置。
+
+    提供 Prometheus 查询地址等参数，供 SubAgent 监控层采集指标使用。
+    """
+
+    # Prometheus 查询地址（SubAgent 用于查询 P95 延迟等指标）
+    prometheus_url: str = Field(
+        default="http://127.0.0.1:9090", validation_alias="PROMETHEUS_URL"
+    )
+    # Grafana 地址（仅用于日志输出，不影响功能）
+    grafana_url: str = Field(
+        default="http://127.0.0.1:3001", validation_alias="GRAFANA_URL"
+    )
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
 class AppConfig(BaseSettings):
     """全局应用配置 — 所有子配置的聚合入口。
 
@@ -627,6 +645,7 @@ class AppConfig(BaseSettings):
     data: DataConfig = Field(default_factory=DataConfig)
     oss: OSSConfig = Field(default_factory=OSSConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     tavily: TavilyConfig = Field(default_factory=TavilyConfig)
     amap: AmapConfig = Field(default_factory=AmapConfig)
@@ -635,6 +654,30 @@ class AppConfig(BaseSettings):
     cockpit: CockpitSettings = Field(default_factory=CockpitSettings)
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+    def model_post_init(self, __context) -> None:
+        """初始化后安全检查：生产环境使用默认弱密钥时发出警告。"""
+        if _APP_ENV != "prod":
+            return
+        warnings = []
+        if self.jwt.secret_key == "change-me-in-production":
+            warnings.append("JWT_SECRET_KEY 仍为默认弱密钥")
+        if self.mysql.password == "nexuscockpit":
+            warnings.append("MYSQL_PASSWORD 仍为默认密码")
+        if self.neo4j.password == "nexuscockpit":
+            warnings.append("NEO4J_PASSWORD 仍为默认密码")
+        if self.rabbitmq.user == "guest" and self.rabbitmq.password == "guest":
+            warnings.append("RABBITMQ 仍使用 guest/guest 默认账号")
+        if "*" in self.server.cors_origins:
+            warnings.append("CORS origins 包含 '*' (允许所有域)")
+        if warnings:
+            import sys
+            msg = "\n".join(f"  ⚠️ {w}" for w in warnings)
+            print(
+                f"\n🚨 [生产环境安全警告] 检测到以下不安全配置:\n{msg}\n"
+                f"请在 .env.prod 中修改以上配置后再启动！\n",
+                file=sys.stderr,
+            )
 
     @computed_field
     @property

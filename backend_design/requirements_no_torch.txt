@@ -24,7 +24,6 @@ langchain==1.2.3
 langchain-core==1.2.7
 langchain-openai>=1.0.0
 langchain-text-splitters>=1.0.0
-langsmith>=1.0.0
 
 # --- RAG / Vector Store ---
 pymilvus==2.6.6

@@ -43,10 +43,13 @@ logger = get_logger(__name__)
 _INDEX_NAME = "nexus:cache:index"
 # 缓存数据前缀
 _KEY_PREFIX = "nexus:cache:entry:"
-# 向量维度（需与 EmbeddingService 输出一致）
-_VECTOR_DIM = 1024
 # 相似度阈值
 _DEFAULT_THRESHOLD = 0.92
+
+
+def _get_vector_dim() -> int:
+    """从配置中动态获取 Embedding 向量维度，确保与 EmbeddingService 输出一致。"""
+    return get_config().llm.embedding_dim
 
 
 class SemanticCache:
@@ -133,7 +136,7 @@ class SemanticCache:
                     "FLAT",
                     {
                         "TYPE": "FLOAT32",
-                        "DIM": _VECTOR_DIM,
+                        "DIM": _get_vector_dim(),
                         "DISTANCE_METRIC": "COSINE",
                     },
                 ),

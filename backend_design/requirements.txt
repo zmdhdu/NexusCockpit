@@ -26,12 +26,12 @@ langchain==1.2.3
 langchain-core==1.2.7
 langchain-openai>=1.0.0
 langchain-text-splitters>=1.0.0
-langsmith>=1.0.0
 
 # --- RAG / Vector Store ---
 pymilvus==2.6.6
 neo4j>=5.18.0
 rank-bm25>=0.2.2
+jieba>=0.42.1
 sentence-transformers>=2.7.0
 
 # --- Middleware ---

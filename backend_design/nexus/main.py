@@ -73,10 +73,10 @@ async def lifespan(app: FastAPI):
     init_metrics()       # 初始化 Prometheus 指标
     logger.info("NexusCockpit starting up...")
 
-    # --- 0. 启动诊断: 打印 API Key 加载状态 (排查 401 问题) ---
+    # --- 0. 启动诊断: 打印 API Key 加载状态 (脱敏，仅显示长度和末 4 位) ---
     api_key = config.llm.ark_api_key
     if api_key:
-        logger.info(f"LLM API Key loaded: {api_key[:12]}...{api_key[-4:]} (len={len(api_key)})")
+        logger.info(f"LLM API Key loaded: ***{api_key[-4:]} (len={len(api_key)})")
         logger.info(f"LLM Base URL: {config.llm.ark_base_url}")
         logger.info(f"LLM Model: {config.llm.llm_model}")
     else:
@@ -170,13 +170,17 @@ async def lifespan(app: FastAPI):
             import os
             db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
-            # 使用 aiosqlite 异步连接
-            async with aiosqlite.connect(db_path) as conn:
-                checkpoint_saver = AsyncSqliteSaver(conn)
+            # 使用 aiosqlite 异步连接执行 setup
+            setup_conn = await aiosqlite.connect(db_path)
+            try:
+                checkpoint_saver = AsyncSqliteSaver(setup_conn)
                 await checkpoint_saver.setup()
-            # 重新打开连接用于运行时
-            conn = aiosqlite.connect(db_path)
-            checkpoint_saver = AsyncSqliteSaver(conn)
+            finally:
+                await setup_conn.close()
+            # 创建运行时持久连接（保持打开直到应用关闭）
+            runtime_conn = await aiosqlite.connect(db_path)
+            checkpoint_saver = AsyncSqliteSaver(runtime_conn)
+            app.state._checkpoint_conn = runtime_conn  # 保持强引用防止 GC
             logger.info(f"AsyncSqliteSaver checkpoint initialized at {db_path}")
         except ImportError:
             logger.warning("langgraph-checkpoint-sqlite or aiosqlite not installed, checkpoint disabled")
@@ -314,13 +318,12 @@ async def lifespan(app: FastAPI):
         await app.state.embedding_service.close()
     if hasattr(app.state, "langfuse") and app.state.langfuse:
         app.state.langfuse.flush()
-    if hasattr(app.state, "checkpoint_saver") and app.state.checkpoint_saver:
+    if hasattr(app.state, "_checkpoint_conn"):
         try:
-            # AsyncSqliteSaver 使用 aiosqlite 连接，close() 是协程，必须 await
-            if hasattr(app.state.checkpoint_saver, "conn"):
-                await app.state.checkpoint_saver.conn.close()
+            await app.state._checkpoint_conn.close()
+            logger.info("Checkpoint SQLite connection closed")
         except Exception as e:
-            logger.warning(f"Checkpoint saver close failed (non-fatal): {e}")
+            logger.warning(f"Checkpoint connection close failed (non-fatal): {e}")
     logger.info("NexusCockpit stopped")
 
 
@@ -349,6 +352,15 @@ def create_app() -> FastAPI:
     )
 
     # 注册 API 路由
+    @app.get("/", tags=["root"])
+    async def root():
+        """根路径：返回项目基本信息。"""
+        return {
+            "name": "NexusCockpit",
+            "version": "2.1.0",
+            "description": "Enterprise Vehicle Voice Agent Platform",
+        }
+
     app.include_router(health_router)       # /health 健康检查
     app.include_router(auth_router)         # /auth 认证接口
     app.include_router(chat_router)         # /chat 对话接口

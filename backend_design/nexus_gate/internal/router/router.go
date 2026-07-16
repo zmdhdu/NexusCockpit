@@ -65,9 +65,9 @@ func SetupRouter(hub *ws.Hub, limiter *ratelimit.RateLimiter) *gin.Engine {
 
 	r := gin.Default()
 
-	// CORS 中间件
+	// CORS 中间件（从配置读取允许的域名）
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Origin", cfg.CORSOrigins)
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if c.Request.Method == "OPTIONS" {
@@ -260,9 +260,13 @@ func handleTokenIssue(c *gin.Context) {
 	}
 	role := "cockpit_user"
 
-	// Admin 用户特殊处理
+	// Admin 用户特殊处理：需要密码验证
 	cfg := config.Get()
 	if req.UserID == cfg.AdminUsername {
+		if req.Password != cfg.AdminPassword {
+			c.JSON(401, gin.H{"error": "INVALID_CREDENTIALS", "message": "admin password incorrect"})
+			return
+		}
 		role = "super_admin"
 		cockpitID = "" // admin 不绑定座舱
 	}
