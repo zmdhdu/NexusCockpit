@@ -36,6 +36,9 @@ ENV/
 .env.local
 .env.prod
 .env.production
+.env.secrets
+.secrets
+*.secrets
 # .env 作为模板文件可提交 (不含真实密钥)
 
 # Docker
@@ -145,3 +148,52 @@ backend_design/data/
 简历报告-NexusCockpit.md
 _resume_template.txt
 _count_lines.py
+
+# ============================================================
+# llama.cpp pre-built binaries (local only, not for GitHub)
+# ============================================================
+models/llm/llama.cpp/*.exe
+models/llm/llama.cpp/*.dll
+models/llm/llama.cpp/*.lib
+!models/llm/llama.cpp/README.md
+
+# ============================================================
+# Local GGUF model weights (large, not for GitHub)
+# ============================================================
+models/llm/qwen/*.gguf
+
+# ============================================================
+# User preference data (local runtime, not for GitHub)
+# ============================================================
+data/preferences/*.json
+!data/preferences/default_user.json
+!data/preferences/.gitkeep
+
+# ============================================================
+# Meituan developer token (sensitive, not for GitHub)
+# ============================================================
+**/meituan_token*
+**/meituan_secrets*
+.env.secrets
+
+# ============================================================
+# Meituan skills runtime auth files (sensitive, not for GitHub)
+# 技能目录本身（SKILL.md 等）可提交，但运行时生成的认证文件不提交
+# ============================================================
+# 美团分销推广技能 - 本地认证 token 文件
+**/.xiaomei-workspace/
+# 美团分销推广技能 - 领券历史记录
+**/meituan-fenxiao-promotion-coupon_history.json
+# 美团技能 - 运行时缓存
+.catpaw/meituan-skills/**/node_modules/
+.catpaw/meituan-skills/**/.cache/
+
+# ============================================================
+# QWeather API secrets (sensitive, not for GitHub)
+# ============================================================
+**/qweather_secrets*
+
+# ============================================================
+# Analysis report (local working document)
+# ============================================================
+分析报告.md

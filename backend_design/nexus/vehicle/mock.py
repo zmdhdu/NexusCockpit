@@ -57,7 +57,7 @@ class MockVehicleBus(BaseVehicleAdapter):
     }
 
     def __init__(self):
-        # 内置播放列表 (10 首热门歌曲)
+        # 内置播放列表 (12 首热门歌曲)
         self._playlist = [
             "爱错 - 王力宏",
             "晴天 - 周杰伦",
@@ -66,9 +66,11 @@ class MockVehicleBus(BaseVehicleAdapter):
             "稻香 - 周杰伦",
             "光年之外 - 邓紫棋",
             "说好不哭 - 周杰伦",
-            "圈圈叉叉 - 蔡依林",
             "告白气球 - 周杰伦",
             "年少有为 - 李荣浩",
+            "陪你去流浪 - 薛之谦",
+            "其实 - 薛之谦",
+            "天份 - 薛之谦",
         ]
         self._track_index = 0
         self.climate: Dict[str, Any] = {
