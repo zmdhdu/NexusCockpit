@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-MySQL 数据库管理器 — v2.1 统一数据库访问层
+MySQL 数据库管理器 — 统一数据库访问层
 
 提供连接池管理和所有 MySQL 表的 CRUD 操作：
 - SubAgent/MainAgent 巡检日志
@@ -67,7 +67,7 @@ class DatabaseManager:
             self._connected = True
             logger.info(f"MySQL pool connected: {config.host}:{config.port}/{config.database}")
 
-            # 自动迁移：确保 v2.2.2 多会话表和列存在
+            # 自动迁移：确保多会话表和列存在
             await self._auto_migrate_tables()
 
             # 自动修复已有中文用户名 → 英文（避免编码乱码）
@@ -77,7 +77,7 @@ class DatabaseManager:
             self._connected = False
 
     async def _auto_migrate_tables(self) -> None:
-        """启动时自动迁移 — 确保 v2.2.2 多会话相关表和列存在。
+        """启动时自动迁移 — 确保多会话相关表和列存在。
 
         检查并创建:
         1. chat_sessions 表（多会话管理）
@@ -232,11 +232,14 @@ class DatabaseManager:
             "VALUES (%s, %s, %s, %s, %s, %s)"
         )
         try:
+            # 使用东八区时间，避免 Docker 容器 UTC 时区导致时间偏差
+            from datetime import timezone, timedelta
+            cn_tz = timezone(timedelta(hours=8))
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(sql, (
                         cockpit_id,
-                        datetime.now(),
+                        datetime.now(cn_tz),
                         json.dumps(check_items, ensure_ascii=False, default=str),
                         json.dumps(llm_judgment, ensure_ascii=False, default=str) if llm_judgment else None,
                         json.dumps(decision_trace, ensure_ascii=False, default=str) if decision_trace else None,
@@ -576,6 +579,23 @@ class DatabaseManager:
             logger.error(f"Failed to delete user: {e}")
             return False
 
+    async def update_user_password(self, user_id: str, password_hash: str) -> bool:
+        """更新用户密码哈希。"""
+        if not self.is_connected:
+            return False
+
+        try:
+            async with self._get_conn() as conn:
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        "UPDATE users SET password_hash = %s WHERE user_id = %s",
+                        (password_hash, user_id),
+                    )
+                    return cur.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to update user password: {e}")
+            return False
+
     # ============================================================
     # 对话历史
     # ============================================================
@@ -690,7 +710,7 @@ class DatabaseManager:
             return 0
 
     # ============================================================
-    # 用户习惯 (v2.1)
+    # 用户习惯
     # ============================================================
 
     async def record_user_habit(

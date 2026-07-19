@@ -3,13 +3,13 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Memory Manager — 统一记忆管理器 v2.1
+Memory Manager — 统一记忆管理器
 
-v2.1 重构:
-  - recall 改为使用 GraphRAGRetriever 的三路融合（向量+图谱+BM25）+ Rerank
-  - 新增对话历史向量化存储：将重要对话片段嵌入 Milvus，支持语义检索
-  - 新增渐进式披露：根据 query 复杂度动态调整召回数量
-  - 新增用户习惯注入：从 MySQL user_habits 表加载习惯，丰富记忆上下文
+核心特性:
+  - recall 使用 GraphRAGRetriever 的三路融合（向量+图谱+BM25）+ Rerank
+  - 对话历史向量化存储：将重要对话片段嵌入 Milvus，支持语义检索
+  - 渐进式披露：根据 query 复杂度动态调整召回数量
+  - 用户习惯注入：从 MySQL user_habits 表加载习惯，丰富记忆上下文
 
 架构:
   短期记忆 (Redis SessionStore) → 原始对话历史，即时上下文
@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 
 class MemoryManager:
-    """统一记忆管理器 v2.1。
+    """统一记忆管理器。
 
     协调三层记忆：
     - 短期记忆: Redis SessionStore（由外部 chat.py 管理，传入 history）
@@ -76,7 +76,7 @@ class MemoryManager:
         self.extractor = MemoryExtractor(self.llm_client)
         self.conflict_detector = ConflictDetector(self.llm_client)
 
-        # v2.1: 使用 GraphRAGRetriever 的三路融合+Rerank 管道
+        # 使用 GraphRAGRetriever 的三路融合+Rerank 管道
         self.reranker = reranker or build_reranker()
         self.retriever = GraphRAGRetriever(
             vector_store=self.vector_store,
@@ -90,12 +90,12 @@ class MemoryManager:
         """连接所有存储后端。"""
         self.vector_store.connect()
         self.graph_store.connect()
-        logger.info("Memory manager connected (v2.1: GraphRAG + Rerank pipeline)")
+        logger.info("Memory manager connected (GraphRAG + Rerank pipeline)")
 
     async def recall(
         self, query: str, user_id: str, top_k: int = 5
     ) -> List[str]:
-        """v2.1 记忆召回 — 使用 GraphRAG 三路融合 + Rerank。
+        """记忆召回 — 使用 GraphRAG 三路融合 + Rerank。
 
         渐进式披露策略:
             - 简单查询（车控/导航指令）: top_k=3，快速返回
@@ -132,7 +132,7 @@ class MemoryManager:
                 tag = "语义" if source == "vector" else "图谱" if source == "graph" else "全文" if source == "bm25" else source
                 memories.append(f"[{tag}] {text} (score={score:.3f})")
 
-        # v2.1: 追加用户习惯记忆（从 MySQL 加载）
+        # 追加用户习惯记忆（从 MySQL 加载）
         habits = await self._load_user_habits(user_id)
         if habits:
             memories.extend(habits)
@@ -210,7 +210,7 @@ class MemoryManager:
             3. 冲突裁决：DELETE 旧 / IGNORE 新 / NONE 无冲突
             4. 双向写入：Milvus 向量 + Neo4j 图谱
 
-        v2.1.2: 可通过 MEMORY_EXTRACTION_ENABLED=false 关闭以减少 LLM 调用。
+        注: 可通过 MEMORY_EXTRACTION_ENABLED=false 关闭以减少 LLM 调用。
 
         Args:
             user_text: 用户输入文本
@@ -219,7 +219,7 @@ class MemoryManager:
         Returns:
             存储的记忆数量
         """
-        # v2.1.2: 记忆提取开关 — 关闭时跳过 LLM 提取和冲突检测
+        # 记忆提取开关 — 关闭时跳过 LLM 提取和冲突检测
         from nexus.config import get_config
         if not get_config().llm.memory_extraction_enabled:
             logger.debug("Memory extraction skipped (disabled by config)")
@@ -281,7 +281,7 @@ class MemoryManager:
     async def store_conversation(
         self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str = ""
     ) -> None:
-        """v2.1: 将完整对话向量化存储到 Milvus，支持后续语义检索。
+        """将完整对话向量化存储到 Milvus，支持后续语义检索。
 
         与 store_from_text 不同，这里存储的是完整对话上下文，
         而非提取后的三元组。适用于"用户之前问过类似问题"的场景。
@@ -309,9 +309,8 @@ class MemoryManager:
     def store_from_text_async(self, user_text: str, user_id: str) -> Optional[asyncio.Task]:
         """在当前事件循环中非阻塞存储记忆（fire-and-forget）。
 
-        v2.1.1 修复: 原实现在新线程中创建新事件循环，导致 httpx.AsyncClient
-        跨事件循环使用报 "Event loop is closed" 错误。现改为在当前事件循环中
-        通过 asyncio.create_task() 调度，与 EmbeddingService 共享同一事件循环。
+        注: 使用 asyncio.create_task() 在当前事件循环中调度，
+        与 EmbeddingService 共享同一事件循环，避免跨循环错误。
 
         Args:
             user_text: 用户输入文本
@@ -333,10 +332,9 @@ class MemoryManager:
     def store_conversation_async(
         self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str = ""
     ) -> Optional[asyncio.Task]:
-        """v2.1: 非阻塞存储对话向量（fire-and-forget）。
+        """非阻塞存储对话向量（fire-and-forget）。
 
-        v2.1.1 修复: 同 store_from_text_async，改用 asyncio.create_task()
-        替代线程+新事件循环方案。
+        注: 使用 asyncio.create_task() 替代线程+新事件循环方案。
 
         Args:
             user_input: 用户输入

@@ -6,7 +6,7 @@
 Health Expert — 车辆健康专家 Agent
 
 封装车辆健康类技能：故障诊断、故障码翻译、保养建议。
-v2.0 新增专家，依赖 Cherry 知识库（Phase 3 实现后生效）。
+依赖 Cherry 知识库（Phase 3 实现后生效）。
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ logger = get_logger(__name__)
 class HealthExpert(BaseExpertAgent):
     """车辆健康专家：处理故障诊断、故障码翻译、保养建议。
 
-    v2.0 Phase 1 阶段为骨架实现，
-    Phase 2/3 添加 diagnose_vehicle / decode_dtc / maintenance_advice 技能后自动生效。
+    初始阶段为骨架实现，
+    添加 diagnose_vehicle / decode_dtc / maintenance_advice 技能后自动生效。
     """
 
     expert_name = "health"

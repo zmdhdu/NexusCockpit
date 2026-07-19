@@ -3,16 +3,16 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Redis Semantic Cache — v2.0 基于 Redis Stack VECTOR 向量索引
+Redis Semantic Cache — 基于 Redis Stack VECTOR 向量索引
 
-v2.0 变更:
-  - 从 O(n) 遍历改为 Redis Stack RediSearch KNN 向量检索 O(log n)
+核心特性:
+  - Redis Stack RediSearch KNN 向量检索 O(log n)
   - 按用户分片索引（user_id 隔离）
-  - 车控指令不缓存（has_side_effect 检查）— from main L5 fix
+  - 车控指令不缓存（has_side_effect 检查）
   - TTL 分级：闲聊 1h、知识库 24h、车控永不上缓存
   - 分布式锁防击穿
 
-安全设计 (from main L5 fix):
+安全设计:
   - 副作用隔离: 车控等有副作用的响应 (has_side_effect=True) 永不写入缓存，
     避免"打开空调"缓存命中后车控指令不执行的安全事故
 
@@ -53,7 +53,7 @@ def _get_vector_dim() -> int:
 
 
 class SemanticCache:
-    """v2.0 Redis Stack 语义缓存。
+    """Redis Stack 语义缓存。
 
     使用 RediSearch + VECTOR 索引实现 KNN 向量检索，O(log n) 复杂度。
     支持按 user_id 分片、TTL 分级、车控指令跳过缓存。
@@ -104,7 +104,7 @@ class SemanticCache:
                 self._index_ready = False
             else:
                 await self._ensure_index()
-                logger.info("Redis Stack semantic cache connected (v2.0 VECTOR index)")
+                logger.info("Redis Stack semantic cache connected (VECTOR index)")
         except Exception as e:
             logger.warning(f"Redis connection failed, cache disabled: {e}")
             self._enabled = False
@@ -160,7 +160,7 @@ class SemanticCache:
     async def get(self, query: str, user_id: str = "") -> Optional[Dict[str, Any]]:
         """查询缓存（KNN 向量检索）。
 
-        v2.0 使用 RediSearch FT.SEARCH KNN 替代 O(n) 遍历。
+        使用 RediSearch FT.SEARCH KNN 实现 O(log n) 向量相似度检索。
         """
         if not self._enabled or not self._redis:
             return None
@@ -323,10 +323,10 @@ class SemanticCache:
     ) -> None:
         """写入缓存。
 
-        v2.0 改进:
+        特性:
           - 支持 TTL 分级（闲聊 1h、知识库 24h）
           - 存入 RediSearch 索引
-          - has_side_effect=True 时禁止写入缓存 (from main L5 fix)
+          - has_side_effect=True 时禁止写入缓存
 
         Args:
             has_side_effect: 是否有副作用 (车控等)，为 True 时禁止写入缓存
@@ -377,6 +377,35 @@ class SemanticCache:
             logger.debug(f"Cache SET: key={cache_key}, ttl={cache_ttl}s, side_effect={has_side_effect}")
         except Exception as e:
             logger.error(f"Cache set failed: {e}")
+
+    async def delete_by_user(self, user_id: str) -> int:
+        """删除指定用户的所有语义缓存条目（用户删除对话时调用）。
+
+        遍历所有缓存条目，删除 user_id 匹配的条目，释放 Redis 内存。
+
+        Args:
+            user_id: 用户 ID
+
+        Returns:
+            删除的缓存条目数量
+        """
+        if not self._enabled or not self._redis:
+            return 0
+
+        try:
+            count = 0
+            async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*", count=100):
+                data = await self._redis.hget(key, "user_id")
+                if data == user_id:
+                    await self._redis.delete(key)
+                    count += 1
+
+            if count > 0:
+                logger.info(f"SemanticCache: deleted {count} cache entries for user '{user_id}'")
+            return count
+        except Exception as e:
+            logger.error(f"Cache delete_by_user failed: {e}")
+            return 0
 
     async def clear(self) -> int:
         """清空所有缓存。"""

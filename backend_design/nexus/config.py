@@ -121,14 +121,14 @@ class LLMConfig(BaseSettings):
     max_tokens: int = Field(default=512)
     # API 调用超时时间 (秒)
     timeout: float = Field(default=30.0)
-    # v2.1.2: 反思校验开关 (关闭可减少一次 LLM 调用，适合免费 API 限流场景)
+    # 反思校验开关 (关闭可减少一次 LLM 调用，适合免费 API 限流场景)
     reflection_enabled: bool = Field(default=True, validation_alias="REFLECTION_ENABLED")
-    # v2.1.2: 记忆提取开关 (关闭可减少 1-2 次 LLM 调用，适合免费 API 限流场景)
+    # 记忆提取开关 (关闭可减少 1-2 次 LLM 调用，适合免费 API 限流场景)
     memory_extraction_enabled: bool = Field(default=True, validation_alias="MEMORY_EXTRACTION_ENABLED")
-    # v2.1.2: LLM 并发限流 (同时最多发起的 chat/completions 请求数，0=不限)
+    # LLM 并发限流 (同时最多发起的 chat/completions 请求数，0=不限)
     llm_concurrency_limit: int = Field(default=0, validation_alias="LLM_CONCURRENCY_LIMIT")
 
-    # v2.2 新增: 本地 LLM 降级配置（llama.cpp OpenAI 兼容接口）
+    # 本地 LLM 降级配置（llama.cpp OpenAI 兼容接口）
     # 云端 LLM 不可用时自动降级到本地 Qwen3.5-4B 模型
     fallback_enabled: bool = Field(default=False, validation_alias="LLM_FALLBACK_ENABLED")
     fallback_base_url: str = Field(
@@ -145,13 +145,13 @@ class LLMConfig(BaseSettings):
     )
     fallback_timeout: float = Field(default=60.0, validation_alias="LLM_FALLBACK_TIMEOUT")
 
-    # v2.2 新增: 美团开发者 Token（从 .env.secrets 加载，不提交 GitHub）
+    # 美团开发者 Token（从 .env.secrets 加载，不提交 GitHub）
     meituan_dev_token: str = Field(
         default="",
         validation_alias="MEITUAN_DEV_TOKEN",
     )
 
-    # v2.2 新增: 降级行为控制
+    # 降级行为控制
     degradation_notify_user: bool = Field(default=True, validation_alias="DEGRADATION_NOTIFY_USER")
     degradation_notify_admin: bool = Field(default=True, validation_alias="DEGRADATION_NOTIFY_ADMIN")
 
@@ -246,8 +246,7 @@ class RedisConfig(BaseSettings):
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
-# v2.2 简化: RabbitMQConfig 已移除（Celery/RabbitMQ 未落地）
-# 原 RabbitMQConfig 类已删除，任务队列改为 asyncio.create_task()
+# 注: RabbitMQConfig 已移除，任务队列改为 asyncio.create_task()
 
 
 class MySQLConfig(BaseSettings):
@@ -351,9 +350,8 @@ class ASRConfig(BaseSettings):
         default="./models/tts/cosyvoice",
         validation_alias="COSYVOICE_MODEL_PATH",
     )
-    # v2.2 简化: use_local_llm/local_llm_model_path 旧占位已移除
-    # 改为第七章标准方案: LLMConfig.fallback_base_url + fallback_model
-    # 本地 LLM 降级通过 llama.cpp OpenAI 兼容接口实现，详见 docs/deployment/
+    # 本地 LLM 降级通过 LLMConfig.fallback_base_url + fallback_model 实现
+    # 详见 docs/deployment/LLM_FALLBACK.md
 
     # --- 声纹验证音频目录 ---
     # 注册音频目录: 存放用户预先录制的声纹样本
@@ -380,8 +378,6 @@ class ASRConfig(BaseSettings):
     def resolved_cosyvoice_path(self) -> str:
         """返回基于项目根目录解析后的 TTS 模型绝对路径。"""
         return _resolve_path(self.cosyvoice_model_path)
-
-    # v2.2 简化: resolved_llm_path() 已移除（use_local_llm 旧占位已删除）
 
     def resolved_speaker_enroll_dir(self) -> str:
         """返回声纹注册音频目录的绝对路径。"""
@@ -522,7 +518,7 @@ class DataConfig(BaseSettings):
     temp_dir: str = Field(
         default="./data/temp", validation_alias="TEMP_DIR"
     )
-    # v2.2 新增: 用户偏好数据目录（声纹识别后存储用户偏好）
+    # 用户偏好数据目录（声纹识别后存储用户偏好）
     preferences_dir: str = Field(
         default="./data/preferences", validation_alias="PREFERENCES_DIR"
     )
@@ -550,25 +546,79 @@ class DataConfig(BaseSettings):
         return _resolve_path(self.preferences_dir)
 
 
-# v2.2 简化: OSSConfig 已移除（未集成，过度设计）
-# 原 OSSConfig 类已删除，如需对象存储可参考 docs/architecture/
+# 注: OSSConfig 已移除（未集成，过度设计）
+
+
+class MemoryConfig(BaseSettings):
+    """智能上下文记忆管理配置。
+
+    控制对话历史的阈值压缩、滚动摘要、上下文 token 预算等参数。
+    所有参数均可通过 .env 环境变量覆盖，无需改代码即可调优。
+
+    配置项说明:
+        - compress_threshold_turns: 触发压缩的对话轮数阈值
+            1 轮 = user + assistant = 2 条消息。
+            当对话轮数超过此值时，自动将旧对话压缩为滚动摘要。
+            增大此值 → 保留更多完整对话，token 消耗增加；
+            减小此值 → 更早触发压缩，token 更省但可能丢失细节。
+        - keep_recent_turns: 压缩时保留的最近完整对话轮数
+            这些近期对话不参与压缩，保持原样传入 LLM。
+            增大此值 → LLM 能看到更多近期上下文，token 增加；
+            减小此值 → 更多旧对话被折叠为摘要。
+        - max_summary_chars: 滚动摘要的最大字符长度
+            摘要超过此长度时会调用 LLM 融合精简。
+            增大此值 → 摘要保留更多历史细节，token 增加；
+            减小此值 → 摘要更精简，可能丢失部分历史信息。
+        - max_history_len: 短期对话历史最大保留条数
+            SessionStore 中保存的对话历史上限（条数）。
+        - context_token_ratio: 上下文 token 占模型窗口的比例
+            取模型上下文窗口的此比例作为可用上下文预算，
+            剩余部分预留给 LLM 回复生成。默认 0.7（预留 30% 回复）。
+        - context_token_hard_cap: 上下文 token 硬上限
+            无论模型窗口多大，单次请求的上下文 token 不超过此值，
+            防止单次请求过大导致延迟或费用过高。
+    """
+
+    # 触发阈值压缩的对话轮数（1 轮 = 2 条消息）
+    compress_threshold_turns: int = Field(
+        default=8, validation_alias="MEMORY_COMPRESS_THRESHOLD_TURNS"
+    )
+    # 压缩时保留的最近完整对话轮数
+    keep_recent_turns: int = Field(
+        default=5, validation_alias="MEMORY_KEEP_RECENT_TURNS"
+    )
+    # 滚动摘要的最大字符长度
+    max_summary_chars: int = Field(
+        default=1000, validation_alias="MEMORY_MAX_SUMMARY_CHARS"
+    )
+    # 短期对话历史最大保留条数
+    max_history_len: int = Field(
+        default=20, validation_alias="MEMORY_MAX_HISTORY_LEN"
+    )
+    # 上下文 token 占模型窗口的比例（0~1）
+    context_token_ratio: float = Field(
+        default=0.7, validation_alias="MEMORY_CONTEXT_TOKEN_RATIO"
+    )
+    # 上下文 token 硬上限（防止单次请求过大）
+    context_token_hard_cap: int = Field(
+        default=4096, validation_alias="MEMORY_CONTEXT_TOKEN_HARD_CAP"
+    )
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
 
 class CockpitSettings(BaseSettings):
-    """v2.1 多座舱配置。
+    """多座舱配置。
 
-    控制多座舱行为，包括座舱数量、隔离模式、SubAgent 巡检等。
+    控制多座舱行为，包括座舱数量、隔离模式等。
     """
 
     # 默认座舱数量
     default_cockpit_count: int = Field(default=1, validation_alias="COCKPIT_COUNT")
-    # v2.2 简化: SubAgent/MainAgent 相关配置已移除（过度设计）
-    # 原字段: subagent_check_interval_min/max, mainagent_confirm_enabled, subagent_llm_model, isolation_mode
-    # 隔离模式: 单座舱模式，无需隔离
     # Go 网关配置
     gate_host: str = Field(default="0.0.0.0", validation_alias="NEXUS_GATE_HOST")
     gate_port: int = Field(default=8080, validation_alias="NEXUS_GATE_PORT")
-    gate_mode: str = Field(default="proxy", validation_alias="NEXUS_GATE_MODE")  # v2.2: 固定 proxy（grpc 未实现已移除）
+    gate_mode: str = Field(default="proxy", validation_alias="NEXUS_GATE_MODE")
     # RBAC 配置
     rbac_default_role: str = Field(default="cockpit_user", validation_alias="RBAC_DEFAULT_ROLE")
     rbac_admin_username: str = Field(default="admin", validation_alias="RBAC_ADMIN_USERNAME")
@@ -609,16 +659,11 @@ class AppConfig(BaseSettings):
     milvus: MilvusConfig = Field(default_factory=MilvusConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
-    # v2.2 简化: rabbitmq/oss 字段已移除
-    # rabbitmq: RabbitMQConfig = Field(default_factory=RabbitMQConfig)  # 已移除
-    # oss: OSSConfig = Field(default_factory=OSSConfig)  # 已移除
     mysql: MySQLConfig = Field(default_factory=MySQLConfig)
     jwt: JWTConfig = Field(default_factory=JWTConfig)
     vehicle: VehicleConfig = Field(default_factory=VehicleConfig)
     asr: ASRConfig = Field(default_factory=ASRConfig)
     data: DataConfig = Field(default_factory=DataConfig)
-    # v2.2 简化: oss 字段已移除
-    # oss: OSSConfig = Field(default_factory=OSSConfig)  # 已移除
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -626,6 +671,8 @@ class AppConfig(BaseSettings):
     amap: AmapConfig = Field(default_factory=AmapConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    # 智能上下文记忆管理配置（阈值压缩/滚动摘要/token预算）
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     cockpit: CockpitSettings = Field(default_factory=CockpitSettings)
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
@@ -641,7 +688,6 @@ class AppConfig(BaseSettings):
             warnings.append("MYSQL_PASSWORD 仍为默认密码")
         if self.neo4j.password == "nexuscockpit":
             warnings.append("NEO4J_PASSWORD 仍为默认密码")
-        # v2.2 简化: RabbitMQ 安全检查已移除
         if "*" in self.server.cors_origins:
             warnings.append("CORS origins 包含 '*' (允许所有域)")
         if warnings:

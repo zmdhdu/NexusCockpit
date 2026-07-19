@@ -28,9 +28,9 @@ class HeuristicRouter:
             self._extract_navigation,
             self._extract_media,
             self._extract_vehicle_status,
-            self._extract_time,  # v2.2.4: 时间查询优先于搜索，避免"几点"触发 web_search
-            self._extract_nearby_poi,  # v2.2.3: 周边搜索优先于普通搜索
-            self._extract_food,  # v2.2.1: 点餐优先于搜索，避免"想吃外卖+附近"被搜索拦截
+            self._extract_time,  # 时间查询优先于搜索，避免"几点"触发 web_search
+            self._extract_nearby_poi,  # 周边搜索优先于普通搜索
+            self._extract_food,  # 点餐优先于搜索，避免"想吃外卖+附近"被搜索拦截
             self._extract_search,
         ]:
             result = extractor(compact)
@@ -182,7 +182,7 @@ class HeuristicRouter:
         return {"Vehicle_Status_Action": {"op": "status"}}
 
     def _extract_time(self, text: str) -> Dict[str, Any]:
-        """v2.2.4: 检测时间查询意图。
+        """检测时间查询意图。
 
         当用户询问当前时间、日期、星期时，直接走闲聊分支。
         系统提示词中已注入当前时间，LLM 可以直接回答，
@@ -201,7 +201,7 @@ class HeuristicRouter:
         return {}
 
     def _extract_nearby_poi(self, text: str) -> Dict[str, Any]:
-        """v2.2.3: 检测周边 POI 搜索意图（附近美食、周边加油站等）。
+        """检测周边 POI 搜索意图（附近美食、周边加油站等）。
 
         当用户询问基于当前位置的周边信息时，路由到高德 POI 搜索技能，
         而非 Tavily 通用搜索（后者返回的结果不准确）。
@@ -263,7 +263,7 @@ class HeuristicRouter:
 
     def _extract_search(self, text: str) -> Dict[str, Any]:
         """检测联网搜索意图"""
-        # v2.2.3: 如果包含周边搜索关键词，不拦截为通用搜索（已由 _extract_nearby_poi 处理）
+        # 如果包含周边搜索关键词，不拦截为通用搜索（已由 _extract_nearby_poi 处理）
         nearby_keywords = ("附近", "周边", "周围", "就近")
         nearby_poi_keywords = (
             "好吃的", "美食", "餐厅", "吃饭", "加油站", "停车场",
@@ -272,7 +272,7 @@ class HeuristicRouter:
         if any(k in text for k in nearby_keywords) and any(k in text for k in nearby_poi_keywords):
             return {}
 
-        # v2.2.1: 如果包含点餐关键词，不拦截为搜索
+        # 如果包含点餐关键词，不拦截为搜索
         food_keywords = ("点外卖", "饿了", "想吃", "点餐", "叫外卖", "吃什么", "帮我点")
         if any(k in text for k in food_keywords):
             return {}

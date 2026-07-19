@@ -7,7 +7,7 @@
 /**
  * 侧边栏组件 — 以用户视角设计的导航
  *
- * v2.2.2 改进:
+ * 会话管理:
  *   - 语音助手菜单下方显示会话列表（类似豆包/ChatGPT）
  *   - 新建对话按钮
  *   - 切换会话
@@ -127,7 +127,7 @@ export function Sidebar() {
     loadCockpits();
   }, []);
 
-  // v2.2.2: 加载会话列表
+  // 加载会话列表
   useEffect(() => {
     if (!cockpitId) return;
     const existing = sessionsByCockpit[cockpitId];
@@ -177,6 +177,8 @@ export function Sidebar() {
       // 静默失败
     }
     removeSession(sid);
+    // 通知 Dashboard 等页面即时刷新指标数据
+    window.dispatchEvent(new CustomEvent("session-deleted", { detail: { sessionId: sid } }));
   };
 
   const statusConfig = {
@@ -294,7 +296,7 @@ export function Sidebar() {
           );
         })}
 
-        {/* v2.2.2: 聊天会话列表 — 仅在语音助手页面时显示 */}
+        {/* 聊天会话列表 — 仅在语音助手页面时显示 */}
         {isChatPage && (
           <div className="mt-2 space-y-1">
             {/* 新建对话按钮 */}

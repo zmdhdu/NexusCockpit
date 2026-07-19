@@ -5,16 +5,14 @@
 """
 Chat Routes — 文本对话 REST + SSE 接口
 
-v2.0 变更:
-  - 使用 SupervisorGraph 替代 AgentGraph
-  - SSE 流式接口改用 stream_with_events()，输出结构化事件
+核心特性:
+  - 使用 SupervisorGraph 多智能体编排
+  - SSE 流式接口使用 stream_with_events()，输出结构化事件
   - 支持 checkpoint 持久化（thread_id = session_id）
-  - 缓存检查上移至 Supervisor（CacheGuard 节点，Phase 5 实现）
-  - 集成 SessionStore 持久化会话历史 (from main L5 fix)
-  - 集成 Langfuse 链路追踪 (from main L7 fix)
-  - has_side_effect 缓存安全隔离 (from main L5 fix)
-
-v2.1 变更:
+  - 缓存检查上移至 Supervisor（CacheGuard 节点）
+  - 集成 SessionStore 持久化会话历史
+  - 集成 Langfuse 链路追踪
+  - has_side_effect 缓存安全隔离
   - 记录座舱级指标（chat_count / vehicle_cmd_count / latency）到 Redis
   - 持久化聊天记录到 MySQL chat_logs 表（按 cockpit_id 隔离，管理员不可见内容）
   - 从请求头 X-Cockpit-Id 获取座舱 ID
@@ -33,6 +31,7 @@ import uuid
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.core.tenant_context import get_cockpit_id
 from nexus.middleware.rate_limiter import RateLimiter
@@ -51,9 +50,9 @@ from nexus.observability.metrics import (
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-# v2.2.4: 会话级别并发锁 — 防止同一 session 的并发请求交叉污染会话历史
+# 会话级别并发锁 — 防止同一 session 的并发请求交叉污染会话历史
 # 当用户快速连续发送多条消息时，确保前一条处理完再处理下一条
-# v2.2.5: 增加上限防止内存泄漏，超过阈值时清理空闲锁
+# 增加上限防止内存泄漏，超过阈值时清理空闲锁
 _session_locks: dict[str, asyncio.Lock] = {}
 _SESSION_LOCKS_MAX = 500
 
@@ -84,8 +83,6 @@ async def _record_chat_metrics(
     指标写入 Redis（实时看板），聊天日志写入 MySQL（用户隐私数据）。
     管理员只能看到聚合指标，无法查看具体对话内容。
 
-    v2.2.2: 增加 session_id 参数，支持多会话管理
-
     Args:
         app: FastAPI 应用实例
         cockpit_id: 座舱 ID
@@ -95,7 +92,7 @@ async def _record_chat_metrics(
         skill_action: 执行的技能动作
         user_input: 用户输入
         response: 助手回复
-        session_id: 会话 ID（v2.2.2）
+        session_id: 会话 ID
     """
     # 1. 记录实时指标到 Redis（供运营总览看板使用）
     try:
@@ -119,10 +116,11 @@ async def _record_chat_metrics(
                  skill_action, skill_action, latency_ms, cache_hit),
             )
 
-            # v2.2.2: 自动创建/更新会话记录
+            # 自动创建/更新会话记录
             if session_id:
                 # 尝试插入新会话（如果已存在则更新）
-                title = user_input[:50] if user_input else "新对话"
+                # 会话标题用第一次用户问题前20字，首次消息时自动更新
+                title = user_input[:20] if user_input else "新对话"
                 await db.execute_update(
                     "INSERT INTO chat_sessions (session_id, cockpit_id, user_id, title, message_count, last_message_at) "
                     "VALUES (%s, %s, %s, %s, 1, NOW()) "
@@ -198,13 +196,13 @@ async def chat(request: Request, body: ChatRequest):
             )
         CACHE_MISSES.inc()
 
-    # 构建 v2.0 SupervisorState 并执行
+    # 构建 SupervisorState 并执行
     agent_graph = app.state.agent_graph
-    # v2.2.5: session_id 为空时生成唯一临时 ID，禁止回退到 user_id
+    # session_id 为空时生成唯一临时 ID，禁止回退到 user_id
     # 回退到 user_id 会导致同一用户的所有对话共享历史，破坏会话隔离
     session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
 
-    # v2.2.4: 获取会话锁，防止同一 session 的并发请求交叉污染历史
+    # 获取会话锁，防止同一 session 的并发请求交叉污染历史
     session_lock = _get_session_lock(session_key)
 
     # 优先从 SessionStore 加载历史 (Redis 持久化，重启不丢失) (from main L5 fix)
@@ -214,14 +212,18 @@ async def chat(request: Request, body: ChatRequest):
         # 在锁内读取历史，确保不会读到并发请求的中间状态
         if session_store:
             history = await session_store.async_get(session_key)
+            # 加载滚动摘要（阈值压缩产生的跨轮次摘要）
+            running_summary = await session_store.async_get_summary(session_key)
         else:
             history = app.state.session_histories.get(session_key, [])
+            running_summary = ""
 
         state = create_initial_state(
             user_input=body.text,
             user_id=body.user_id,
             session_id=body.session_id,
             history=history,
+            running_summary=running_summary,  # 传入滚动摘要
         )
         # 注入 cockpit_id 到 state，供 MainAgent 确认层使用
         state["cockpit_id"] = cockpit_id
@@ -249,7 +251,11 @@ async def chat(request: Request, body: ChatRequest):
         state_history = state.get("history", [])
         if session_store:
             await session_store.async_set(session_key, state_history)
-        app.state.session_histories[session_key] = state_history[-20:]
+            # 持久化滚动摘要（阈值压缩产生的跨轮次摘要）
+            state_summary = state.get("running_summary", "")
+            if state_summary:
+                await session_store.async_set_summary(session_key, state_summary)
+        app.state.session_histories[session_key] = state_history[-get_config().memory.max_history_len:]
 
     # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存，避免命中缓存后车控不执行 (from main L5 fix)
     final_response = state.get("final_response", "")
@@ -267,7 +273,7 @@ async def chat(request: Request, body: ChatRequest):
     REQUEST_COUNT.labels(endpoint="chat", method="POST", status="success").inc()
     REQUEST_LATENCY.labels(endpoint="chat").observe(latency / 1000)
 
-    # v2.1: 记录指标 + 持久化聊天日志
+    # 记录指标 + 持久化聊天日志
     await _record_chat_metrics(
         app, cockpit_id, body.user_id, latency, False, skill_action, body.text, final_response,
         session_id=body.session_id,
@@ -297,14 +303,14 @@ async def chat(request: Request, body: ChatRequest):
 async def chat_stream(request: Request, body: ChatRequest):
     """文本对话 (SSE 流式)。
 
-    v2.0 使用 SupervisorGraph.stream_with_events() 输出结构化事件:
+    使用 SupervisorGraph.stream_with_events() 输出结构化事件:
       - intent:  意图路由结果
       - experts: 分派的专家列表
       - action:  执行的技能动作
       - chunk:   流式文本块
       - done:    完成事件
 
-    v2.1: 流式完成后记录指标 + 持久化聊天日志
+    流式完成后记录指标 + 持久化聊天日志
 
     Args:
         request: FastAPI 请求对象
@@ -318,11 +324,33 @@ async def chat_stream(request: Request, body: ChatRequest):
 
     async def event_generator():
         agent_graph = app.state.agent_graph
-        # v2.2.5: session_id 为空时生成唯一临时 ID，禁止回退到 user_id
+        # session_id 为空时生成唯一临时 ID，禁止回退到 user_id
         session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
         start = time.perf_counter()
 
-        # v2.2.4: 获取会话锁，防止同一 session 的并发请求交叉污染历史
+        # 语义缓存检查 — 流式接口也需要缓存检查，否则 cache_hit 永远为 False
+        # 导致座舱运营对比的命中率永远 0%
+        cache = app.state.semantic_cache
+        if cache and cache.is_enabled:
+            cached = await cache.get(body.text, body.user_id)
+            if cached:
+                CACHE_HITS.inc()
+                latency = round((time.perf_counter() - start) * 1000, 2)
+                REQUEST_COUNT.labels(endpoint="chat", method="POST", status="cache_hit").inc()
+                cached_response = cached.get("response", "")
+                # 记录缓存命中指标
+                await _record_chat_metrics(
+                    app, cockpit_id, body.user_id, latency, True, "", body.text, cached_response,
+                    session_id=body.session_id,
+                )
+                # 缓存命中：直接以 done 事件返回，不走 Agent 流式
+                yield f"data: {json.dumps({'type': 'thinking', 'data': {'message': '命中缓存'}}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': cached_response}}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'data': {'response': cached_response, 'latency_ms': latency, 'cache_hit': True}}, ensure_ascii=False)}\n\n"
+                return
+            CACHE_MISSES.inc()
+
+        # 获取会话锁，防止同一 session 的并发请求交叉污染历史
         session_lock = _get_session_lock(session_key)
 
         # 优先从 SessionStore 加载历史 (from main L5 fix)
@@ -332,14 +360,18 @@ async def chat_stream(request: Request, body: ChatRequest):
             # 在锁内读取历史，确保不会读到并发请求的中间状态
             if session_store:
                 history = await session_store.async_get(session_key)
+                # 加载滚动摘要
+                running_summary = await session_store.async_get_summary(session_key)
             else:
                 history = app.state.session_histories.get(session_key, [])
+                running_summary = ""
 
             state = create_initial_state(
                 user_input=body.text,
                 user_id=body.user_id,
                 session_id=body.session_id,
                 history=history,
+                running_summary=running_summary,  # 传入滚动摘要
             )
             # 注入 cockpit_id 到 state
             state["cockpit_id"] = cockpit_id
@@ -348,7 +380,7 @@ async def chat_stream(request: Request, body: ChatRequest):
             skill_action = ""
 
             try:
-                # v2.0: 使用 stream_with_events 获取结构化事件
+                # 使用 stream_with_events 获取结构化事件
                 async for event in agent_graph.stream_with_events(state):
                     if event.get("type") == "done":
                         full_response = event.get("data", {}).get("response", "")
@@ -359,10 +391,26 @@ async def chat_stream(request: Request, body: ChatRequest):
                 state_history = state.get("history", [])
                 if session_store:
                     await session_store.async_set(session_key, state_history)
-                app.state.session_histories[session_key] = state_history[-20:]
+                    # 持久化滚动摘要
+                    state_summary = state.get("running_summary", "")
+                    if state_summary:
+                        await session_store.async_set_summary(session_key, state_summary)
+                app.state.session_histories[session_key] = state_history[-get_config().memory.max_history_len:]
 
-                # v2.1: 流式完成后记录指标 + 持久化聊天日志
+                # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存
+                has_side_effect = state.get("has_side_effect", False)
+                if cache and cache.is_enabled and full_response and not has_side_effect:
+                    await cache.set(
+                        body.text,
+                        {"response": full_response},
+                        body.user_id,
+                        has_side_effect=has_side_effect,
+                    )
+
+                # 流式完成后记录指标 + 持久化聊天日志
                 latency = round((time.perf_counter() - start) * 1000, 2)
+                REQUEST_COUNT.labels(endpoint="chat", method="POST", status="success").inc()
+                REQUEST_LATENCY.labels(endpoint="chat").observe(latency / 1000)
                 await _record_chat_metrics(
                     app, cockpit_id, body.user_id, latency, False, skill_action,
                     body.text, full_response,
@@ -377,8 +425,12 @@ async def chat_stream(request: Request, body: ChatRequest):
                 # 确保会话历史始终被更新，即使流被中断
                 if session_store and "history" in state:
                     await session_store.async_set(session_key, state["history"])
+                    # 确保滚动摘要也被持久化
+                    state_summary = state.get("running_summary", "")
+                    if state_summary:
+                        await session_store.async_set_summary(session_key, state_summary)
                 if "history" in state:
-                    app.state.session_histories[session_key] = state["history"][-20:]
+                    app.state.session_histories[session_key] = state["history"][-get_config().memory.max_history_len:]
 
     return StreamingResponse(
         event_generator(),

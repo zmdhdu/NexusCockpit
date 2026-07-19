@@ -5,11 +5,11 @@
 """
 GraphRAG Retriever — 融合向量检索、图谱检索、BM25 全文检索
 
-v2.0 变更:
-  - 从双路（向量+图谱）升级为三路混合检索（向量+图谱+BM25）
-  - 新增 Rerank 后处理：bge-reranker-v2-m3 对 Top-20 重排至 Top-5
-  - 新增引用溯源：每条结果携带 source/score 字段
-  - RRF 融合从两路扩展为三路
+核心特性:
+  - 三路混合检索（向量+图谱+BM25）
+  - Rerank 后处理：bge-reranker-v2-m3 对 Top-20 重排至 Top-5
+  - 引用溯源：每条结果携带 source/score 字段
+  - RRF 三路融合
 
 检索策略:
   - 向量路: Milvus 语义相似度召回（基于文本含义匹配）
@@ -80,7 +80,7 @@ class GraphRAGRetriever:
         """连接所有存储"""
         self.vector_store.connect()
         self.graph_store.connect()
-        logger.info("GraphRAG retriever initialized (v2.0 with BM25 + Rerank)")
+        logger.info("GraphRAG retriever initialized (BM25 + Rerank)")
 
     def _init_bm25(self, documents: List[str]) -> None:
         """初始化 BM25 索引。"""

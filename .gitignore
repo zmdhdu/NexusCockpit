@@ -61,15 +61,12 @@ htmlcov/
 .ruff_cache/
 
 # ============================================================
-# Frontend (Next.js)
+# Frontend (Next.js under frontend_design/)
 # ============================================================
-web/node_modules/
-web/.next/
-web/out/
-web/build/
-web/.env.local
-web/npm-debug.log*
-web/yarn-error.log*
+frontend_design/node_modules/
+frontend_design/.next/
+frontend_design/out/
+frontend_design/build/
 
 # ============================================================
 # Model files (large, download separately, see SETUP.md)
@@ -129,14 +126,6 @@ data/temp/*
 *.whl
 
 # ============================================================
-# Frontend (Next.js under frontend_design/)
-# ============================================================
-frontend_design/node_modules/
-frontend_design/.next/
-frontend_design/out/
-frontend_design/build/
-
-# ============================================================
 # Backend runtime data (SQLite checkpoints, etc.)
 # ============================================================
 backend_design/data/
@@ -148,6 +137,8 @@ backend_design/data/
 简历报告-NexusCockpit*.md
 _resume_template.txt
 _count_lines.py
+修复报告.md
+Project_Review_and_Fix_Report.md
 
 # ============================================================
 # Qoder backup copy (redundant, not for GitHub)

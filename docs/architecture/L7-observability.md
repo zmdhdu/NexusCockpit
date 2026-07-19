@@ -37,7 +37,7 @@ async def call_llm(prompt: str):
 | 追踪点 | 说明 |
 |--------|------|
 | API 入口 | chat.py 创建顶层 trace，贯穿整个请求生命周期 |
-| Agent 节点 | Supervisor / Experts / Responder / Reviewer (v2.0) |
+| Agent 节点 | Supervisor / Experts / Responder / Reflection / Reviewer |
 | LLM 调用 | 每次 LLM API 调用的输入/输出/延迟 |
 | RAG 检索 | 向量搜索 + 图谱查询 |
 | 技能执行 | 每个技能的执行结果 |

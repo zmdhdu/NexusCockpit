@@ -7,12 +7,10 @@
 /**
  * 全局 GPS 定位 Hook — 仅获取并缓存浏览器坐标
  *
- * v2.2.3 重构:
- *   原来每 30 秒轮询并调用 /vehicle/location（触发高德逆地理编码 API），
- *   浪费 API 调用量。
- *
- *   现在仅获取 GPS 坐标并存入后端 adapter，
- *   逆地理编码只在用户主动查询位置/周边时按需触发。
+ * 设计说明:
+ *   仅获取 GPS 坐标并存入后端 adapter，
+ *   逆地理编码只在用户主动查询位置/周边时按需触发，
+ *   避免浪费高德逆地理编码 API 调用量。
  *
  * 使用方式:
  *   在根布局的客户端组件中调用一次即可全局生效。
@@ -43,7 +41,7 @@ export function useGpsLocation() {
         async (position) => {
           if (cancelled) return;
           try {
-            // v2.2.3: 仅发送坐标到后端，不触发逆地理编码
+            // 仅发送坐标到后端，不触发逆地理编码
             // 后端 /vehicle/location 会存储坐标但不调用 Amap API
             // 逆地理编码在用户查询位置/周边时按需触发
             await updateVehicleLocation(
@@ -64,7 +62,7 @@ export function useGpsLocation() {
     // 首次获取
     fetchLocation();
 
-    // v2.2.3: 降低轮询频率到 5 分钟，仅刷新坐标缓存
+    // 降低轮询频率到 5 分钟，仅刷新坐标缓存
     // 逆地理编码 API 不再每次轮询调用
     const interval = setInterval(fetchLocation, 300000);
 

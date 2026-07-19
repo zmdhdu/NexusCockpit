@@ -59,7 +59,7 @@ class MockVehicleBus(BaseVehicleAdapter):
     }
 
     def __init__(self):
-        # v2.2: 动态扫描音频目录，构建播放列表
+        # 动态扫描音频目录，构建播放列表
         self._playlist: List[Dict[str, Any]] = self._scan_music_dir()
         self._track_index = 0
         self.climate: Dict[str, Any] = {
@@ -84,9 +84,9 @@ class MockVehicleBus(BaseVehicleAdapter):
             "playing": False,
             "volume": 18,
             "source": "local",
-            "track": self._playlist[0] if self._playlist else None,  # v2.2: 改为 dict
+            "track": self._playlist[0] if self._playlist else None,  # 改为 dict
             "track_index": 0,
-            "playlist": list(self._playlist),  # v2.2: 完整的播放列表（含 url）
+            "playlist": list(self._playlist),  # 完整的播放列表（含 url）
         }
         self.navigation: Dict[str, Any] = {
             "destination": "",
@@ -110,7 +110,7 @@ class MockVehicleBus(BaseVehicleAdapter):
     def _scan_music_dir(self) -> List[Dict[str, Any]]:
         """扫描 assets/audio/music/ 目录，构建播放列表。
 
-        v2.2 新增: 替代硬编码播放列表，动态扫描本地音频文件。
+        替代硬编码播放列表，动态扫描本地音频文件。
 
         支持的格式: .mp3, .wav
 
@@ -282,10 +282,10 @@ class MockVehicleBus(BaseVehicleAdapter):
         # 查询当前位置
         if op in ("location", "current_location", "where", "位置", "我在哪"):
             loc = self.navigation.get("current_location", "")
-            # v2.2: 只缓存成功获取的位置，失败时每次重试
+            # 只缓存成功获取的位置，失败时每次重试
             if not loc or "未知" in loc or "不可用" in loc:
                 loc = self._fetch_ip_location(latitude, longitude)
-            # v2.2.3: 坐标降级时也算部分成功（至少有坐标）
+            # 坐标降级时也算部分成功（至少有坐标）
             is_failure = "未知" in loc and "坐标" not in loc
             return VehicleCommandResult(
                 success=not is_failure,
@@ -314,11 +314,9 @@ class MockVehicleBus(BaseVehicleAdapter):
                2b. ip-api.com — 国际备选
             3. 降级：返回坐标字符串（仍存储坐标）
 
-        v2.2.4 修复:
-            - IP 定位优先使用高德 IP API（国内速度快），ip-api.com 降为备选
-            - 修复 ip-api.com 在国内超时导致定位失败的问题
+        注: IP 定位优先使用高德 IP API（国内速度快），ip-api.com 降为备选
         """
-        # v2.2.3: 无论逆地理编码是否成功，先存储坐标
+        # 无论逆地理编码是否成功，先存储坐标
         if latitude is not None and longitude is not None:
             self.navigation["latitude"] = latitude
             self.navigation["longitude"] = longitude

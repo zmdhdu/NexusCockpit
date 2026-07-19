@@ -5,8 +5,8 @@ package nexus;
 option go_package = "nexus_gate/internal/grpc;nexusgrpc";
 
 // ============================================================
-// NexusCockpit v2.1 gRPC 服务定义
-// Phase 2: 从 HTTP/REST 迁移到 gRPC（高性能内部通信）
+// NexusCockpit gRPC 服务定义
+// 从 HTTP/REST 迁移到 gRPC（高性能内部通信）
 //
 // 服务列表:
 //   1. CockpitService  — 座舱对话/车控/状态

@@ -2,7 +2,7 @@
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
-"""Memory module — 统一记忆管理 v2.1。
+"""Memory module — 统一记忆管理。
 
 架构:
     短期记忆 (Redis SessionStore) → 原始对话历史，即时上下文

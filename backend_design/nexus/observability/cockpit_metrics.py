@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-座舱级指标采集 — v2.1 数据中台后端支持
+座舱级指标采集 — 数据中台后端支持
 
 负责采集各座舱的运行指标，写入 Redis 供 SubAgent 巡检，
 定时聚合写入 MySQL 供数据中台查询。
@@ -55,6 +55,9 @@ class CockpitMetrics:
             pipe = self._redis.pipeline()
             pipe.hincrby(stats_key, "chat_count", 1)
             pipe.hincrby(stats_key, "cache_hits" if cache_hit else "cache_misses", 1)
+            # 累加延迟总和与次数，用于计算真实平均延迟（而非仅取最后一次）
+            pipe.hincrbyfloat(stats_key, "total_latency_ms", latency_ms)
+            pipe.hincrby(stats_key, "latency_count", 1)
             pipe.hset(stats_key, mapping={
                 "last_chat_time": str(time.time()),
                 "last_latency_ms": str(latency_ms),
@@ -139,6 +142,21 @@ class CockpitMetrics:
             chat_count = stats.get("chat_count", 1)
             error_count = stats.get("error_count", 0)
             stats["error_rate"] = error_count / chat_count if chat_count > 0 else 0.0
+
+            # 计算平均延迟（基于累加值，而非最后一次延迟）
+            total_latency = stats.get("total_latency_ms", 0)
+            latency_count = stats.get("latency_count", 0)
+            stats["avg_latency_ms"] = (
+                (total_latency / latency_count) if latency_count > 0 else 0.0
+            )
+
+            # 计算车控成功率（车控命中率）
+            vehicle_cmd_count = stats.get("vehicle_cmd_count", 0)
+            vehicle_cmd_errors = stats.get("vehicle_cmd_errors", 0)
+            stats["vehicle_cmd_success_rate"] = (
+                (vehicle_cmd_count - vehicle_cmd_errors) / vehicle_cmd_count
+                if vehicle_cmd_count > 0 else 1.0
+            )
 
             return stats
 

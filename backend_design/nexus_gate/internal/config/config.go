@@ -28,7 +28,7 @@ type Config struct {
 	GateMode string
 
 	// JWT
-	JWTSecret     string
+	JWTSecret      string
 	JWTExpireHours int
 
 	// Redis
@@ -68,7 +68,7 @@ func Load() *Config {
 		AIHost:              getEnv("NEXUS_AI_HOST", "127.0.0.1"),
 		AIPort:              getEnvInt("NEXUS_AI_PORT", 8000),
 		GateMode:            getEnv("NEXUS_GATE_MODE", "proxy"),
-		JWTSecret:           getEnv("JWT_SECRET", "nexus-cockpit-v2.1"),
+		JWTSecret:           getEnv("JWT_SECRET", "nexus-cockpit-secret"),
 		JWTExpireHours:      getEnvInt("JWT_EXPIRE_HOURS", 24),
 		RedisHost:           getEnv("REDIS_HOST", "127.0.0.1"),
 		RedisPort:           getEnvInt("REDIS_PORT", 6379),

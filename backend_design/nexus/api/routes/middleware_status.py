@@ -3,9 +3,11 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-中间件状态 API 路由 — v2.1 中间件看板后端
+中间件状态 API 路由 — 中间件看板后端
 
-查询各中间件（Redis/Milvus/Neo4j/RabbitMQ/MySQL）的运行状态和隔离信息。
+查询各中间件（Redis/Milvus/Neo4j/MySQL）的运行状态和隔离信息。
+
+注: RabbitMQ 已移除（Celery/RabbitMQ 未落地）。
 """
 
 from __future__ import annotations
@@ -27,16 +29,15 @@ router = APIRouter(prefix="/middleware", tags=["middleware"])
 async def get_all_middleware_status() -> Dict[str, Any]:
     """获取所有中间件状态概览。"""
     return {
-        "redis": await _get_redis_status(),
+        "asr": _get_asr_config(),
+        "tts": _get_tts_config(),
         "milvus": await _get_milvus_status(),
         "neo4j": await _get_neo4j_status(),
-        # v2.2 简化: rabbitmq 状态查询已移除（Celery/RabbitMQ 未落地）
         "mysql": await _get_mysql_status(),
+        "redis": await _get_redis_status(),
         "llm": _get_llm_config(),
-        "tts": _get_tts_config(),
-        "asr": _get_asr_config(),
         "app": _get_app_config(),
-        # v2.2 简化: OSS 配置查询已移除（未集成）
+        # OSS 配置查询已移除（未集成）
     }
 
 
@@ -58,10 +59,6 @@ async def get_neo4j_status() -> Dict[str, Any]:
     return await _get_neo4j_status()
 
 
-@router.get("/rabbitmq")
-async def get_rabbitmq_status() -> Dict[str, Any]:
-    """v2.2 简化: RabbitMQ 状态（已移除，Celery/RabbitMQ 未落地）。"""
-    return {"name": "RabbitMQ", "status": "removed", "reason": "v2.2 简化移除（未落地）"}
 
 
 @router.get("/mysql")
@@ -165,11 +162,6 @@ async def _get_neo4j_status() -> Dict[str, Any]:
         }
 
 
-async def _get_rabbitmq_status() -> Dict[str, Any]:
-    """v2.2 简化: RabbitMQ 状态查询已移除（Celery/RabbitMQ 未落地）。"""
-    return {"name": "RabbitMQ", "status": "removed", "reason": "v2.2 简化移除"}
-
-
 async def _get_mysql_status() -> Dict[str, Any]:
     """获取 MySQL 状态。"""
     config = get_config().mysql
@@ -264,11 +256,11 @@ def _get_app_config() -> Dict[str, Any]:
         "cors_origins": config.server.cors_origins,
         "rate_limit_enabled": True,
         "cache_enabled": True,
-        # v2.2 简化: mainagent_confirm_enabled 已移除
+        # mainagent_confirm_enabled 已移除
         "cockpit_count": config.cockpit.default_cockpit_count if hasattr(config, 'cockpit') else 1,
     }
 
 
 def _get_oss_config() -> Dict[str, Any]:
-    """v2.2 简化: OSS 对象存储已移除（未集成，过度设计）。"""
-    return {"name": "OSS 对象存储", "status": "removed", "reason": "v2.2 简化移除"}
+    """OSS 对象存储已移除（未集成，过度设计）。"""
+    return {"name": "OSS 对象存储", "status": "removed", "reason": "已简化移除"}

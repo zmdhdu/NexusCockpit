@@ -1,17 +1,17 @@
 # NexusCockpit 项目开发进展与架构说明
 
-> 最后更新 2026-07-18 (v2.0)
+> 最后更新 2026-07-19
 >
 > ---
 >
-> ## v2.2 质量增强与会话隔离修复
+> ## 质量增强与会话隔离修复
 >
-> v2.2.x 系列修复聚焦于对话质量、会话隔离和时间准确性：
-> - v2.2.5: 闲聊预校验 + 幻觉兜底（防止 LLM 编造对话历史）；流式闲聊改为"先校验后发送"
-> - v2.2.5: 会话隔离修复（session_id 为空时生成临时 ID，禁止回退到 user_id）
-> - v2.2.4: 会话级并发锁（asyncio.Lock 防止并发请求污染历史）；系统提示词注入东八区时间
-> - v2.2.4: 时间查询启发式路由（避免"几点了"触发联网搜索）
-> - v2.2.3: 高德 IP 定位优先（解决国内 ip-api.com 超时导致定位失败）
+> 聚焦于对话质量、会话隔离和时间准确性：
+> - 闲聊预校验 + 幻觉兜底（防止 LLM 编造对话历史）；流式闲聊改为"先校验后发送"
+> - 会话隔离修复（session_id 为空时生成临时 ID，禁止回退到 user_id）
+> - 会话级并发锁（asyncio.Lock 防止并发请求污染历史）；系统提示词注入东八区时间
+> - 时间查询启发式路由（避免"几点了"触发联网搜索）
+> - 高德 IP 定位优先（解决国内 ip-api.com 超时导致定位失败）
 >
 > ---
 >
@@ -27,11 +27,11 @@
 >
 > ---
 >
-> ## v2.0 架构升级
+> ## 架构升级
 >
-> v2.0 将 v1.0 的线性 Planner→Executor→Responder→Reviewer 升级为 **Supervisor + 5 Expert Agents** 架构（v1.0 Planner/Executor 已删除）：
+> 将线性 Planner→Executor→Responder→Reviewer 升级为 **Supervisor + 5 Expert Agents** 架构：
 > - Supervisor 统一调度，5 个专家并行执行
-> - v2.2 新增 9 个技能（总计 19 个）
+> - 19 个业务技能
 > - RAG 三路融合检索 + Rerank 重排
 > - Redis Stack KNN 语义缓存
 > - 前端 HUD 科幻风升级（3D 车型 + 实时图表 + 动效）
@@ -46,9 +46,9 @@
 | 阶段 | 状态 | 完成度 | 说明 |
 |------|------|--------|------|
 | 项目初始化与架构设计 | ✅ 已完成 | 100% | 七层架构设计、目录结构、文档体系 |
-| 后端核心代码实现 | ✅ 已完成 | 100% | L0-L7 全部模块代码就位 (v2.0 Supervisor+Experts) |
+| 后端核心代码实现 | ✅ 已完成 | 100% | L0-L7 全部模块代码就位 (Supervisor+Experts) |
 | 前端界面实现 | ✅ 已完成 | 95% | HUD 科幻风升级，4 页面 + 3D 模型 + 实时图表 |
-| 基础设施 (Docker) | ✅ 已完成 | 100% | Milvus/Neo4j/Redis/MySQL/Prometheus/Grafana (v2.2: RabbitMQ 已移除) |
+| 基础设施 (Docker) | ✅ 已完成 | 100% | Milvus/Neo4j/Redis/MySQL/Prometheus/Grafana |
 | 双模式部署 | ✅ 已完成 | 100% | 本地 Docker ⇄ 云端 API/AK·SK 一键切换 (Zilliz/AuraDB/云Redis/硅基流动) |
 | 工程化配置 | ✅ 已完成 | 100% | Makefile/pre-commit/CI/CD/.gitignore |
 | 前后端分离 | ✅ 已完成 | 100% | backend_design/ 与 frontend_design/ 独立 |
@@ -64,38 +64,38 @@
 
 | 模块 | 路径 | 状态 | 关键文件 |
 |------|------|------|----------|
-| 配置中心 | `backend_design/nexus/config.py` | ✅ | Pydantic Settings 分层配置 + 相对路径自动解析 (v2.2: OSS 已移除) |
+| 配置中心 | `backend_design/nexus/config.py` | ✅ | Pydantic Settings 分层配置 + 相对路径自动解析 |
 | 日志系统 | `backend_design/nexus/core/logger.py` | ✅ | structlog JSON 格式 |
 | 异常处理 | `backend_design/nexus/core/exceptions.py` | ✅ | 统一 NexusError |
 | 熔断器 | `backend_design/nexus/core/circuit_breaker.py` | ✅ | tenacity 重试 + 熔断 |
-| 个性化服务 | `backend_design/nexus/core/personalization.py` | ✅ | v2.2: 声纹识别+偏好匹配+Prompt 注入 |
+| 个性化服务 | `backend_design/nexus/core/personalization.py` | ✅ | 声纹识别+偏好匹配+Prompt 注入 |
 | ASR 引擎 | `backend_design/nexus/asr/engine.py` | ✅ | FunASR SenseVoice |
 | TTS 引擎 | `backend_design/nexus/tts/engine.py` | ✅ | CosyVoice-300M |
 | Embedding | `backend_design/nexus/rag/embedding.py` | ✅ | Qwen3-Embedding-4B |
 | 向量存储 | `backend_design/nexus/rag/vector_store.py` | ✅ | Milvus HNSW + 双模式 (Zilliz Cloud) |
-| 图谱存储 | `backend_design/nexus/rag/graph_store.py` | ✅ | Neo4j + 双模式 (AuraDB) v2.1.1: coalesce 修复 |
+| 图谱存储 | `backend_design/nexus/rag/graph_store.py` | ✅ | Neo4j + 双模式 (AuraDB) coalesce 修复 |
 | 意图路由 | `backend_design/nexus/intent/` | ✅ | 启发式 + LLM 双路 |
-| 技能系统 | `backend_design/nexus/skills/` | ✅ | 19 个技能 (车载 6 + 非车载 4 + v2.0 新增 9) + 装饰器注册 |
+| 技能系统 | `backend_design/nexus/skills/` | ✅ | 19 个技能 (车载 6 + 非车载 4 + 扩展 9) + 装饰器注册 |
 | 车控适配 | `backend_design/nexus/vehicle/` | ✅ | Mock/HTTP/MCP 三模式 |
-| Agent 层 | `backend_design/nexus/agent/` | ✅ | v2.0: SupervisorGraph + 5 Expert Agents |
-| 专家 Agent | `backend_design/nexus/agent/experts/` | ✅ | v2.0: Vehicle/Nav/Lifestyle/Health/Chat |
-| Prompt 模板 | `backend_design/nexus/prompts/` | ✅ | v2.0: 外置 Prompt 管理 (5 个模板) |
-| 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 (tiktoken 精准计数) v2.1.1: 修复 Event loop is closed |
-| 语义缓存 | `backend_design/nexus/middleware/redis_cache.py` | ✅ | v2.0: RediSearch KNN + 副作用隔离 + 双模式 (云Redis scan降级) |
-| RAG 检索 | `backend_design/nexus/rag/` | ✅ | v2.0: 三路融合+Rerank+CherryKB |
+| Agent 层 | `backend_design/nexus/agent/` | ✅ | SupervisorGraph + 5 Expert Agents |
+| 专家 Agent | `backend_design/nexus/agent/experts/` | ✅ | Vehicle/Nav/Lifestyle/Health/Chat |
+| Prompt 模板 | `backend_design/nexus/prompts/` | ✅ | 外置 Prompt 管理 (5 个模板) |
+| 记忆管理 | `backend_design/nexus/memory/` | ✅ | 短期+长期+冲突裁决 (tiktoken 精准计数) 修复 Event loop is closed |
+| 语义缓存 | `backend_design/nexus/middleware/redis_cache.py` | ✅ | RediSearch KNN + 副作用隔离 + 双模式 (云Redis scan降级) |
+| RAG 检索 | `backend_design/nexus/rag/` | ✅ | 三路融合+Rerank+CherryKB |
 | JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
 | 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis Lua 脚本原子化滑动窗口 |
-| 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | v2.2: asyncio.create_task 进程内异步 (Celery/RabbitMQ 已移除) |
+| 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | asyncio.create_task 进程内异步 |
 | 会话存储 | `backend_design/nexus/middleware/session_store.py` | ✅ | Redis 持久化 + 内存回退 |
 | 认证路由 | `backend_design/nexus/api/routes/auth.py` | ✅ | POST /auth/token 令牌签发 |
 | API 路由 | `backend_design/nexus/api/routes/` | ✅ | chat/vehicle/admin/health |
 | WebSocket | `backend_design/nexus/api/websocket.py` | ✅ | 实时流式 |
 | MCP 网关 | `backend_design/nexus/mcp/` | ✅ | MCP 协议适配器 |
-| 数据模型 | `backend_design/nexus/models/` | ✅ | v2.0: TypedDict SupervisorState + Pydantic schemas |
+| 数据模型 | `backend_design/nexus/models/` | ✅ | TypedDict SupervisorState + Pydantic schemas |
 | 可观测性 | `backend_design/nexus/observability/` | ✅ | Prometheus + Langfuse |
-| 测试用例 | `backend_design/tests/` | ✅ | test_api + test_core + test_v21 (v2.1) |
+| 测试用例 | `backend_design/tests/` | ✅ | test_api + test_core + test_v21 |
 
-### v2.1 新增模块完成详情
+### 座舱控制新增模块完成详情
 
 | 模块 | 路径 | 状态 | 说明 |
 |------|------|------|------|
@@ -108,31 +108,31 @@
 | 多租户上下文 | `backend_design/nexus/core/tenant_context.py` | ✅ | contextvars 请求级 cockpit_id 隔离 |
 | 数据库管理器 | `backend_design/nexus/core/db_manager.py` | ✅ | aiomysql 异步连接池 |
 | 声纹识别 | `backend_design/nexus/core/voiceprint.py` | ✅ | CAM++ 声纹提取/比对 + JWT 自动签发 |
-| v2.2 简化说明 | — | ✅ | SubAgent 监控器和 MainAgent 确认层已移除（过度设计，未落地） |
+| 简化说明 | — | ✅ | SubAgent 监控器和 MainAgent 确认层已移除（过度设计，未落地） |
 | 座舱 API | `backend_design/nexus/api/routes/cockpit.py` | ✅ | `/cockpit/{id}/*` 路由 + CockpitContext |
 | 数据中台 API | `backend_design/nexus/api/routes/dataplatform.py` | ✅ | overview/concurrency/alerts/comparison |
-| 中间件看板 API | `backend_design/nexus/api/routes/middleware_status.py` | ✅ | Redis/Milvus/Neo4j/MySQL 状态 (v2.2: RabbitMQ 已移除) |
+| 中间件看板 API | `backend_design/nexus/api/routes/middleware_status.py` | ✅ | Redis/Milvus/Neo4j/MySQL 状态 |
 | 设置中心 API | `backend_design/nexus/api/routes/settings.py` | ✅ | 座舱/用户/中间件管理 + 声纹注册/验证 |
 | 座舱指标 | `backend_design/nexus/observability/cockpit_metrics.py` | ✅ | Prometheus Gauge/Counter/Histogram |
 | 数据保留策略 | `backend_design/nexus/observability/data_retention.py` | ✅ | 过期日志自动清理 |
 | 座舱数据模型 | `backend_design/nexus/models/cockpit.py` | ✅ | CockpitConfig/CockpitStatus Pydantic 模型 |
-| v2.1 数据库迁移 | `backend_design/scripts/v2.1_migration.sql` | ✅ | cockpits/users/audit_logs/subagent_logs 建表 |
+| 数据库迁移 | `backend_design/scripts/v2.1_migration.sql` | ✅ | cockpits/users/audit_logs/subagent_logs 建表 |
 | 混沌测试 | `backend_design/scripts/chaos_test.py` | ✅ | 随机故障注入 + 自愈能力验证 |
-| v2.1 单元测试 | `backend_design/tests/test_v21.py` | ✅ | CockpitManager 13 + TenantContext 8 测试 |
-| gRPC Proto | `backend_design/nexus_gate/proto/nexus.proto` | ✅ | v2.1 gRPC 服务接口定义 (Phase 2 迁移) |
+| 单元测试 | `backend_design/tests/test_v21.py` | ✅ | CockpitManager 13 + TenantContext 8 测试 |
+| gRPC Proto | `backend_design/nexus_gate/proto/nexus.proto` | ✅ | gRPC 服务接口定义 (Phase 2 迁移) |
 
 ### 前端页面完成详情
 
 | 页面 | 路由 | 状态 | 功能 |
 |------|------|------|------|
-| 仪表盘 | `/dashboard` | ✅ | v2.0 HUD: 3D 车型 + Recharts 实时图表 + 统计卡片 |
+| 仪表盘 | `/dashboard` | ✅ | HUD: 3D 车型 + Recharts 实时图表 + 统计卡片 |
 | 语音助手 | `/chat` | ✅ | 流式聊天、意图标签、Markdown 渲染、可取消 |
 | 车控面板 | `/vehicle` | ✅ | 空调/车窗/座椅/媒体/导航/状态 6 卡片 |
-| 设置 | `/settings` | ✅ | v2.0: API 密钥/模型配置/数据库状态 (Framer Motion 动效) |
-| 数据中台 | `/dataplatform` | ✅ | v2.1: 统计概览 + 座舱对比 + 告警历史 + 并发监控 |
-| 中间件看板 | `/middleware` | ✅ | v2.1: Redis/Milvus/Neo4j/MySQL 状态面板 (v2.2: RabbitMQ 已移除) |
+| 设置 | `/settings` | ✅ | API 密钥/模型配置/数据库状态 (Framer Motion 动效) |
+| 数据中台 | `/dataplatform` | ✅ | 统计概览 + 座舱对比 + 告警历史 + 并发监控 |
+| 中间件看板 | `/middleware` | ✅ | Redis/Milvus/Neo4j/MySQL 状态面板 |
 
-### 前端工程化改进 (v1.0)
+### 前端工程化改进
 
 | 改进项 | 状态 | 说明 |
 |--------|------|------|
@@ -147,7 +147,7 @@
 | CVA 按钮 | ✅ | class-variance-authority 类型安全变体 |
 | 依赖清理 | ✅ | 移除 4 个未使用依赖 (react-query/date-fns) |
 
-### 前端 v2.0 HUD 升级
+### 前端 HUD 升级
 
 | 改进项 | 状态 | 说明 |
 |--------|------|------|
@@ -191,7 +191,7 @@
 │ │(Redis)   ││(Lua滑动) ││(asyncio) │                              │
 │ └──────────┘└──────────┘└──────────┘                              │
 ├─────────────────────────────────────────────────────────────────────┤
-│ L4 Agent 层 (v2.0 Supervisor + Experts)                                │
+│ L4 Agent 层 (Supervisor + Experts)                                │
 │ ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐        │
 │ │Supervisor│──▶│ Experts  │──▶│Responder │──▶│ Reviewer │        │
 │ │(调度)    │   │(5 并行)  │   │(汇总)    │   │(评审)    │        │

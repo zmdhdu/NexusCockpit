@@ -97,9 +97,9 @@ class BaseExpertAgent(ABC):
         """构建专家返回的 partial state update。
 
         同时写入 expert_results 列表（通过 reducer 累加）和
-        兼容 v1.0 的 skill_result / skill_action 字段。
+        兼容旧版的 skill_result / skill_action 字段。
 
-        v2.2: 如果提供了 skill_data，额外输出顶层 tool_result 字段，
+        如果提供了 skill_data，额外输出顶层 tool_result 字段，
         供 Responder 做 Tool→LLM 合成和反思校验。
         """
         result_entry = {
@@ -120,7 +120,7 @@ class BaseExpertAgent(ABC):
                 f"{self.expert_name}_handled": handled,
             },
         }
-        # v2.2: 将工具结果提升到顶层 state，供 Responder 合成和反思使用
+        # 将工具结果提升到顶层 state，供 Responder 合成和反思使用
         if handled and (extra.get("skill_data") or reply):
             update["tool_result"] = {
                 "tool_name": action,

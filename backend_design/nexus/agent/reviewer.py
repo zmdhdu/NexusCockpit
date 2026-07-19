@@ -49,10 +49,10 @@ class ReviewerAgent:
             state.final_response = "抱歉，我没有理解你的意思，能再说一次吗？"
             state.metadata["reviewer_fallback"] = True
 
-        # 2. 触发后台记忆存储 (v2.2: 移除 Celery/RabbitMQ，直接使用进程内异步)
+        # 2. 触发后台记忆存储 (直接使用进程内异步)
         if state.final_response:
             try:
-                # v2.2 简化: 直接使用进程内异步存储，不再依赖 Celery
+                # 直接使用进程内异步存储，不再依赖 Celery
                 if self.memory_manager:
                     self.memory_manager.store_from_text_async(
                         state.user_input, state.user_id

@@ -29,7 +29,7 @@ class LifestyleExpert(BaseExpertAgent):
     async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
         intent = state.get("intent", {})
 
-        # 优先级 0: 高德 POI 周边搜索（v2.2.3 新增）
+        # 优先级 0: 高德 POI 周边搜索
         # 当用户询问"附近美食"、"周边加油站"等基于位置的信息时，
         # 使用高德 POI API 搜索，结果比 Tavily 通用搜索更准确
         poi_action = intent.get("Poi_Search_Action") or {}

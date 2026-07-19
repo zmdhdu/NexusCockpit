@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-数据保留策略 — v2.1 自动清理过期数据
+数据保留策略 — 自动清理过期数据
 
 按配置的保留天数定期清理 MySQL 表中的旧数据：
 - subagent_logs: 保留 30 天

@@ -10,7 +10,7 @@ Vehicle Adapter Factory — 车控适配器工厂
   - http: HTTP REST 模式 (通过 HTTP 接口与车机通信)
   - mcp-stdio: MCP stdio 模式 (通过标准输入输出与 MCP 服务通信)
 
-v2.1 多座舱隔离:
+多座舱隔离:
   Mock 模式下，每个座舱拥有独立的 MockVehicleBus 实例，
   实现空调温度、车窗等状态的物理隔离。
 """
@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 # 模块级单例 — 避免每次调用都创建新实例（SubAgent 巡检、技能实例化等场景）
 _singleton_adapter: Optional[BaseVehicleAdapter] = None
 
-# v2.1: 每座舱独立的车控适配器实例（MockVehicleBus 状态隔离）
+# 每座舱独立的车控适配器实例（MockVehicleBus 状态隔离）
 _cockpit_adapters: dict[str, BaseVehicleAdapter] = {}
 
 
@@ -54,7 +54,7 @@ def build_vehicle_adapter() -> BaseVehicleAdapter:
 
 
 def get_cockpit_vehicle_adapter(cockpit_id: str) -> BaseVehicleAdapter:
-    """获取指定座舱的车控适配器实例（v2.1 多座舱隔离）。
+    """获取指定座舱的车控适配器实例（多座舱隔离）。
 
     每个座舱拥有独立的 MockVehicleBus 实例，
     这样座舱 A 的空调温度不会影响座舱 B。

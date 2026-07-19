@@ -19,7 +19,7 @@
 export interface ChatRequest {
   text: string;       // 用户输入文本
   user_id: string;    // 用户 ID
-  session_id?: string; // 会话 ID (v2.2.2)
+  session_id?: string; // 会话 ID
   stream?: boolean;   // 是否流式返回
 }
 
@@ -44,7 +44,7 @@ export interface StreamEvent {
     intent?: string;       // 意图名称 (type=intent)
     source?: string;       // 意图来源 (type=intent)
     action?: string;       // 技能动作 (type=action)
-    experts?: string[];    // 专家列表 (type=experts, v2.0)
+    experts?: string[];    // 专家列表 (type=experts)
     response?: string;     // 完整回复 (type=done)
     latency_ms?: number;   // 延迟 (type=done)
     message?: string;      // 错误信息 (type=error)
@@ -72,6 +72,14 @@ export interface VehicleCommand {
   arguments: Record<string, any>;     // 命令参数
 }
 
+/** 媒体曲目信息 */
+export interface TrackInfo {
+  title: string;       // 歌曲标题，如 "爱错 - 王力宏"
+  filename: string;    // 文件名，如 "王力宏-爱错.mp3"
+  url: string;         // 可直接播放的相对路径，如 "/audio/music/王力宏-爱错.mp3"
+  format: string;      // 音频格式，如 "mp3" / "wav"
+}
+
 /** 车辆完整状态 */
 export interface VehicleStatus {
   climate: {        // 空调状态
@@ -86,7 +94,10 @@ export interface VehicleStatus {
     playing: boolean;
     volume: number;
     source: string;
-    track: string;
+    /** 当前曲目，对象格式，兼容旧版字符串格式 */
+    track: string | TrackInfo | null;
+    track_index?: number;            // 当前曲目在播放列表中的索引
+    playlist?: (string | TrackInfo)[]; // 完整播放列表
   };
   navigation: {     // 导航状态
     destination: string;
@@ -117,11 +128,11 @@ export interface CacheStats {
   misses: number;      // 未命中次数
   hit_rate: number;    // 命中率 (%)
   size: number;        // 缓存大小
-  index_ready?: boolean; // RediSearch 索引是否就绪 (v2.0)
+  index_ready?: boolean; // RediSearch 索引是否就绪
 }
 
 // ============================================================
-// v2.0 新增类型
+// 扩展类型
 // ============================================================
 
 /** 专家状态 */
@@ -191,6 +202,8 @@ export interface CockpitComparison {
   chat_count: number;
   vehicle_cmd_count: number;
   cache_hit_rate: number;
+  /** 车控成功率（百分比）— 运营对比表中"命中率"列展示 */
+  vehicle_cmd_success_rate: number;
   avg_latency_ms: number;
   health_score: number;
 }

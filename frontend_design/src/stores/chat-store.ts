@@ -7,8 +7,8 @@
 /**
  * 聊天状态管理 — 使用 Zustand 管理全局聊天状态
  *
- * v2.2.2 改进:
- *   - 多会话支持：每个座舱下可以有多个独立会话
+ * 多会话支持:
+ *   - 每个座舱下可以有多个独立会话
  *   - 新建对话：类似豆包/ChatGPT，可创建新对话
  *   - 会话切换：点击侧边栏会话列表切换
  *   - 历史消息加载：从后端加载会话消息记录
@@ -64,6 +64,8 @@ interface ChatState {
   setStreaming: (streaming: boolean) => void;
   /** 删除会话 */
   removeSession: (sessionId: string) => void;
+  /** 更新会话标题（首次消息后用用户问题作为标题） */
+  updateSessionTitle: (sessionId: string, title: string) => void;
 }
 
 /** 生成存储 key */
@@ -231,6 +233,20 @@ export const useChatStore = create<ChatState>()(
         }),
 
       setStreaming: (streaming) => set({ isStreaming: streaming }),
+
+      updateSessionTitle: (sessionId, title) =>
+        set((state) => {
+          const cockpitSessions = state.sessionsByCockpit[state.cockpitId] || [];
+          const updatedSessions = cockpitSessions.map((s) =>
+            s.session_id === sessionId ? { ...s, title } : s
+          );
+          return {
+            sessionsByCockpit: {
+              ...state.sessionsByCockpit,
+              [state.cockpitId]: updatedSessions,
+            },
+          };
+        }),
 
       removeSession: (sessionId) =>
         set((state) => {

@@ -10,8 +10,6 @@
 2. 座舱查询（路由层根据 cockpit_id 查询座舱配置）
 3. 座舱状态（SubAgent 监控层查询座舱健康状态）
 4. 座舱隔离（为每个座舱分配 Redis DB / Milvus collection 等）
-
-v2.1 新增模块。
 """
 
 from __future__ import annotations
@@ -56,7 +54,7 @@ class CockpitConfig:
     created_at: datetime = field(default_factory=datetime.now)
     is_active: bool = True
     theme_color: str = "#4fc3f7"
-    # v2.2 简化: subagent_status 字段已移除（SubAgent 监控已删除）
+    # subagent_status 字段已移除（SubAgent 监控已删除）
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（用于 API 响应）。"""
@@ -70,7 +68,7 @@ class CockpitConfig:
             "created_at": self.created_at.isoformat(),
             "is_active": self.is_active,
             "theme_color": self.theme_color,
-            # v2.2 简化: subagent_status 已移除
+            # subagent_status 已移除
         }
 
 
@@ -253,7 +251,7 @@ class CockpitManager:
 
         # 2. 初始化 Milvus（确保 collection 存在）
         try:
-            # v2.2 简化: isolation_mode 已移除，单座舱使用共享 collection
+            # isolation_mode 已移除，单座舱使用共享 collection
             results["milvus"] = "skipped (shared mode, uses cockpit_id filter)"
             logger.info(f"Cockpit {cockpit_id}: Milvus uses shared collection")
         except Exception as e:
@@ -332,7 +330,7 @@ class CockpitManager:
         # 仅允许更新合法字段
         allowed_fields = {
             "name", "user_id", "vehicle_adapter", "theme_color", "is_active",
-            # v2.2 简化: subagent_status 已移除
+            # subagent_status 已移除
         }
         for key, value in updates.items():
             if key in allowed_fields:

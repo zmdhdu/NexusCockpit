@@ -47,18 +47,7 @@ async def health_check(request: Request):
     else:
         services["redis"] = "not_configured"
 
-    # --- RabbitMQ 消息队列 ---
-    try:
-        import socket
-        from nexus.config import get_config
-        cfg = get_config().rabbitmq
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        result = sock.connect_ex((cfg.host, cfg.port))
-        sock.close()
-        services["rabbitmq"] = "connected" if result == 0 else "disconnected"
-    except Exception:
-        services["rabbitmq"] = "disconnected"
+    # RabbitMQ 已完全移除（Celery/RabbitMQ 未落地），不再返回该字段
 
     # --- MySQL 数据库 ---
     try:
@@ -91,7 +80,7 @@ async def health_check(request: Request):
     all_healthy = all(
         v in ("connected", "ready")
         for k, v in services.items()
-        if k in ("milvus", "neo4j", "redis", "agent")
+        if k in ("milvus", "neo4j", "redis", "agent", "mysql")  # mysql 加入核心组件检查
     )
     status = "healthy" if all_healthy else "degraded"
 

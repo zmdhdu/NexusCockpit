@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NexusCockpit v2.1 混沌测试脚本
+NexusCockpit 混沌测试脚本
 
 测试系统在以下故障场景下的韧性:
 1. Redis 不可用 → 缓存降级、限流降级
@@ -53,7 +53,7 @@ class ChaosTestRunner:
     async def run_all(self) -> None:
         """运行所有混沌测试。"""
         print("=" * 60)
-        print("NexusCockpit v2.1 混沌测试开始")
+        print("NexusCockpit 混沌测试开始")
         print(f"目标: {self.base_url}")
         print("=" * 60)
 
@@ -318,7 +318,7 @@ class ChaosTestRunner:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NexusCockpit v2.1 混沌测试")
+    parser = argparse.ArgumentParser(description="NexusCockpit 混沌测试")
     parser.add_argument(
         "--host",
         default="http://localhost:8000",

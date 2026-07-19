@@ -35,17 +35,56 @@ def setup_logging() -> None:
     根据配置选择输出格式:
     - debug=True: 彩色控制台输出 (开发环境，方便阅读)
     - debug=False: JSON 格式输出 (生产环境，方便日志系统采集)
+
+    显式为 uvicorn/uvicorn.access logger 添加 FileHandler，
+    确保 uvicorn 的终端输出（如 "INFO: 127.0.0.1:..." 访问日志）也写入文件。
     """
     config = get_config()
     # 将字符串日志级别 (如 "INFO") 转为 logging 常量 (如 logging.INFO)
     log_level = getattr(logging, config.server.log_level.upper(), logging.INFO)
 
-    # 标准 logging 配置 (供第三方库如 uvicorn/sqlalchemy 使用)
+    # 日志文件输出 - 写入 NexusCockpit/logs/backend_logs/ 文件夹
+    # logger.py 位于 backend_design/nexus/core/logger.py，需上溯 4 级到项目根目录
+    import os
+    from datetime import datetime
+    _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    log_dir = os.path.join(_project_root, "logs", "backend_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, f"backend_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+
+    # 创建共享的 FileHandler，供 root logger 和 uvicorn logger 共用
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+
+    # 标准 logging 配置 (同时输出到控制台和文件)
     logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
+        handlers=[console_handler, file_handler],
         level=log_level,
+        force=True,
     )
+
+    # 显式为 uvicorn 的 logger 添加 FileHandler
+    # uvicorn 启动时会用自己的 dictConfig 覆盖 root logger 的 handlers，
+    # 导致 "INFO: 127.0.0.1:..." 等访问日志只输出到终端，不写入文件。
+    # 这里在 setup_logging 阶段为 uvicorn logger 添加共享的 FileHandler。
+    for uvicorn_logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        uv_logger = logging.getLogger(uvicorn_logger_name)
+        # 检查是否已经有 FileHandler（避免重复添加）
+        has_file_handler = any(
+            isinstance(h, logging.FileHandler) for h in uv_logger.handlers
+        )
+        if not has_file_handler:
+            uv_logger.addHandler(file_handler)
+        uv_logger.setLevel(log_level)
+
+    # 将日志文件路径保存到全局变量，供 main.py 读取并打印
+    global _current_log_file
+    _current_log_file = log_file
 
     # structlog 配置 (供项目代码使用)
     structlog.configure(
@@ -69,6 +108,19 @@ def setup_logging() -> None:
         context_class=dict,
         cache_logger_on_first_use=True,
     )
+
+
+# 保存当前日志文件路径，供外部读取
+_current_log_file: str = ""
+
+
+def get_log_file_path() -> str:
+    """获取当前日志文件路径。
+
+    Returns:
+        当前日志文件路径，如果未初始化则返回空字符串
+    """
+    return _current_log_file
 
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:

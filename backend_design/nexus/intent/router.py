@@ -12,7 +12,7 @@ Intent Router Service — 统一意图路由服务
   Level 2: LLM 路由 — 让大模型理解语义并选择技能 (最准确)
   Level 3: 默认闲聊 — 无匹配技能时走 LLM 闲聊
 
-v2.2 简化: BERT 路由 (Level 3) 已移除（始终为 None，从未实现）
+注: BERT 路由已移除（始终为 None，从未实现）
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ class IntentRouterService:
     """统一意图路由服务。
 
     路由优先级: 启发式规则 → LLM → 默认闲聊。
-    v2.2 简化: BERT 路由分支已移除（始终为 None，从未实现）
+    注: BERT 路由分支已移除（始终为 None，从未实现）
 
     Args:
         llm_client: OpenAI 兼容的 LLM 客户端
@@ -47,7 +47,7 @@ class IntentRouterService:
         "Call_elm", "Food_candidate", "Need_Search", "Register_Action",
         "Climate_Action", "Window_Action", "Seat_Action",
         "Navigation_Action", "Media_Action", "Vehicle_Status_Action",
-        "Poi_Search_Action",  # v2.2.3: 高德 POI 周边搜索
+        "Poi_Search_Action",  # 高德 POI 周边搜索
     )
 
     def __init__(
@@ -64,7 +64,7 @@ class IntentRouterService:
             base_url=self.config.ark_base_url,
         )
         self.llm_model = llm_model or self.config.llm_model
-        # v2.2 简化: bert_router 参数已移除（始终为 None，从未实现）
+        # 注: bert_router 参数已移除（始终为 None，从未实现）
         self.llm_enabled = llm_enabled and self.client is not None and bool(tool_catalog)
         self.min_confidence = min_confidence
         self.heuristic = HeuristicRouter()
@@ -78,12 +78,12 @@ class IntentRouterService:
     async def route(self, text: str) -> Dict[str, Any]:
         """路由用户意图，返回标准意图字典。
 
-        优化路由顺序（v2.1 性能优化）:
+        路由顺序（性能优化）:
           Level 1: 启发式规则 — 关键词匹配，<1ms，覆盖常见车控指令
           Level 2: LLM 路由 — 语义理解，1-3s，处理复杂/模糊意图
           Level 3: 默认闲聊
 
-        v2.2 简化: BERT 路由分支已移除（始终为 None，从未实现）
+        注: BERT 路由分支已移除（始终为 None，从未实现）
 
         Args:
             text: 用户输入文本
@@ -126,7 +126,7 @@ class IntentRouterService:
             "Navigation_Action": {},
             "Media_Action": {},
             "Vehicle_Status_Action": {},
-            "Poi_Search_Action": {},  # v2.2.3: 高德 POI 周边搜索
+            "Poi_Search_Action": {},  # 高德 POI 周边搜索
             "Need_Clarification": False,
             "Clarification_Prompt": "",
             "Route_Source": "default",

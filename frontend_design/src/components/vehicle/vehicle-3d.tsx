@@ -13,7 +13,7 @@ import * as THREE from "three";
 import type { Mesh } from "three";
 
 /**
- * 3D 车辆模型组件 (v2.0)
+ * 3D 车辆模型组件
  *
  * 使用 @react-three/fiber + @react-three/drei 程序化生成低多边形车体，
  * 无需外部 GLB/GLTF 模型文件。

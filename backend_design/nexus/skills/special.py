@@ -65,8 +65,8 @@ class WebSearchSkill(BaseSkill):
                 handled=True,
             )
         try:
-            # v2.2.2: 在搜索查询中注入当前日期和时间，提高时效性
-            # v2.2.4: 使用东八区时间，避免 Docker 容器 UTC 时区导致时间偏差
+            # 在搜索查询中注入当前日期和时间，提高时效性
+            # 使用东八区时间，避免 Docker 容器 UTC 时区导致时间偏差
             now = _now_cn()
             today_str = now.strftime("%Y年%m月%d日")
             time_str = now.strftime("%H:%M")
@@ -90,8 +90,8 @@ class WebSearchSkill(BaseSkill):
                 url = r.get("url", "")
                 compact.append(f"【{title}】{content}\n来源: {url}")
 
-            # v2.2.2: 在搜索结果中注入当前时间，供 LLM 和反思节点使用
-            # v2.2.4: 使用东八区时间
+            # 在搜索结果中注入当前时间，供 LLM 和反思节点使用
+            # 使用东八区时间
             current_time = _now_cn().strftime("%Y-%m-%d %H:%M")
             time_prefix = f"[当前时间: {current_time}]\n"
             
@@ -161,7 +161,7 @@ class AmapPoiSearchSkill(BaseSkill):
     使用高德地图 Web API 搜索当前位置周边的兴趣点（POI），
     包括餐厅、加油站、停车场、景点等。
 
-    v2.2.3 新增:
+    特性:
         - 替代原来通过 Tavily 搜索周边美食的方式（结果不准确）
         - 直接使用高德 POI API 获取真实商家信息
         - 支持多种 POI 类型：餐饮、加油站、停车场、景点、超市等

@@ -7,8 +7,6 @@
 
 使用 contextvars 实现协程安全的上下文传递，
 所有中间件（缓存/限流/会话）自动读取当前 cockpit_id 做隔离。
-
-v2.1 新增模块。
 """
 
 from __future__ import annotations

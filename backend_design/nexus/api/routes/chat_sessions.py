@@ -5,7 +5,7 @@
 """
 Chat Session Routes — 多会话管理 REST 接口
 
-v2.2.2 新增:
+接口列表:
   - GET    /chat/sessions           — 获取当前座舱的会话列表
   - POST   /chat/sessions           — 创建新会话
   - DELETE /chat/sessions/{id}      — 删除会话
@@ -130,25 +130,91 @@ async def create_session(request: Request, body: CreateSessionRequest):
 
 @router.delete("/{session_id}")
 async def delete_session(request: Request, session_id: str):
-    """删除会话及其所有消息记录。"""
+    """删除会话及其所有关联数据（会话级资源清理）。
+
+    精确清理会话级资源，保留跨会话共享资源:
+      1. MySQL chat_sessions 表 — 会话元数据
+      2. MySQL chat_logs 表 — 聊天日志记录
+      3. Redis SessionStore — 短期对话历史（nexus:session:{session_id}）
+      4. 内存 session_histories — 内存中的会话历史 dict
+      5. LangGraph checkpoint — SQLite 中的 Agent 状态快照（如启用）
+
+    注意: 语义缓存（SemanticCache）按 user_id 隔离，是跨会话共享资源。
+    同一用户的不同会话可以命中相同的缓存，删除单个会话不应清空该用户
+    的所有缓存。缓存有自身 TTL 机制（闲聊 1h、知识库 24h）自动过期。
+
+    Args:
+        session_id: 会话 ID
+    """
     cockpit_id = get_cockpit_id()
-    db = getattr(request.app.state, "db_manager", None)
+    app = request.app
+    db = getattr(app.state, "db_manager", None)
 
     if not db or not db.is_connected:
         return {"success": False, "message": "数据库未连接"}
 
+    cleanup_details = {}
+
     try:
-        # 删除会话记录
+        # 1. 删除 MySQL 会话记录
         await db.execute_update(
             "DELETE FROM chat_sessions WHERE session_id = %s AND cockpit_id = %s",
             (session_id, cockpit_id),
         )
-        # 删除该会话的所有聊天日志
+        # 2. 删除 MySQL 聊天日志
         await db.execute_update(
             "DELETE FROM chat_logs WHERE session_id = %s AND cockpit_id = %s",
             (session_id, cockpit_id),
         )
-        return {"success": True, "message": "会话已删除"}
+        cleanup_details["mysql"] = "deleted"
+
+        # 3. 删除 Redis 短期对话历史（SessionStore）
+        session_store = getattr(app.state, "session_store", None)
+        if session_store:
+            try:
+                deleted = await session_store.async_delete(session_id)
+                cleanup_details["session_store"] = "deleted" if deleted else "not_found"
+            except Exception as e:
+                logger.warning(f"Failed to delete SessionStore for session {session_id}: {e}")
+                cleanup_details["session_store"] = f"error: {e}"
+
+        # 4. 删除内存会话历史（session_histories dict）
+        session_histories = getattr(app.state, "session_histories", None)
+        if session_histories is not None and session_id in session_histories:
+            del session_histories[session_id]
+            cleanup_details["session_histories"] = "deleted"
+        else:
+            cleanup_details["session_histories"] = "not_found"
+
+        # 5. 删除 LangGraph checkpoint（SQLite 中的 Agent 状态快照）
+        checkpoint_saver = getattr(app.state, "checkpoint_saver", None)
+        if checkpoint_saver:
+            try:
+                # LangGraph checkpoint 按 thread_id 存储，thread_id = session_id
+                # AsyncSqliteSaver 支持 adelete 方法
+                if hasattr(checkpoint_saver, "adelete"):
+                    await checkpoint_saver.adelete(
+                        config={"configurable": {"thread_id": session_id}}
+                    )
+                    cleanup_details["checkpoint"] = "deleted"
+                else:
+                    cleanup_details["checkpoint"] = "adelete not supported"
+            except Exception as e:
+                logger.warning(f"Failed to delete checkpoint for session {session_id}: {e}")
+                cleanup_details["checkpoint"] = f"error: {e}"
+        else:
+            cleanup_details["checkpoint"] = "disabled"
+
+        logger.info(
+            f"Session deleted: session_id={session_id}, cockpit_id={cockpit_id}, "
+            f"cleanup={cleanup_details}"
+        )
+
+        return {
+            "success": True,
+            "message": "会话已删除，关联资源已清理（语义缓存保留，跨会话共享）",
+            "cleanup_details": cleanup_details,
+        }
     except Exception as e:
         logger.error(f"Failed to delete session: {e}")
         return {"success": False, "message": str(e)}
@@ -201,3 +267,31 @@ async def get_session_messages(request: Request, session_id: str):
     except Exception as e:
         logger.error(f"Failed to get session messages: {e}")
         return {"messages": []}
+
+
+class UpdateTitleRequest(BaseModel):
+    """更新会话标题请求。"""
+    title: str = Field(..., max_length=100, description="新的会话标题")
+
+
+@router.patch("/{session_id}/title")
+async def update_session_title(request: Request, session_id: str, body: UpdateTitleRequest):
+    """更新会话标题。
+
+    用于前端在首次消息后将会话标题从"新对话"更新为用户问题摘要（豆包风格）。
+    """
+    cockpit_id = get_cockpit_id()
+    db = getattr(request.app.state, "db_manager", None)
+
+    if not db or not db.is_connected:
+        return {"success": False, "message": "数据库未连接"}
+
+    try:
+        await db.execute_update(
+            "UPDATE chat_sessions SET title = %s WHERE session_id = %s AND cockpit_id = %s",
+            (body.title[:100], session_id, cockpit_id),
+        )
+        return {"success": True, "title": body.title[:100]}
+    except Exception as e:
+        logger.error(f"Failed to update session title: {e}")
+        return {"success": False, "message": str(e)}

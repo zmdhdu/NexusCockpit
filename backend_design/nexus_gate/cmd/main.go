@@ -2,7 +2,7 @@
 // Licensed under the MIT License. See LICENSE in the project root for details.
 // Source: https://github.com/zmdhdu/NexusCockpit
 
-// NexusGate — NexusCockpit v2.1 Go 并发网关
+// NexusGate — NexusCockpit Go 并发网关
 //
 // 职责:
 // 1. JWT 鉴权 + cockpit_id 校验
@@ -15,10 +15,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
+	"time"
 
 	"nexus_gate/internal/config"
 	"nexus_gate/internal/proxy"
@@ -47,12 +50,28 @@ func main() {
 		}
 	}
 
+	// 日志文件输出 - 写入 NexusCockpit/logs/go_logs/ 文件夹
+	// 从 backend_design/nexus_gate/ 运行，上溯 2 级到项目根目录
+	logDir := filepath.Join("..", "..", "logs", "go_logs")
+	os.MkdirAll(logDir, os.ModePerm)
+	logFile := filepath.Join(logDir, fmt.Sprintf("gateway_%s.log", time.Now().Format("20060102_150405")))
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("Warning: failed to open log file: %v (will only log to console)", err)
+	} else {
+		defer file.Close()
+		// 同时输出到控制台和文件
+		log.SetOutput(io.MultiWriter(file, os.Stdout))
+	}
+	defer log.Println()
+
 	// 加载配置
 	cfg := config.Load()
-	log.Printf("NexusGate v2.1 starting...")
+	log.Printf("NexusGate starting...")
 	log.Printf("  Gate: %s:%d", cfg.GateHost, cfg.GatePort)
 	log.Printf("  AI Backend: %s", cfg.AIBaseURL())
 	log.Printf("  Mode: %s", cfg.GateMode)
+	log.Printf("  Log file: %s", logFile)
 
 	// 初始化反向代理
 	proxy.Init()

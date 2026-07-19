@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-车主习惯画像技能组 — v2.0 新增
+车主习惯画像技能组
 
 3 个技能:
   1. habit_record:   记录用户偏好到 Neo4j HABIT 关系
