@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: shared_assets
-title: 共享静态资源与模型数据
+title: 共享资源与模型权重仓库
 scope:
     - assets/
     - data/

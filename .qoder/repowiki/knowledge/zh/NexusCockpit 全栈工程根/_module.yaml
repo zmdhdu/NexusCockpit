@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: NexusCockpit 车载语音 Agent 工程根目录
+title: NexusCockpit 全栈工程根
 scope:
     - README.md
     - .gitignore

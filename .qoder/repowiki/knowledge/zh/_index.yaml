@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-19T17:59:20Z"
+exported_at: "2026-07-19T23:52:56Z"
 modules:
     "":
-        dir_name: NexusCockpit 车载语音 Agent 工程根目录
-        title: NexusCockpit 车载语音 Agent 工程根目录
+        dir_name: NexusCockpit 全栈工程根
+        title: NexusCockpit 全栈工程根
         scope:
             - README.md
             - .gitignore
@@ -27,8 +27,8 @@ modules:
         depends_on: []
         related_to: []
     docs:
-        dir_name: NexusCockpit 项目文档中心
-        title: NexusCockpit 项目文档中心
+        dir_name: NexusCockpit 技术文档中心
+        title: NexusCockpit 技术文档中心
         scope:
             - docs/
         source_files: []
@@ -51,8 +51,8 @@ modules:
             - path: docs
             - path: shared_assets
     shared_assets:
-        dir_name: 共享静态资源与模型数据
-        title: 共享静态资源与模型数据
+        dir_name: 共享资源与模型权重仓库
+        title: 共享资源与模型权重仓库
         scope:
             - assets/
             - data/

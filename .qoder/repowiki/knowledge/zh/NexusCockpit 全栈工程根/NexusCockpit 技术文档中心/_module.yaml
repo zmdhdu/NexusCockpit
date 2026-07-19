@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: docs
-title: NexusCockpit 项目文档中心
+title: NexusCockpit 技术文档中心
 scope:
     - docs/
 source_files: []
