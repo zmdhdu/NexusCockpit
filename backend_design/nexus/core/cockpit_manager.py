@@ -56,8 +56,7 @@ class CockpitConfig:
     created_at: datetime = field(default_factory=datetime.now)
     is_active: bool = True
     theme_color: str = "#4fc3f7"
-    # SubAgent 巡检状态
-    subagent_status: str = "idle"  # idle / monitoring / alert
+    # v2.2 简化: subagent_status 字段已移除（SubAgent 监控已删除）
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典（用于 API 响应）。"""
@@ -71,7 +70,7 @@ class CockpitConfig:
             "created_at": self.created_at.isoformat(),
             "is_active": self.is_active,
             "theme_color": self.theme_color,
-            "subagent_status": self.subagent_status,
+            # v2.2 简化: subagent_status 已移除
         }
 
 
@@ -252,19 +251,11 @@ class CockpitManager:
             results["redis"] = f"failed: {e}"
             logger.warning(f"Cockpit {cockpit_id}: Redis init failed: {e}")
 
-        # 2. 初始化 Milvus（确保 collection 存在，Demo 共享模式跳过）
+        # 2. 初始化 Milvus（确保 collection 存在）
         try:
-            from nexus.config import get_config
-            isolation_mode = get_config().cockpit.isolation_mode
-            if isolation_mode == "strict":
-                # 正式模式: 为座舱创建独立 collection
-                # vector_store = ...  # 需要通过 app.state 获取
-                results["milvus"] = f"skipped (strict mode, prefix={config.milvus_collection_prefix})"
-                logger.info(f"Cockpit {cockpit_id}: Milvus collection prefix={config.milvus_collection_prefix} (strict mode)")
-            else:
-                # Demo 共享模式: 使用 cockpit_id 字段过滤，无需创建 collection
-                results["milvus"] = "skipped (shared mode, uses cockpit_id filter)"
-                logger.info(f"Cockpit {cockpit_id}: Milvus uses shared collection (shared mode)")
+            # v2.2 简化: isolation_mode 已移除，单座舱使用共享 collection
+            results["milvus"] = "skipped (shared mode, uses cockpit_id filter)"
+            logger.info(f"Cockpit {cockpit_id}: Milvus uses shared collection")
         except Exception as e:
             results["milvus"] = f"failed: {e}"
             logger.warning(f"Cockpit {cockpit_id}: Milvus init check failed: {e}")
@@ -341,7 +332,7 @@ class CockpitManager:
         # 仅允许更新合法字段
         allowed_fields = {
             "name", "user_id", "vehicle_adapter", "theme_color", "is_active",
-            "subagent_status",
+            # v2.2 简化: subagent_status 已移除
         }
         for key, value in updates.items():
             if key in allowed_fields:

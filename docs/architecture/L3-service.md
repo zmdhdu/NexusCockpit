@@ -113,12 +113,13 @@ side_effect_skills = registry.get_side_effect_skills()
 | 导航 | `navigation.py` | 路线规划、POI | VEHICLE |
 | 车辆状态 | `status.py` | 电量、车速、胎压 | VEHICLE |
 
-### 非车载技能 (nexus/skills/special.py) — 3 个 (v1.0)
+### 非车载技能 (nexus/skills/special.py) — 4 个
 
 | 技能 | 功能 | 分组 |
 |------|------|------|
 | WebSearch | Tavily 联网搜索 | LIFESTYLE |
 | FoodDelivery | GraphRAG 餐饮推荐 | LIFESTYLE |
+| AmapPoiSearch | 高德 POI 周边搜索 (v2.2.3 新增) | LIFESTYLE |
 | RegisterVoice | 声纹注册 | CHAT |
 
 ### v2.0 新增技能 — 12 个
@@ -134,11 +135,10 @@ side_effect_skills = registry.get_side_effect_skills()
 | set_reminder | `reminder.py` | 解析时间+内容，持久化存储提醒 | LIFESTYLE |
 | query_reminder | `reminder.py` | 查询用户全部待办提醒 | LIFESTYLE |
 | cancel_reminder | `reminder.py` | 删除指定提醒 | LIFESTYLE |
-| recommend_poi | `local_life.py` | 周边餐饮/景点检索+距离排序 | LIFESTYLE |
-| multi_turn_refine | `local_life.py` | 多轮填充推荐槽位，保留上下文 | LIFESTYLE |
-| preference_filter | `local_life.py` | 基于用户偏好筛选候选推荐结果 | LIFESTYLE |
 
-### 技能总数: 21 个 (v1.0: 9 + v2.0 新增: 12)
+> **v2.2 精简**: `local_life.py` 中的 3 个本地生活推荐技能 (recommend_poi / multi_turn_refine / preference_filter) 已删除（调用的 `search_poi`/`add_habit` 方法在 graph_store 中不存在，为死代码）。
+
+### 技能总数: 19 个 (车载 6 + 非车载 4 + v2.0 新增 9)
 
 ## 车控总线 (nexus/vehicle/)
 

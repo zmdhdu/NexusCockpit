@@ -152,17 +152,14 @@ docs/
 │   ├── README.md              ← 文档索引（总入口）
 │   ├── overview.md            ← 7层架构总览
 │   ├── L0-infrastructure.md   ← Docker / 基础设施
-│   ├── L1-core.md             ← nexus/core/ (config/logger/exceptions/auth/oss)
+│   ├── L1-core.md             ← nexus/core/ (config/logger/exceptions/personalization)
 │   ├── L2-data.md             ← nexus/rag/ + nexus/memory/
 │   ├── L3-service.md          ← nexus/asr/ + nexus/tts/ + nexus/skills/ + nexus/vehicle/
 │   ├── L4-agent.md            ← nexus/agent/ + nexus/intent/
 │   ├── L5-middleware.md       ← nexus/middleware/ (cache/ratelimiter/taskqueue/session)
 │   ├── L6-api.md              ← nexus/api/ + nexus/main.py
 │   ├── L7-observability.md    ← nexus/observability/ (langfuse/metrics)
-│   ├── structure.md           ← 全景架构文档
-│   ├── gap_analysis.md        ← 差距分析
-│   ├── v2.0_improve.md        ← v2.0 改进方案
-│   └── vehicle_agent_*.md     ← 深度方案文档
+│   └── degradation-strategy.md ← LLM 降级策略
 ├── deployment/
 │   ├── SETUP.md               ← 部署指南
 │   └── VERIFICATION.md        ← 验证清单
@@ -183,4 +180,4 @@ docs/
 - 仅检查文件是否存在，不检查函数签名/参数是否一致 — 导致文档内容过期
 - 更新文档时破坏原有格式和结构 — 应保持文档风格一致
 - 遗漏 PROGRESS.md 和 README.md 的索引更新 — 这两个文件是项目门面
-- 对 v2.0_improve.md 等规划文档进行"同步" — 规划文档描述的是未来目标，不应与当前代码"对齐"
+- 对已删除的规划文档（如 v2.0_improve.md 等）不再进行同步 — 规划文档描述的是未来目标，不应与当前代码"对齐"

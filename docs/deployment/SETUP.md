@@ -165,7 +165,6 @@ docker compose ps
 | minio | 9000, 9001 | running |
 | neo4j | 7474, 7687 | running |
 | redis | 6379 | running |
-| rabbitmq | 5672, 15672 | running |
 | mysql | 3306 | running |
 | prometheus | 9090 | running |
 | grafana | 3001 | running |
@@ -175,7 +174,6 @@ docker compose ps
 | 服务 | 地址 | 账号/密码 |
 |------|------|-----------|
 | Neo4j Browser | http://localhost:7474 | neo4j / nexuscockpit |
-| RabbitMQ Management | http://localhost:15672 | guest / guest |
 | MinIO Console | http://localhost:9001 | minioadmin / minioadmin |
 | Prometheus | http://localhost:9090 | - |
 | Grafana | http://localhost:3001 | admin / admin |

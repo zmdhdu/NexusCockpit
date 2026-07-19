@@ -128,6 +128,33 @@ class LLMConfig(BaseSettings):
     # v2.1.2: LLM 并发限流 (同时最多发起的 chat/completions 请求数，0=不限)
     llm_concurrency_limit: int = Field(default=0, validation_alias="LLM_CONCURRENCY_LIMIT")
 
+    # v2.2 新增: 本地 LLM 降级配置（llama.cpp OpenAI 兼容接口）
+    # 云端 LLM 不可用时自动降级到本地 Qwen3.5-4B 模型
+    fallback_enabled: bool = Field(default=False, validation_alias="LLM_FALLBACK_ENABLED")
+    fallback_base_url: str = Field(
+        default="http://127.0.0.1:8082/v1",  # llama.cpp 默认地址
+        validation_alias="LLM_FALLBACK_BASE_URL",
+    )
+    fallback_model: str = Field(
+        default="qwen3.5-4b-local",  # 本地模型别名
+        validation_alias="LLM_FALLBACK_MODEL",
+    )
+    fallback_api_key: str = Field(
+        default="",  # llama.cpp 默认无需 API Key
+        validation_alias="LLM_FALLBACK_API_KEY",
+    )
+    fallback_timeout: float = Field(default=60.0, validation_alias="LLM_FALLBACK_TIMEOUT")
+
+    # v2.2 新增: 美团开发者 Token（从 .env.secrets 加载，不提交 GitHub）
+    meituan_dev_token: str = Field(
+        default="",
+        validation_alias="MEITUAN_DEV_TOKEN",
+    )
+
+    # v2.2 新增: 降级行为控制
+    degradation_notify_user: bool = Field(default=True, validation_alias="DEGRADATION_NOTIFY_USER")
+    degradation_notify_admin: bool = Field(default=True, validation_alias="DEGRADATION_NOTIFY_ADMIN")
+
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     @computed_field
@@ -219,24 +246,8 @@ class RedisConfig(BaseSettings):
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
-class RabbitMQConfig(BaseSettings):
-    """RabbitMQ 消息队列配置。
-
-    RabbitMQ 用于 Celery 异步任务队列，处理耗时操作 (如批量 Embedding 生成)。
-    """
-
-    host: str = Field(default="127.0.0.1", validation_alias="RABBITMQ_HOST")
-    port: int = Field(default=5672, validation_alias="RABBITMQ_PORT")
-    user: str = Field(default="guest", validation_alias="RABBITMQ_USER")
-    password: str = Field(default="guest", validation_alias="RABBITMQ_PASSWORD")
-
-    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
-
-    @computed_field
-    @property
-    def url(self) -> str:
-        """AMQP 连接 URL"""
-        return f"amqp://{self.user}:{self.password}@{self.host}:{self.port}//"
+# v2.2 简化: RabbitMQConfig 已移除（Celery/RabbitMQ 未落地）
+# 原 RabbitMQConfig 类已删除，任务队列改为 asyncio.create_task()
 
 
 class MySQLConfig(BaseSettings):
@@ -340,12 +351,9 @@ class ASRConfig(BaseSettings):
         default="./models/tts/cosyvoice",
         validation_alias="COSYVOICE_MODEL_PATH",
     )
-    # 本地 LLM 模型路径 (可选，用于端侧部署降级)
-    local_llm_model_path: str = Field(
-        default="./models/llm/qwen", validation_alias="LOCAL_LLM_MODEL_PATH"
-    )
-    # 是否使用本地 LLM (False=用云端 Ark API)
-    use_local_llm: bool = Field(default=False, validation_alias="USE_LOCAL_LLM")
+    # v2.2 简化: use_local_llm/local_llm_model_path 旧占位已移除
+    # 改为第七章标准方案: LLMConfig.fallback_base_url + fallback_model
+    # 本地 LLM 降级通过 llama.cpp OpenAI 兼容接口实现，详见 docs/deployment/
 
     # --- 声纹验证音频目录 ---
     # 注册音频目录: 存放用户预先录制的声纹样本
@@ -373,9 +381,7 @@ class ASRConfig(BaseSettings):
         """返回基于项目根目录解析后的 TTS 模型绝对路径。"""
         return _resolve_path(self.cosyvoice_model_path)
 
-    def resolved_llm_path(self) -> str:
-        """返回基于项目根目录解析后的本地 LLM 绝对路径。"""
-        return _resolve_path(self.local_llm_model_path)
+    # v2.2 简化: resolved_llm_path() 已移除（use_local_llm 旧占位已删除）
 
     def resolved_speaker_enroll_dir(self) -> str:
         """返回声纹注册音频目录的绝对路径。"""
@@ -516,6 +522,10 @@ class DataConfig(BaseSettings):
     temp_dir: str = Field(
         default="./data/temp", validation_alias="TEMP_DIR"
     )
+    # v2.2 新增: 用户偏好数据目录（声纹识别后存储用户偏好）
+    preferences_dir: str = Field(
+        default="./data/preferences", validation_alias="PREFERENCES_DIR"
+    )
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
@@ -535,45 +545,13 @@ class DataConfig(BaseSettings):
         """临时文件目录的绝对路径"""
         return _resolve_path(self.temp_dir)
 
+    def resolved_preferences_dir(self) -> str:
+        """用户偏好数据目录的绝对路径"""
+        return _resolve_path(self.preferences_dir)
 
-class OSSConfig(BaseSettings):
-    """阿里云 OSS 对象存储配置。
 
-    OSS 用于存储音频文件、用户上传文件等大文件，
-    减轻本地磁盘压力并提供 CDN 加速访问。
-    """
-
-    # OSS AccessKey (从阿里云控制台获取)
-    access_key: str = Field(default="", validation_alias="OSS_ACCESS_KEY")
-    # OSS SecretKey
-    secret_key: str = Field(default="", validation_alias="OSS_SECRET_KEY")
-    # Bucket 名称
-    bucket_name: str = Field(
-        default="project-zmd", validation_alias="OSS_BUCKET_NAME"
-    )
-    # OSS Endpoint (区域节点)
-    endpoint: str = Field(
-        default="oss-cn-beijing.aliyuncs.com",
-        validation_alias="OSS_ENDPOINT",
-    )
-    # OSS 区域
-    region: str = Field(default="cn-beijing", validation_alias="OSS_REGION")
-    # 公开访问的基础 URL (如通过 CDN 域名)
-    public_base_url: str = Field(
-        default="", validation_alias="OSS_PUBLIC_BASE_URL"
-    )
-    enabled: bool = False  # 自动计算
-
-    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
-
-    def model_post_init(self, __context) -> None:
-        """初始化后自动计算 enabled 和 public_base_url。"""
-        self.enabled = bool(self.access_key and self.secret_key)
-        # 如果未配置自定义域名，则使用默认 OSS 域名
-        if not self.public_base_url and self.bucket_name:
-            self.public_base_url = (
-                f"https://{self.bucket_name}.{self.endpoint}"
-            )
+# v2.2 简化: OSSConfig 已移除（未集成，过度设计）
+# 原 OSSConfig 类已删除，如需对象存储可参考 docs/architecture/
 
 
 class CockpitSettings(BaseSettings):
@@ -583,20 +561,14 @@ class CockpitSettings(BaseSettings):
     """
 
     # 默认座舱数量
-    default_cockpit_count: int = Field(default=3, validation_alias="COCKPIT_COUNT")
-    # SubAgent 巡检间隔范围（秒）
-    subagent_check_interval_min: int = Field(default=30, validation_alias="SUBAGENT_CHECK_MIN")
-    subagent_check_interval_max: int = Field(default=60, validation_alias="SUBAGENT_CHECK_MAX")
-    # MainAgent 确认是否启用
-    mainagent_confirm_enabled: bool = Field(default=True, validation_alias="MAINAGENT_CONFIRM_ENABLED")
-    # 隔离模式: strict(每座舱独立DB) / shared(共享DB+前缀)
-    isolation_mode: str = Field(default="shared", validation_alias="COCKPIT_ISOLATION_MODE")
-    # SubAgent 使用的 LLM 模型（降本策略：用便宜模型）
-    subagent_llm_model: str = Field(default="Qwen/Qwen2.5-7B-Instruct", validation_alias="SUBAGENT_LLM_MODEL")
+    default_cockpit_count: int = Field(default=1, validation_alias="COCKPIT_COUNT")
+    # v2.2 简化: SubAgent/MainAgent 相关配置已移除（过度设计）
+    # 原字段: subagent_check_interval_min/max, mainagent_confirm_enabled, subagent_llm_model, isolation_mode
+    # 隔离模式: 单座舱模式，无需隔离
     # Go 网关配置
     gate_host: str = Field(default="0.0.0.0", validation_alias="NEXUS_GATE_HOST")
     gate_port: int = Field(default=8080, validation_alias="NEXUS_GATE_PORT")
-    gate_mode: str = Field(default="proxy", validation_alias="NEXUS_GATE_MODE")  # proxy / grpc
+    gate_mode: str = Field(default="proxy", validation_alias="NEXUS_GATE_MODE")  # v2.2: 固定 proxy（grpc 未实现已移除）
     # RBAC 配置
     rbac_default_role: str = Field(default="cockpit_user", validation_alias="RBAC_DEFAULT_ROLE")
     rbac_admin_username: str = Field(default="admin", validation_alias="RBAC_ADMIN_USERNAME")
@@ -637,13 +609,16 @@ class AppConfig(BaseSettings):
     milvus: MilvusConfig = Field(default_factory=MilvusConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
-    rabbitmq: RabbitMQConfig = Field(default_factory=RabbitMQConfig)
+    # v2.2 简化: rabbitmq/oss 字段已移除
+    # rabbitmq: RabbitMQConfig = Field(default_factory=RabbitMQConfig)  # 已移除
+    # oss: OSSConfig = Field(default_factory=OSSConfig)  # 已移除
     mysql: MySQLConfig = Field(default_factory=MySQLConfig)
     jwt: JWTConfig = Field(default_factory=JWTConfig)
     vehicle: VehicleConfig = Field(default_factory=VehicleConfig)
     asr: ASRConfig = Field(default_factory=ASRConfig)
     data: DataConfig = Field(default_factory=DataConfig)
-    oss: OSSConfig = Field(default_factory=OSSConfig)
+    # v2.2 简化: oss 字段已移除
+    # oss: OSSConfig = Field(default_factory=OSSConfig)  # 已移除
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -666,8 +641,7 @@ class AppConfig(BaseSettings):
             warnings.append("MYSQL_PASSWORD 仍为默认密码")
         if self.neo4j.password == "nexuscockpit":
             warnings.append("NEO4J_PASSWORD 仍为默认密码")
-        if self.rabbitmq.user == "guest" and self.rabbitmq.password == "guest":
-            warnings.append("RABBITMQ 仍使用 guest/guest 默认账号")
+        # v2.2 简化: RabbitMQ 安全检查已移除
         if "*" in self.server.cors_origins:
             warnings.append("CORS origins 包含 '*' (允许所有域)")
         if warnings:

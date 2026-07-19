@@ -1,7 +1,7 @@
 # L4 Agent 层 (Multi-Agent)
 
 > 对应代码: `nexus/agent/` + `nexus/intent/`
-> 最后更新: 2026-07-14
+> 最后更新: 2026-07-18
 
 ## 职责
 
@@ -150,17 +150,19 @@ class MyExpert(BaseExpertAgent):
         )
 ```
 
-### v1.0 兼容模块 (DEPRECATED)
+### v1.0 模块迁移状态
 
-以下 v1.0 模块仍保留但已标记为 DEPRECATED，`main.py` 已切换到 `SupervisorGraph`：
+v2.2 简化后，v1.0 的线性 Agent 模块已被清理：
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| `graph.py` | DEPRECATED | v1.0 AgentGraph，已被 SupervisorGraph 替代 |
-| `planner.py` | DEPRECATED | v1.0 规划 Agent，职责已并入 Supervisor 节点 |
-| `executor.py` | DEPRECATED | v1.0 执行 Agent，职责已拆分到 5 个专家 |
-| `responder.py` | ✅ 复用 | 上下文压缩 + LLM 调用逻辑仍被 SupervisorGraph 使用 |
-| `reviewer.py` | ✅ 复用 | 质量检查 + 记忆存储逻辑仍被 SupervisorGraph 使用 |
+| `graph.py` | ❌ 已删除 | v1.0 AgentGraph，已被 SupervisorGraph 完全替代 |
+| `planner.py` | ❌ 已删除 | v1.0 规划 Agent，职责已并入 Supervisor 节点 |
+| `executor.py` | ❌ 已删除 | v1.0 执行 Agent，职责已拆分到 5 个专家 |
+| `subagent_monitor.py` | ❌ 已删除 | v2.1 SubAgent 监控器（过度设计，v2.2 移除） |
+| `mainagent_confirm.py` | ❌ 已删除 | v2.1 MainAgent 确认层（过度设计，v2.2 移除） |
+| `responder.py` | ⚠️ 部分复用 | 仅 `ContextCompressor` 被 SupervisorGraph 使用，`respond()`/`stream_respond()` 方法未被调用 |
+| `reviewer.py` | ⚠️ 部分复用 | 逻辑已内联到 `SupervisorGraph._reviewer_node`，`review()` 方法未被调用 |
 
 ## Supervisor State (v2.0)
 

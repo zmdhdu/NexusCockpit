@@ -16,7 +16,7 @@
 
 | 路由 | 方法 | 说明 |
 |------|------|------|
-| `/` | GET | 根路径重定向到 /docs |
+| `/` | GET | 根路径返回项目信息 |
 | `/health` | GET | 健康检查 |
 | `/chat` | POST | 文本对话 (非流式) |
 | `/chat/stream` | POST | 文本对话 (SSE 流式，含心跳+断开检测) |
@@ -26,15 +26,47 @@
 | `/chat/sessions/{id}/messages` | GET | 获取会话消息记录 |
 | `/vehicle/command` | POST | 车控命令 (JWT 认证) |
 | `/vehicle/status` | GET | 车辆状态查询 (JWT 认证) |
+| `/cockpit/{cockpit_id}/status` | GET | 座舱状态查询 (v2.1) |
+| `/cockpit/{cockpit_id}/chat` | POST | 座舱级文本对话 (v2.1) |
+| `/cockpit/{cockpit_id}/chat/stream` | POST | 座舱级 SSE 流式 (v2.1) |
+| `/cockpit/{cockpit_id}/vehicle/cmd` | POST | 座舱级车控命令 (v2.1) |
+| `/cockpit/{cockpit_id}/vehicle/status` | GET | 座舱级车辆状态 (v2.1) |
 | `/auth/token` | POST | JWT 令牌签发 |
 | `/auth/me` | GET | 当前用户信息 (JWT 认证) |
+| `/auth/change-password` | POST | 修改密码 (JWT 认证) |
 | `/admin/skills` | GET | 技能列表 (JWT 认证) |
 | `/admin/cache/stats` | GET | 缓存统计 (JWT 认证) |
 | `/admin/cache/clear` | POST | 清空缓存 (JWT 认证) |
 | `/admin/sessions` | GET | 会话列表 (JWT 认证) |
 | `/admin/memory/{user_id}` | GET | 用户记忆查询 (JWT 认证) |
+| `/admin/kb/upload` | POST | 知识库上传 (JWT 认证) |
+| `/admin/kb/reindex` | POST | 知识库重建索引 (JWT 认证) |
+| `/admin/kb/stats` | GET | 知识库统计 (JWT 认证) |
+| `/settings/cockpits` | GET/POST | 座舱管理 (v2.1) |
+| `/settings/cockpits/{id}` | PUT/DELETE | 座舱修改/删除 (v2.1) |
+| `/settings/users` | GET/POST | 用户管理 (v2.1) |
+| `/settings/users/{id}` | DELETE | 用户删除 (v2.1) |
+| `/settings/middleware` | GET/PUT | 中间件配置 (v2.1) |
+| `/settings/voiceprint/status` | GET | 声纹状态 (v2.1) |
+| `/settings/voiceprint/enroll` | POST | 声纹注册 (v2.1) |
+| `/settings/voiceprint/verify` | POST | 声纹验证 (v2.1) |
+| `/dataplatform/overview` | GET | 数据中台概览 (v2.1) |
+| `/dataplatform/cockpit/{id}` | GET | 座舱详情 (v2.1) |
+| `/dataplatform/concurrency` | GET | 并发监控 (v2.1) |
+| `/dataplatform/alerts` | GET | 告警历史 (v2.1) |
+| `/dataplatform/agent/activity` | GET | Agent 活动统计 (v2.1) |
+| `/dataplatform/comparison` | GET | 座舱对比 (v2.1) |
+| `/middleware` | GET | 中间件状态汇总 (v2.1) |
+| `/middleware/redis` | GET | Redis 状态 (v2.1) |
+| `/middleware/milvus` | GET | Milvus 状态 (v2.1) |
+| `/middleware/neo4j` | GET | Neo4j 状态 (v2.1) |
+| `/middleware/rabbitmq` | GET | RabbitMQ 状态 (v2.1，已废弃) |
+| `/middleware/mysql` | GET | MySQL 状态 (v2.1) |
+| `/asr/transcribe` | POST | 语音识别 (v2.1) |
+| `/asr/status` | GET | ASR 引擎状态 (v2.1) |
 | `/ws/chat` | WS | WebSocket 实时通信 (JWT via query param) |
 | `/metrics` | GET | Prometheus 指标 |
+| `/audio/{path}` | GET | 静态音频文件 |
 | `/docs` | GET | Swagger 文档 |
 
 ## 模块清单
@@ -50,12 +82,12 @@ from nexus.main import app
 # 3. 初始化向量存储 (工厂模式: 本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定)
 # 4. 初始化图谱存储 (工厂模式: 本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定)
 # 5. 构建车控适配器 (mock/http/mcp)
-# 6. 初始化 OSS 对象存储
+# 6. v2.2 简化: OSS 对象存储已移除（未集成，过度设计）
 # 7. 连接 Redis 语义缓存
 # 8. 初始化限流器 (Lua 脚本原子化)
 # 9. 初始化会话历史存储 (SessionStore, Redis 持久化)
 # 10. 初始化 Langfuse 追踪监控器
-# 11. 初始化 Agent 工作流 (SkillRegistry + MemoryManager + IntentRouter + AgentGraph)
+# 11. 初始化 Agent 工作流 (SkillRegistry + MemoryManager + IntentRouter + SupervisorGraph)
 #
 # 注册路由: health / chat / vehicle / auth / admin / ws
 # 注册异常处理器: RateLimitError(429) / AuthError(401) / NexusError(500)

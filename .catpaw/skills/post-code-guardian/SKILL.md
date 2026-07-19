@@ -152,7 +152,7 @@ python .catpaw/skills/doc-sync/check_doc_sync.py --all
 **处理规则**:
 - 发现 Warning/Critical → **直接修改文档**使其一致
 - 更新文档顶部的"最后更新"日期为当天
-- 对 `v2.0_improve.md` 等规划文档不做同步（这些描述未来目标）
+- 对已删除的规划文档（如 v2.0_improve.md 等）不做同步（这些描述未来目标，已清理）
 
 **输出**: doc-sync 报告，包含检查结果和已更新的文档清单
 

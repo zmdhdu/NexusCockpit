@@ -13,7 +13,7 @@
 |--------|----------|-----|------|
 | `cockpit-main.png` | 座舱控制台主界面 | http://localhost:3000/cockpit | 座舱页面整体截图，展示聊天区+车控区+3D 可视化 |
 | `cockpit-chat.png` | 语音对话与车控联动 | http://localhost:3000/cockpit | 演示一次完整的语音对话→车控执行流程 |
-| `cockpit-multi.png` | 多座舱切换 | http://localhost:3000/cockpit | 展示多座舱切换/并行管理效果 |
+| `cockpit-multi.png` | 座舱控制 | http://localhost:3000/cockpit | 展示座舱控制台/车控面板效果 |
 | `chat-page.png` | 聊天对话页面 | http://localhost:3000/chat | 独立聊天页面，展示 SSE 流式输出+Markdown 渲染 |
 | `settings.png` | 设置中心 | http://localhost:3000/settings | 座舱/用户/中间件管理界面 |
 | `admin.png` | 管理后台 | http://localhost:3000/admin | 系统管理页面，用户权限+座舱注册 |
@@ -34,7 +34,7 @@
 | `7-layer-arch.png` | 7 层分层架构图 |
 | `multi-agent-flow.png` | Multi-Agent 工作流图 (Supervisor + 5 Experts) |
 | `graphrag-flow.png` | GraphRAG 三路融合检索流程图 |
-| `v2.1-cs-arch.png` | v2.1 多座舱 CS 架构图 |
+| `cockpit-arch.png` | 座舱控制 + 运营总览架构图 |
 
 ### 📦 `misc/` — 其他截图（可选）
 

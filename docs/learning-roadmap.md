@@ -32,7 +32,7 @@
 |------|------|----------|
 | ① | `README.md` | 项目概述、技术栈速览、快速启动命令 |
 | ② | `Agent.md` | 项目总导航、目录结构全貌、修改代码时的查找路径 |
-| ③ | `docs/v2.1-design.md` | v2.1 多座舱 CS 架构设计方案（先看前 200 行理解大方向） |
+| ③ | `docs/architecture/overview.md` | 7 层架构总览与数据流设计（先理解整体架构方向） |
 
 ### 1.2 理解 7 层架构 (30 分钟)
 
@@ -50,7 +50,7 @@ L0  基础设施层  →  Docker / Milvus / Neo4j / Redis / MySQL  ← 底层依
 **关键概念**:
 - **Multi-Agent**: 不是单个 AI，而是 1 个调度者(Supervisor) + 5 个专家(车控/导航/生活/健康/闲聊)协同工作
 - **GraphRAG**: 同时用 3 种方式搜索知识（向量语义 + 图谱关系 + 关键词），再融合排序
-- **多座舱**: 3 个车载座舱同时运行，数据隔离但共享 AI 能力
+- **座舱控制 + 运营总览**: 座舱控制台提供车控与语音交互，运营总览看板提供系统监控与数据分析
 
 ### 1.3 画出数据流 (30 分钟)
 
@@ -170,23 +170,22 @@ graph.add_edge("responder", "reviewer")
 graph.add_edge("reviewer", END)
 ```
 
-### 3.2 v2.1 多座舱增强 (1 小时)
+### 3.2 座舱管理与运营总览 (1 小时)
 
 | 顺序 | 文件 | 学到什么 | 重点 |
 |------|------|----------|------|
 | ① | `nexus/core/cockpit_manager.py` | 座舱管理器 | 座舱注册/查询/状态管理 |
 | ② | `nexus/core/tenant_context.py` | 多租户上下文 | 请求级 cockpit_id 隔离机制 |
-| ③ | `nexus/agent/subagent_monitor.py` | SubAgent 监控器 | 不定时巡检 + LLM 判断异常 + 向量匹配历史模式 |
-| ④ | `nexus/agent/mainagent_confirm.py` | MainAgent 确认层 | 接收 SubAgent 上报 + 二次确认 + 安全回传 |
-| ⑤ | `nexus/core/db_manager.py` | 异步数据库管理器 | MySQL 连接池 + 日志持久化 |
-| ⑥ | `nexus/core/voiceprint.py` | 声纹识别 | CAM++ 模型 + 说话人验证 |
-| ⑦ | `nexus/models/cockpit.py` | 座舱数据模型 | Cockpit/AlertRecord/AgentActivity 等类型定义 |
+| ③ | `nexus/core/db_manager.py` | 异步数据库管理器 | MySQL 连接池 + 日志持久化 |
+| ④ | `nexus/core/voiceprint.py` | 声纹识别 | CAM++ 模型 + 说话人验证 |
+| ⑤ | `nexus/core/personalization.py` | 个性化服务 | 声纹+偏好匹配+Prompt 注入 |
+| ⑥ | `nexus/models/cockpit.py` | 座舱数据模型 | Cockpit/AlertRecord/AgentActivity 等类型定义 |
 
-**v2.1 架构理解**:
+**架构理解**:
 ```
-座舱1 ──┐                    SubAgent巡检 ──→ MainAgent确认
-座舱2 ──┼── Go网关 ──→ Python AI服务                              ↓
-座舱3 ──┘                    Supervisor+5专家 ←─ 确认通过后放行
+座舱控制台 ──┐
+语音助手   ──┼── Go网关 ──→ Python AI服务
+运营总览   ──┘              Supervisor+5专家
 ```
 
 ### 3.3 API 层 L6 (1 小时)
@@ -195,7 +194,7 @@ graph.add_edge("reviewer", END)
 |------|------|----------|------|
 | ① | `nexus/api/routes/chat.py` | 对话接口 | SSE 流式响应的实现 |
 | ② | `nexus/api/routes/auth.py` | 认证接口 | JWT Token 签发与验证 |
-| ③ | `nexus/api/routes/cockpit.py` | 座舱接口 | 多座舱路由 `/cockpit/{id}/*` |
+| ③ | `nexus/api/routes/cockpit.py` | 座舱接口 | 座舱路由 `/cockpit/{id}/*` |
 | ④ | `nexus/api/routes/dataplatform.py` | 数据中台 | 跨座舱统计、并发监控、告警历史 |
 | ⑤ | `nexus/api/routes/middleware_status.py` | 中间件状态 | Redis/Milvus/Neo4j 等连通性检查 |
 | ⑥ | `nexus/api/routes/settings.py` | 设置中心 | 座舱CRUD、用户管理、声纹注册 |
@@ -338,7 +337,7 @@ graph.add_edge("reviewer", END)
 
 | 顺序 | 文件 | 学到什么 | 重点 |
 |------|------|----------|------|
-| ① | `backend_design/tests/test_v21.py` | v2.1 测试用例 | 多座舱功能验证 |
+| ① | `backend_design/tests/test_v21.py` | 测试用例 | 座舱管理功能验证 |
 | ② | `backend_design/scripts/test_api.py` | API 测试脚本 | 接口功能验证 |
 | ③ | `backend_design/scripts/chaos_test.py` | 混沌测试 | 异常场景模拟 |
 | ④ | `backend_design/scripts/test_db.py` | 数据库测试 | MySQL 连接与 CRUD 验证 |

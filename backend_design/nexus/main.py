@@ -107,11 +107,9 @@ async def lifespan(app: FastAPI):
     vehicle_adapter = build_vehicle_adapter()
     app.state.vehicle_adapter = vehicle_adapter
 
-    # --- 5. 初始化 OSS 对象存储 ---
-    from nexus.core.oss import OSSStorage
-    oss_storage = OSSStorage()
-    oss_storage.connect()
-    app.state.oss_storage = oss_storage
+    # --- 5. v2.2 简化: OSS 对象存储已移除（未集成，过度设计） ---
+    # 原第 110-114 行的 OSSStorage 初始化代码已删除
+    # 如需对象存储，可参考 docs/architecture/ 中的存储方案设计
 
     # --- 6. 初始化 Redis 语义缓存 ---
     semantic_cache = SemanticCache(embedding_service)
@@ -134,7 +132,7 @@ async def lifespan(app: FastAPI):
     langfuse_monitor = LangfuseMonitor()
     app.state.langfuse = langfuse_monitor
 
-    # --- 7.7. 初始化 v2.1 指标 Redis（需要在 Agent 初始化前创建，供 MainAgent 确认层使用）---
+    # --- 7.7. 初始化指标 Redis（需要在 Agent 初始化前创建，供 CockpitMetrics 使用）---
     import redis.asyncio as aioredis
     redis_config = config.redis
     metrics_redis = aioredis.Redis(
@@ -188,13 +186,12 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Checkpoint initialization failed (non-fatal): {e}")
             checkpoint_saver = None
 
-        # v2.0: Supervisor 多智能体工作流（v2.1: 传入 redis_client 给 MainAgent 确认层）
+        # v2.0: Supervisor 多智能体工作流
         agent_graph = SupervisorGraph(
             intent_router=intent_router,
             memory_manager=memory_manager,
             skill_registry=skill_registry,
             checkpoint_saver=checkpoint_saver,
-            redis_client=metrics_redis,
         )
 
         # v2.0: Cherry 知识库 + 统一检索器
@@ -231,7 +228,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"MySQL database manager init failed (non-fatal): {e}")
 
-    # --- 9. v2.1: 初始化座舱管理器 + SubAgent 监控 + MainAgent 确认 ---
+    # --- 9. v2.2 简化: 座舱管理器初始化（移除 SubAgent 监控和 MainAgent 确认层） ---
     try:
         from nexus.core.cockpit_manager import get_cockpit_manager
         from nexus.observability.cockpit_metrics import set_cockpit_metrics
@@ -245,34 +242,8 @@ async def lifespan(app: FastAPI):
 
         logger.info(f"CockpitManager initialized with {len(cockpit_manager.list_cockpits())} cockpits")
 
-        # 启动 SubAgent 监控（如果配置启用）
-        if config.cockpit.mainagent_confirm_enabled:
-            try:
-                from nexus.agent.subagent_monitor import SubAgentManager
-
-                # 创建 SubAgent 管理器（传入 embedding_service 用于 Layer 2 向量匹配）
-                subagent_manager = SubAgentManager(
-                    llm_client=app.state.agent_graph.llm_client if app.state.agent_graph else None,
-                    redis_client=metrics_redis,
-                    embedding_service=app.state.embedding_service,
-                )
-                # 启动所有座舱的 SubAgent 监控
-                cockpit_ids = [c.cockpit_id for c in cockpit_manager.list_cockpits()]
-                await subagent_manager.start_all(cockpit_ids)
-                app.state.subagent_manager = subagent_manager
-
-                # 启动 MainAgent 确认层监听（redis_client 已在 SupervisorGraph 初始化时传入）
-                if app.state.agent_graph:
-                    await app.state.agent_graph.mainagent_confirm.start_listening()
-
-                logger.info(f"SubAgent monitors started for {len(cockpit_ids)} cockpits")
-            except Exception as e:
-                logger.warning(f"SubAgent monitor startup failed (non-fatal): {e}")
-        else:
-            logger.info("SubAgent monitoring disabled by config")
-
     except Exception as e:
-        logger.error(f"v2.1 cockpit initialization failed: {e}")
+        logger.error(f"v2.2 cockpit initialization failed: {e}")
 
     # --- 10. v2.1: 启动数据保留策略管理器（后台自动清理过期日志）---
     try:
@@ -291,15 +262,8 @@ async def lifespan(app: FastAPI):
 
     logger.info("NexusCockpit shutting down...")
 
-    # v2.1: 停止 SubAgent 监控
-    if hasattr(app.state, "subagent_manager"):
-        await app.state.subagent_manager.stop_all()
-    # v2.1: 停止 MainAgent 监听
-    if hasattr(app.state, "agent_graph") and app.state.agent_graph:
-        try:
-            await app.state.agent_graph.mainagent_confirm.stop_listening()
-        except Exception:
-            pass
+    # v2.2 简化: SubAgent 监控和 MainAgent 确认层已移除（过度设计）
+    # 原第 294-302 行的 SubAgent 停止和 MainAgent 监听关闭代码已删除
     # v2.1: 停止数据保留管理器
     if hasattr(app.state, "retention_manager"):
         await app.state.retention_manager.stop()
@@ -337,8 +301,8 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="NexusCockpit",
-        description="Enterprise Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP — v2.1 Multi-Cockpit CS Architecture",
-        version="2.1.0",
+        description="Enterprise Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP — Cockpit Control + Operations Dashboard",
+        version="2.0.0",
         lifespan=lifespan,
     )
 
@@ -357,7 +321,7 @@ def create_app() -> FastAPI:
         """根路径：返回项目基本信息。"""
         return {
             "name": "NexusCockpit",
-            "version": "2.1.0",
+            "version": "2.0.0",
             "description": "Enterprise Vehicle Voice Agent Platform",
         }
 

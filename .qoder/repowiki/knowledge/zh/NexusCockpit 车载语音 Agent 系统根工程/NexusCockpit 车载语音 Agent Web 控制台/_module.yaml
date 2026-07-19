@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: frontend_app
+title: NexusCockpit 车载语音 Agent Web 控制台
+scope:
+    - frontend_design/
+source_files: []
+depends_on: []
+related_to: []

@@ -30,13 +30,13 @@ async def get_all_middleware_status() -> Dict[str, Any]:
         "redis": await _get_redis_status(),
         "milvus": await _get_milvus_status(),
         "neo4j": await _get_neo4j_status(),
-        "rabbitmq": await _get_rabbitmq_status(),
+        # v2.2 简化: rabbitmq 状态查询已移除（Celery/RabbitMQ 未落地）
         "mysql": await _get_mysql_status(),
         "llm": _get_llm_config(),
         "tts": _get_tts_config(),
         "asr": _get_asr_config(),
         "app": _get_app_config(),
-        "oss": _get_oss_config(),
+        # v2.2 简化: OSS 配置查询已移除（未集成）
     }
 
 
@@ -60,8 +60,8 @@ async def get_neo4j_status() -> Dict[str, Any]:
 
 @router.get("/rabbitmq")
 async def get_rabbitmq_status() -> Dict[str, Any]:
-    """RabbitMQ 状态。"""
-    return await _get_rabbitmq_status()
+    """v2.2 简化: RabbitMQ 状态（已移除，Celery/RabbitMQ 未落地）。"""
+    return {"name": "RabbitMQ", "status": "removed", "reason": "v2.2 简化移除（未落地）"}
 
 
 @router.get("/mysql")
@@ -166,48 +166,8 @@ async def _get_neo4j_status() -> Dict[str, Any]:
 
 
 async def _get_rabbitmq_status() -> Dict[str, Any]:
-    """获取 RabbitMQ 状态。"""
-    config = get_config().rabbitmq
-    try:
-        import aiohttp
-        # 使用 RabbitMQ Management HTTP API
-        mgmt_url = f"http://{config.host}:{config.port + 10000}/api/overview"
-        auth = aiohttp.BasicAuth(config.user, config.password)
-        async with aiohttp.ClientSession() as session:
-            async with session.get(mgmt_url, auth=auth, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return {
-                        "name": "RabbitMQ",
-                        "status": "connected",
-                        "host": config.host,
-                        "port": config.port,
-                        "version": data.get("rabbitmq_version", "unknown"),
-                        "message_stats": data.get("message_stats", {}),
-                        "object_totals": data.get("object_totals", {}),
-                    }
-                else:
-                    return {
-                        "name": "RabbitMQ",
-                        "status": "disconnected",
-                        "host": config.host,
-                        "error": f"HTTP {resp.status}",
-                    }
-    except ImportError:
-        return {
-            "name": "RabbitMQ",
-            "status": "not_installed",
-            "host": config.host,
-            "message": "aiohttp not installed for RabbitMQ management API check",
-        }
-    except Exception as e:
-        return {
-            "name": "RabbitMQ",
-            "status": "disconnected",
-            "host": config.host,
-            "port": config.port,
-            "error": str(e),
-        }
+    """v2.2 简化: RabbitMQ 状态查询已移除（Celery/RabbitMQ 未落地）。"""
+    return {"name": "RabbitMQ", "status": "removed", "reason": "v2.2 简化移除"}
 
 
 async def _get_mysql_status() -> Dict[str, Any]:
@@ -304,30 +264,11 @@ def _get_app_config() -> Dict[str, Any]:
         "cors_origins": config.server.cors_origins,
         "rate_limit_enabled": True,
         "cache_enabled": True,
-        "mainagent_confirm_enabled": config.cockpit.mainagent_confirm_enabled,
-        "cockpit_count": config.cockpit.default_cockpit_count if hasattr(config, 'cockpit') else 3,
+        # v2.2 简化: mainagent_confirm_enabled 已移除
+        "cockpit_count": config.cockpit.default_cockpit_count if hasattr(config, 'cockpit') else 1,
     }
 
 
 def _get_oss_config() -> Dict[str, Any]:
-    """获取 OSS 对象存储配置信息。"""
-    config = get_config()
-    try:
-        oss = config.oss
-        # oss.enabled 为 True 时表示 AccessKey + SecretKey 都已配置
-        if oss.enabled:
-            status = "available"
-        elif oss.endpoint:
-            status = "configured"
-        else:
-            status = "not_configured"
-        return {
-            "name": "OSS 对象存储",
-            "status": status,
-            "provider": "aliyun",
-            "endpoint": oss.endpoint or "",
-            "bucket": oss.bucket_name or "",
-            "public_url": oss.public_base_url or "",
-        }
-    except Exception:
-        return {"name": "OSS 对象存储", "status": "not_configured"}
+    """v2.2 简化: OSS 对象存储已移除（未集成，过度设计）。"""
+    return {"name": "OSS 对象存储", "status": "removed", "reason": "v2.2 简化移除"}

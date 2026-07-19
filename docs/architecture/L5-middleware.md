@@ -7,7 +7,7 @@
 提供横切关注点的基础设施：
 - **语义缓存** — Redis 向量搜索实现语义级缓存（含副作用隔离）
 - **限流器** — Redis Lua 脚本原子化滑动窗口限流
-- **任务队列** — Celery + RabbitMQ 异步任务
+- **任务队列** — asyncio.create_task 进程内异步任务 (v2.2: Celery/RabbitMQ 已移除)
 - **会话存储** — Redis 持久化会话历史（降级内存回退）
 
 ## 语义缓存 (redis_cache.py) — v2.0 Redis Stack KNN
@@ -113,22 +113,27 @@ await store.async_set("user_123", [
 
 ## 任务队列 (task_queue.py)
 
-```python
-from nexus.middleware.task_queue import celery_app, submit_task
-
-# 提交异步任务
-task = submit_task("nexus.tasks.memory_store", args=(user_id, content))
-```
-
-### Celery 配置
+> **v2.2 简化**: 移除 Celery/RabbitMQ 依赖，改为使用 `asyncio.create_task()` 进程内异步执行。原 Celery 任务已移除，记忆存储改为在 Reviewer 中直接调用 `memory_manager.store_from_text_async()`。
 
 ```python
-celery_app = Celery(
-    "nexus",
-    broker=RabbitMQ_URL,      # amqp://guest:guest@localhost:5672//
-    backend=REDIS_URL,         # redis://localhost:6379/1
+from nexus.middleware.task_queue import create_background_task
+
+# 创建后台异步任务（替代 Celery 的 task.delay()）
+task = create_background_task(
+    memory_manager.store_from_text_async(user_input, user_id),
+    name="memory_store",
 )
 ```
+
+### 优势
+- 无需额外中间件（RabbitMQ）
+- 无需启动 Worker 进程
+- 部署更简单，适合车载场景
+- 延迟更低（无队列转发开销）
+
+### 注意
+- 进程内异步任务在进程重启时会丢失（可接受，记忆存储有重试机制）
+- 不支持分布式任务调度（单机模式足够）
 
 ## 熔断器 (core/circuit_breaker.py)
 

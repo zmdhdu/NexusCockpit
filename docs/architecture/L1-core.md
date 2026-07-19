@@ -10,7 +10,9 @@
 - **异常体系** — 统一的异常分类和处理
 - **熔断器** — 保护云端 API 调用的稳定性
 - **JWT 认证** — 令牌签发、验证、依赖注入
-- **OSS 对象存储** — 阿里云 OSS 上传/下载/签名 URL
+- **个性化服务** — v2.2 新增，声纹识别+偏好匹配+Prompt 注入
+
+> **v2.2 简化**: OSS 对象存储模块 (`core/oss.py`) 已移除（未集成，过度设计）。如需对象存储可参考 `docs/architecture/` 中的存储方案设计。
 
 ## 模块清单
 
@@ -37,7 +39,6 @@ config.asr.resolved_funasr_path()  # 解析为绝对路径
 | `MilvusConfig` | Milvus 配置 | `MILVUS_*` |
 | `Neo4jConfig` | Neo4j 配置 | `NEO4J_*` |
 | `RedisConfig` | Redis 配置 | `REDIS_*`, `SEMANTIC_CACHE_*` |
-| `RabbitMQConfig` | RabbitMQ 配置 | `RABBITMQ_*` |
 | `MySQLConfig` | MySQL 配置 | `MYSQL_*` |
 | `JWTConfig` | JWT 配置 | `JWT_*` |
 | `VehicleConfig` | 车控配置 | `VEHICLE_*` |
@@ -46,8 +47,12 @@ config.asr.resolved_funasr_path()  # 解析为绝对路径
 | `LangfuseConfig` | 追踪配置 | `LANGFUSE_*` |
 | `ServerConfig` | 服务器配置 | `HOST`, `PORT`, `DEBUG` |
 | `TavilyConfig` | 搜索配置 | `TAVILY_*` |
+| `AmapConfig` | 高德地图配置 | `AMAP_*` |
 | `ProvidersConfig` | 双模式部署开关 | `VECTOR_STORE_PROVIDER`, `GRAPH_STORE_PROVIDER`, `CACHE_PROVIDER`, `RERANKER_PROVIDER` |
 | `RerankerConfig` | Rerank 重排配置 | `RERANK_MODEL` |
+| `ObservabilityConfig` | 可观测配置 | `DATA_RETENTION_*` |
+
+> **v2.2 简化**: `RabbitMQConfig` 已移除（Celery/RabbitMQ 未落地，任务队列改为 `asyncio.create_task`）。
 
 ### core/logger.py — 结构化日志
 
@@ -100,20 +105,21 @@ async def command(user: str = Depends(get_current_user)):
 - 支持 `HTTPBearer` 自动提取 Authorization Header
 - 未配置 JWT_SECRET 时，认证降级为直通（开发模式）
 
-### core/oss.py — OSS 对象存储
+### core/personalization.py — 个性化服务 (v2.2 新增)
 
 ```python
-from nexus.core.oss import OSSStorage
+from nexus.core.personalization import PersonalizationService
 
-oss = OSSStorage()
-oss.connect()
-url = oss.upload("file.txt", data=b"...")  # 上传并返回公开读 URL
-oss.download("file.txt")                    # 下载文件内容
-signed = oss.sign_url("file.txt", expires=3600)  # 生成签名 URL
+ps = PersonalizationService()
+profile_text = ps.build_profile_text(user_id="user_01")
+# 返回用户偏好画像文本，注入到 Prompt 的 {user_profile} 占位符
 ```
 
-- 阿里云 OSS 封装，支持上传/下载/签名 URL
-- 自动从 config 读取 OSS 配置（bucket/endpoint/access_key）
+- 根据声纹识别的用户 ID 匹配偏好内容
+- 读取 `data/preferences/{user_id}.json` 用户偏好文件
+- 读取 MySQL `user_habits` 表（频次加权）
+- 构建用户画像文本，注入到 Prompt
+- 根据用户偏好匹配本地音乐曲库
 
 ## 设计原则
 

@@ -188,9 +188,7 @@ async def get_middleware_config() -> Dict[str, Any]:
     redis_config = get_config().redis
     return {
         "isolation_mode": config.isolation_mode,
-        "subagent_check_min": config.subagent_check_interval_min,
-        "subagent_check_max": config.subagent_check_interval_max,
-        "mainagent_confirm_enabled": config.mainagent_confirm_enabled,
+        # v2.2 简化: subagent_check_min/max/mainagent_confirm_enabled 已移除
         "cache_similarity_threshold": redis_config.cache_similarity_threshold,
         "rate_limit_qps": 100,
     }

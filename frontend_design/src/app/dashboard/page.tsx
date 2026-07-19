@@ -57,7 +57,7 @@ import type {
  * 展示内容:
  *   1. 关键指标卡片（对话量、车控量、缓存命中率、平均延迟）
  *   2. 各座舱健康状态对比
- *   3. 主控引擎 & 巡检引擎状态（MainAgent 为主控，SubAgent 为巡检执行）
+ *   3. AI 引擎状态（Supervisor + 5 Expert Agents）
  *   4. 缓存趋势图 & 服务调度分布
  *   5. 24h 告警记录
  *   6. 服务状态一览
@@ -154,23 +154,23 @@ export default function DashboardPage() {
 
   const agentReady = health?.services?.agent === "ready";
 
-  // 引擎状态 — MainAgent 为主控（分发任务、审核结果），SubAgent 为巡检执行
+  // 引擎状态 — Supervisor 为调度核心，Expert Agents 为并行执行单元
   const engines = [
     {
-      name: "主控引擎",
-      desc: "统一调度、分发任务、审核巡检结果",
+      name: "Supervisor 引擎",
+      desc: "记忆召回 + 意图路由 + 专家调度",
       icon: Shield,
       color: "text-sky-400",
       active: agentReady,
       statusLabel: agentReady ? "运行中" : "待启动",
     },
     {
-      name: "巡检引擎",
-      desc: "执行座舱状态巡检，异常上报主控审核",
+      name: "Expert 引擎",
+      desc: "5 专家并行执行（车控/导航/生活/健康/闲聊）",
       icon: Brain,
       color: "text-amber-400",
       active: agentReady,
-      statusLabel: agentReady ? "巡检中" : "待启动",
+      statusLabel: agentReady ? "运行中" : "待启动",
     },
   ];
 
@@ -271,7 +271,7 @@ export default function DashboardPage() {
 
       {/* 引擎状态 + 缓存趋势 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* 引擎状态 — MainAgent 在前，SubAgent 在后 */}
+        {/* 引擎状态 — Supervisor 在前，Expert 在后 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

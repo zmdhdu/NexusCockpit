@@ -301,7 +301,6 @@ class HeuristicRouter:
         if not any(k in text for k in food_keywords):
             return {}
         # 提取食物名称
-        import re as _re
-        match = _re.search(r"(?:想吃|点|叫|来)([^，。！？?]+)", text)
+        match = re.search(r"(?:想吃|点|叫|来)([^，。！？?]+)", text)
         food = match.group(1) if match else "随便"
         return {"Call_elm": True, "Food_candidate": food}

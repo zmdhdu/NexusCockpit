@@ -18,13 +18,13 @@ from nexus.observability.langfuse import LangfuseMonitor, trace_llm, trace_agent
 # API 层创建 trace (在 chat.py 中)
 monitor = LangfuseMonitor()
 trace = monitor.start_trace(user_id="u1", input_text="打开空调")
-span = monitor.start_span(trace_id=trace.id, name="planner")
+span = monitor.start_span(trace_id=trace.id, name="supervisor")
 monitor.end_observation(span, output=result)
 monitor.end_trace(trace, output=response)
 
 # Agent 层装饰器追踪
-@trace_agent(name="planner")
-async def plan(input: str):
+@trace_agent(name="supervisor")
+async def supervise(input: str):
     ...
 
 @trace_llm(name="chat_completion")
@@ -37,7 +37,7 @@ async def call_llm(prompt: str):
 | 追踪点 | 说明 |
 |--------|------|
 | API 入口 | chat.py 创建顶层 trace，贯穿整个请求生命周期 |
-| Agent 节点 | Planner / Executor / Responder / Reviewer |
+| Agent 节点 | Supervisor / Experts / Responder / Reviewer (v2.0) |
 | LLM 调用 | 每次 LLM API 调用的输入/输出/延迟 |
 | RAG 检索 | 向量搜索 + 图谱查询 |
 | 技能执行 | 每个技能的执行结果 |
@@ -67,7 +67,7 @@ from nexus.observability.metrics import (
 record_request(user_id="u1", intent="climate")
 record_cache_hit(hit=True)
 record_llm_call(model="deepseek-v3", latency_ms=350)
-record_agent_latency(node="planner", latency_ms=120)
+record_agent_latency(node="supervisor", latency_ms=120)
 ```
 
 ### 指标清单

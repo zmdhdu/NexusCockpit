@@ -8,10 +8,11 @@ Intent Router Service — 统一意图路由服务
 判断用户输入应该交给哪个技能处理，是 Agent 工作流的关键第一步。
 
 三级路由策略 (按优先级降级):
-  Level 1: LLM 路由 — 让大模型理解语义并选择技能 (最准确)
-  Level 2: 启发式路由 — 基于关键词规则匹配 (快速免费)
-  Level 3: BERT 路由 — 基于微调模型分类 (可选)
-  Level 4: 默认闲聊 — 无匹配技能时走 LLM 闲聊
+  Level 1: 启发式路由 — 基于关键词规则匹配 (快速免费)
+  Level 2: LLM 路由 — 让大模型理解语义并选择技能 (最准确)
+  Level 3: 默认闲聊 — 无匹配技能时走 LLM 闲聊
+
+v2.2 简化: BERT 路由 (Level 3) 已移除（始终为 None，从未实现）
 """
 
 from __future__ import annotations
@@ -31,13 +32,13 @@ logger = get_logger(__name__)
 class IntentRouterService:
     """统一意图路由服务。
 
-    路由优先级: LLM → 启发式规则 → BERT (可选) → 默认闲聊。
+    路由优先级: 启发式规则 → LLM → 默认闲聊。
+    v2.2 简化: BERT 路由分支已移除（始终为 None，从未实现）
 
     Args:
         llm_client: OpenAI 兼容的 LLM 客户端
         llm_model: LLM 模型名称
         tool_catalog: 技能 Tool Schema 列表 (供 LLM 理解可用技能)
-        bert_router: BERT 分类器 (可选)
         llm_enabled: 是否启用 LLM 路由
         min_confidence: LLM 路由最低置信度阈值
     """
@@ -54,7 +55,6 @@ class IntentRouterService:
         llm_client: Optional[AsyncOpenAI] = None,
         llm_model: str = "",
         tool_catalog: Optional[list[dict]] = None,
-        bert_router=None,
         llm_enabled: bool = True,
         min_confidence: float = 0.55,
     ):
@@ -64,7 +64,7 @@ class IntentRouterService:
             base_url=self.config.ark_base_url,
         )
         self.llm_model = llm_model or self.config.llm_model
-        self.bert_router = bert_router
+        # v2.2 简化: bert_router 参数已移除（始终为 None，从未实现）
         self.llm_enabled = llm_enabled and self.client is not None and bool(tool_catalog)
         self.min_confidence = min_confidence
         self.heuristic = HeuristicRouter()
@@ -81,8 +81,9 @@ class IntentRouterService:
         优化路由顺序（v2.1 性能优化）:
           Level 1: 启发式规则 — 关键词匹配，<1ms，覆盖常见车控指令
           Level 2: LLM 路由 — 语义理解，1-3s，处理复杂/模糊意图
-          Level 3: BERT 路由 — 微调模型分类（可选）
-          Level 4: 默认闲聊
+          Level 3: 默认闲聊
+
+        v2.2 简化: BERT 路由分支已移除（始终为 None，从未实现）
 
         Args:
             text: 用户输入文本
@@ -110,26 +111,7 @@ class IntentRouterService:
             except Exception as e:
                 logger.warning(f"LLM routing failed, falling back: {e}")
 
-        # Level 3: BERT 路由 (可选)
-        if self.bert_router:
-            try:
-                import asyncio
-                loop = asyncio.get_running_loop()
-                raw = await loop.run_in_executor(None, self.bert_router.route, text)
-                if isinstance(raw, dict):
-                    normalized = default.copy()
-                    for key in self.REQUIRED_KEYS:
-                        if key in raw:
-                            normalized[key] = raw[key]
-                    normalized["Call_elm"] = bool(normalized.get("Call_elm"))
-                    normalized["Need_Search"] = str(normalized.get("Need_Search") or "")
-                    normalized["Register_Action"] = str(normalized.get("Register_Action") or "")
-                    normalized["Route_Source"] = "bert"
-                    return normalized
-            except Exception as e:
-                logger.warning(f"BERT routing failed: {e}")
-
-        # Level 4: 默认闲聊
+        # Level 3: 默认闲聊
         return default
 
     def _build_default_intent(self) -> Dict[str, Any]:

@@ -140,7 +140,7 @@ export interface KBStats {
 }
 
 // ============================================================
-// v2.1 新增类型 — 多座舱 / 数据中台 / 中间件 / 设置
+// 座舱管理 / 运营总览 / 中间件 / 设置
 // ============================================================
 
 /** 座舱配置 */
@@ -154,7 +154,6 @@ export interface Cockpit {
   created_at: string;
   is_active: boolean;
   theme_color: string;
-  subagent_status: string;
 }
 
 /** 座舱列表响应 */
@@ -169,7 +168,6 @@ export interface CockpitStatus {
   cockpit_id: string;
   name: string;
   is_active: boolean;
-  subagent_status: string;
   vehicle_status?: Record<string, any>;
   metrics?: Record<string, any>;
 }

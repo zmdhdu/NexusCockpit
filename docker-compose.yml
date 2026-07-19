@@ -1,6 +1,7 @@
 # ============================================================
-# NexusCockpit v2.1 Infrastructure Stack
-# Multi-Cockpit CS Architecture: Go Gateway + Python AI + TS Frontend
+# NexusCockpit v2.0 Infrastructure Stack
+# Cockpit Control + Operations Dashboard: Go Gateway + Python AI + TS Frontend
+# 简化: RabbitMQ/Celery 已移除（任务队列改为 asyncio.create_task）
 # Start all middleware: docker compose up -d
 # Start full stack: docker compose --profile app up -d
 # ============================================================
@@ -52,8 +53,7 @@ services:
       - NEO4J_URI=bolt://neo4j:7687
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
+      # v2.2 简化: RABBITMQ 环境变量已移除（Celery/RabbitMQ 未落地）
     volumes:
       - ./models:/app/models
       - ./data:/app/data
@@ -173,24 +173,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # --- RabbitMQ (Message Queue) ---
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
-      interval: 15s
-      timeout: 10s
-      retries: 3
-
-  # --- MySQL (User Data + Audit Log + v2.1 Multi-Cockpit Isolation) ---
+  # --- MySQL (User Data + Audit Log + 座舱隔离) ---
   mysql:
     image: mysql:8.0
     environment:
@@ -255,7 +238,7 @@ volumes:
   neo4j_data:
   neo4j_logs:
   redis_data:
-  rabbitmq_data:
+  # v2.2 简化: rabbitmq_data 已移除
   mysql_data:
   prometheus_data:
   grafana_data:

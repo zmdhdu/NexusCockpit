@@ -290,9 +290,6 @@ export default function AdminPage() {
                             已注销
                           </span>
                         )}
-                        <span className="rounded bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-400">
-                          {c.subagent_status}
-                        </span>
                       </div>
                     </div>
                     <button
@@ -452,26 +449,6 @@ export default function AdminPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-muted-foreground">巡检间隔（分钟）</label>
-                  <Input
-                    type="number"
-                    value={mwConfig.subagent_check_min || 30}
-                    onChange={(e) =>
-                      setMwConfig({ ...mwConfig, subagent_check_min: parseInt(e.target.value) })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground">巡检间隔上限（分钟）</label>
-                  <Input
-                    type="number"
-                    value={mwConfig.subagent_check_max || 60}
-                    onChange={(e) =>
-                      setMwConfig({ ...mwConfig, subagent_check_max: parseInt(e.target.value) })
-                    }
-                  />
-                </div>
-                <div>
                   <label className="text-xs text-muted-foreground">限流 QPS</label>
                   <Input
                     type="number"
@@ -499,12 +476,12 @@ export default function AdminPage() {
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
-                      checked={mwConfig.mainagent_confirm_enabled ?? true}
+                      checked={mwConfig.reflection_enabled ?? true}
                       onChange={(e) =>
-                        setMwConfig({ ...mwConfig, mainagent_confirm_enabled: e.target.checked })
+                        setMwConfig({ ...mwConfig, reflection_enabled: e.target.checked })
                       }
                     />
-                    启用主控引擎审核
+                    启用反思校验
                   </label>
                 </div>
               </div>

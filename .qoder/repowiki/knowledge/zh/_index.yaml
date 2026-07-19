@@ -3,22 +3,76 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-16T15:12:43Z"
+exported_at: "2026-07-19T03:52:48Z"
 modules:
     "":
-        dir_name: 工程化与基础设施编排根配置
-        title: 工程化与基础设施编排根配置
+        dir_name: NexusCockpit 车载语音 Agent 系统根工程
+        title: NexusCockpit 车载语音 Agent 系统根工程
         scope:
+            - README.md
+            - .gitignore
+            - Makefile
+            - docker-compose.yml
+            - Project_Review_and_Fix_Report.md
             - .editorconfig
+            - .pre-commit-config.yaml
             - .env
             - .env.example
-            - .gitignore
-            - .pre-commit-config.yaml
             - Agent.md
             - LICENSE
-            - Makefile
-            - README.md
-            - docker-compose.yml
+            - 修复报告.md
+        source_files: []
+        children:
+            - data_knowledge
+            - docs_images
+            - frontend_app
+            - infra_config
+            - ml_models
+        depends_on: []
+        related_to: []
+    data_knowledge:
+        dir_name: 运行时数据与静态知识库
+        title: 运行时数据与静态知识库
+        scope:
+            - data/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    docs_images:
+        dir_name: NexusCockpit 项目文档中心
+        title: NexusCockpit 项目文档中心
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_app:
+        dir_name: NexusCockpit 车载语音 Agent Web 控制台
+        title: NexusCockpit 车载语音 Agent Web 控制台
+        scope:
+            - frontend_design/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    infra_config:
+        dir_name: 基础设施配置与 CI_脚本
+        title: 基础设施配置与 CI/脚本
+        scope:
+            - config/
+            - scripts/
+            - .github/workflows/ci.yml
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ml_models:
+        dir_name: 多模态模型权重与二进制资源
+        title: 多模态模型权重与二进制资源
+        scope:
+            - models/
         source_files: []
         children: []
         depends_on: []

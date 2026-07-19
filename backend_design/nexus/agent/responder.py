@@ -8,7 +8,7 @@ Responder Agent — 最终响应生成
 Responder 是工作流的第三站，负责生成用户看到的最终回复。
 根据前置阶段的结果，走三条分支:
 
-  分支 A (需要澄清): 直接返回 Planner 生成的澄清提问
+  分支 A (需要澄清): 直接返回 Supervisor 生成的澄清提问
   分支 B (技能已处理): 返回技能执行结果 (如 "已将空调调到 24 度")
   分支 C (LLM 闲聊): 调用大模型生成自然语言回复
 
@@ -51,6 +51,17 @@ class ResponderAgent:
             base_url=self.config.ark_base_url,
         )
         self.compressor = compressor or ContextCompressor(self.client)
+        # v2.2 新增: 本地 LLM 降级客户端
+        self._fallback_client: AsyncOpenAI | None = None
+        if self.config.fallback_enabled:
+            self._fallback_client = AsyncOpenAI(
+                api_key=self.config.fallback_api_key or "dummy",
+                base_url=self.config.fallback_base_url,
+                timeout=self.config.fallback_timeout,
+            )
+            logger.info(
+                f"LLM fallback enabled: {self.config.fallback_base_url}"
+            )
 
     async def respond(self, state: AgentState) -> AgentState:
         """生成最终响应 (非流式，等待全部完成)。
@@ -175,6 +186,19 @@ class ResponderAgent:
             return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"LLM response failed: {e}")
+            # v2.2 新增: 云端 LLM 失败时降级到本地 LLM
+            if self._fallback_client:
+                logger.warning("Falling back to local LLM")
+                try:
+                    fb_response = await self._fallback_client.chat.completions.create(
+                        model=self.config.fallback_model,
+                        messages=msgs,
+                        temperature=0.7,
+                        max_tokens=self.config.max_tokens,
+                    )
+                    return fb_response.choices[0].message.content.strip()
+                except Exception as fb_err:
+                    logger.error(f"Local LLM fallback also failed: {fb_err}")
             return f"抱歉，我遇到了一些问题: {e}"
 
     async def _stream_llm_response(
@@ -219,4 +243,22 @@ class ResponderAgent:
                     yield content
         except Exception as e:
             logger.error(f"LLM streaming failed: {e}")
+            # v2.2 新增: 云端 LLM 失败时降级到本地 LLM
+            if self._fallback_client:
+                logger.warning("Falling back to local LLM (streaming)")
+                try:
+                    fb_response = await self._fallback_client.chat.completions.create(
+                        model=self.config.fallback_model,
+                        messages=msgs,
+                        stream=True,
+                        temperature=0.7,
+                        max_tokens=self.config.max_tokens,
+                    )
+                    async for chunk in fb_response:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            yield content
+                    return
+                except Exception as fb_err:
+                    logger.error(f"Local LLM streaming fallback also failed: {fb_err}")
             yield f"抱歉，连接模型出错: {e}"

@@ -1,0 +1,45 @@
+{
+  "user_id": "default_user",
+  "name": "默认用户",
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-01T00:00:00Z",
+  "music": {
+    "favorite_artists": ["周杰伦", "薛之谦", "王力宏", "邓紫棋", "李荣浩"],
+    "favorite_songs": [
+      "晴天 - 周杰伦",
+      "夜曲 - 周杰伦",
+      "稻香 - 周杰伦",
+      "告白气球 - 周杰伦",
+      "说好不哭 - 周杰伦",
+      "爱错 - 王力宏",
+      "陪你去流浪 - 薛之谦",
+      "其实 - 薛之谦",
+      "天份 - 薛之谦",
+      "光年之外 - 邓紫棋",
+      "年少有为 - 李荣浩",
+      "起风了 - 买辣椒也用券"
+    ],
+    "preferred_genres": ["流行", "华语", "民谣"]
+  },
+  "food": {
+    "favorite_cuisines": ["川菜", "粤菜", "日料", "西餐"],
+    "spicy_tolerance": "中辣",
+    "allergies": [],
+    "preferred_price_range": "20-50"
+  },
+  "location": {
+    "frequent_destinations": ["公司", "家", "健身房", "商场"],
+    "home_address": "",
+    "work_address": ""
+  },
+  "climate": {
+    "preferred_temp": 24,
+    "preferred_mode": "auto",
+    "preferred_fan_speed": 3
+  },
+  "navigation": {
+    "preferred_route": "fastest",
+    "avoid_tolls": false,
+    "voice_navigation": true
+  }
+}

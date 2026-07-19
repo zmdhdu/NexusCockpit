@@ -127,7 +127,7 @@ npm run dev
 | API 密钥卡片 | Ark/Tavily/Langfuse 3 个密码输入框 | ☐ |
 | 后端连接卡片 | API 地址 + WebSocket 地址 + "已连接" 状态 | ☐ |
 | 模型配置卡片 | LLM/Embedding/ASR/TTS/SV 5 项模型信息 | ☐ |
-| 数据库状态 | Milvus/Neo4j/Redis/RabbitMQ/MySQL/OSS 6 项 | ☐ |
+| 数据库状态 | Milvus/Neo4j/Redis/MySQL 4 项 (v2.2: RabbitMQ/OSS 已移除) | ☐ |
 | 数据库指示 | 每项绿色圆点 + "运行中" | ☐ |
 | 保存按钮 | API 密钥卡片底部有 "保存配置" 按钮 | ☐ |
 

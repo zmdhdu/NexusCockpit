@@ -69,7 +69,6 @@ async def get_cockpit_status(
         cockpit_id=config.cockpit_id,
         name=config.name,
         is_active=config.is_active,
-        subagent_status=config.subagent_status,
         vehicle_status=None,  # TODO: 从 vehicle adapter 获取
         metrics=metrics,
     )

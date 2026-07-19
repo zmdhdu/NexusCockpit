@@ -48,7 +48,7 @@ class CockpitResponse(BaseModel):
     created_at: str
     is_active: bool
     theme_color: str
-    subagent_status: str
+    # v2.2 简化: subagent_status 字段已移除（SubAgent 监控已删除）
 
 
 class CockpitListResponse(BaseModel):
@@ -67,7 +67,7 @@ class CockpitStatusResponse(BaseModel):
     cockpit_id: str
     name: str
     is_active: bool
-    subagent_status: str
+    # v2.2 简化: subagent_status 字段已移除（SubAgent 监控已删除）
     vehicle_status: Optional[Dict[str, Any]] = None
     metrics: Optional[Dict[str, Any]] = None  # 对话数/车控数/缓存命中/延迟
 
@@ -106,8 +106,7 @@ class AlertRecord(BaseModel):
     alert_time: str
     alert_type: str
     severity: str
-    subagent_judgment: Optional[str] = None
-    mainagent_judgment: Optional[str] = None
+    # v2.2 简化: subagent_judgment/mainagent_judgment 字段已移除
     action_taken: str
 
 
@@ -118,7 +117,7 @@ class AgentActivityRecord(BaseModel):
     check_time: str
     is_anomaly: bool
     check_items: Optional[str] = None
-    llm_judgment: Optional[str] = None
+    # v2.2 简化: llm_judgment 字段已移除（SubAgent LLM 巡检已删除）
 
 
 # ============================================================
@@ -157,10 +156,8 @@ class UserResponse(BaseModel):
 
 class MiddlewareConfigUpdate(BaseModel):
     """中间件配置更新请求。"""
-    isolation_mode: Optional[str] = None  # strict / shared
-    subagent_check_min: Optional[int] = None
-    subagent_check_max: Optional[int] = None
-    mainagent_confirm_enabled: Optional[bool] = None
+    isolation_mode: Optional[str] = None  # v2.2 简化: 已移除（单座舱无需隔离）
+    # v2.2 简化: subagent_check_min/max/mainagent_confirm_enabled 已移除
     cache_similarity_threshold: Optional[float] = None
     rate_limit_qps: Optional[int] = None
 

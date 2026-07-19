@@ -95,7 +95,7 @@ async def health_check(request: Request):
     )
     status = "healthy" if all_healthy else "degraded"
 
-    return HealthResponse(status=status, version="2.1.0", services=services)
+    return HealthResponse(status=status, version="2.0.0", services=services)
 
 
 @router.get("/")

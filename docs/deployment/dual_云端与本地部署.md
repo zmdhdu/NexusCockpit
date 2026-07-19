@@ -6,7 +6,7 @@
 
 ## 一、背景与目标
 
-当前项目所有数据库/中间件/模型都假设本地 Docker 部署（Milvus、Neo4j、Redis、RabbitMQ、MySQL + 本地 ASR/TTS 模型）。痛点：
+当前项目所有数据库/中间件/模型都假设本地 Docker 部署（Milvus、Neo4j、Redis、MySQL + 本地 ASR/TTS 模型）。痛点：
 
 1. **本地部署重**：要起 9 个容器、下 3.5GB 语音模型、占用大量内存。
 2. **无法平滑迁移到线上**：一旦想用云托管服务，要改一堆代码。
@@ -22,7 +22,7 @@
 |---|---|---|---|
 | LLM 对话 | 火山方舟（`AsyncOpenAI` SDK） | ✅ 已接线，OpenAI 兼容 | **硅基流动**（改 .env 即可） |
 | Embedding | 火山方舟（httpx `/embeddings`） | ✅ 已接线，OpenAI 兼容 | **硅基流动免费 bge-m3** |
-| OSS | 阿里云 oss2 | ✅ 已是云端，空 Key 自动降级 | 无需改 |
+| OSS | 阿里云 oss2 | ❌ v2.2 已移除（未集成，过度设计） | 无需改 |
 | Langfuse | cloud.langfuse.com | ✅ 已是云端，空 Key 自动降级 | 无需改 |
 | **Milvus** | Docker 本地 | ✅ 已接线 | **Zilliz Cloud** |
 | **Neo4j** | Docker 本地 | ✅ 已接线 | **Neo4j AuraDB** |
@@ -30,7 +30,7 @@
 | **Reranker** | 本地 BGE CrossEncoder | ✅ 已接线 | **硅基流动 Rerank API（免费 bge-reranker）** |
 | ASR/TTS/声纹 | 本地 funasr/CosyVoice/CAM++ | ❌ 未接线（死代码） | 本次不做 |
 | MySQL | Docker | ❌ 死配置（无 ORM） | 本次清理 |
-| Celery/RabbitMQ | Docker | ⚠️ 半成品（带降级） | 保留不启 worker |
+| Celery/RabbitMQ | Docker | ❌ v2.2 已移除（任务队列改为 asyncio.create_task） | 无需改 |
 ## 三、关键发现（探索结论）
 
 - **LLM 全用 `AsyncOpenAI` SDK**（7 处调用点：`responder.py:45`、`supervisor_graph.py:85`、`llm_router.py:31`、`router.py:57`、`compressor.py:69`、`manager.py:40`、`conflict.py:25`），都读 `config.llm.ark_api_key` + `ark_base_url`。硅基流动 OpenAI 兼容，**改 base_url + key + 模型名即可切换，代码零改动**。

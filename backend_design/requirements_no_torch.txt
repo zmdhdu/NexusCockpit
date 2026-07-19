@@ -33,8 +33,7 @@ rank-bm25>=0.2.2
 
 # --- Middleware ---
 redis==5.0.0
-celery==5.3.0
-kombu==5.3.0
+# v2.0 简化: celery/kombu 已移除（任务队列改为 asyncio.create_task）
 
 # --- Config / Validation ---
 pydantic==2.12.5
@@ -63,8 +62,7 @@ httpx==0.28.1
 requests==2.32.5
 aiohttp==3.13.3
 
-# --- Object Storage (Alibaba OSS) ---
-oss2>=2.18.0
+# v2.0 简化: oss2 已移除（OSS 对象存储未集成，过度设计）
 
 # --- Utils ---
 orjson==3.11.5

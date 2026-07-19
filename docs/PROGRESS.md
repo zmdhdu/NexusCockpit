@@ -1,6 +1,6 @@
 # NexusCockpit 项目开发进展与架构说明
 
-> 最后更新 2026-07-14 (v2.2.5)
+> 最后更新 2026-07-18 (v2.0)
 >
 > ---
 >
@@ -15,24 +15,23 @@
 >
 > ---
 >
-> ## v2.1 多座舱 CS 架构升级
+> ## 座舱控制 + 运营总览架构升级
 >
-> v2.1 将单座舱升级为 **CS 架构（3 并行座舱）**，引入三语言栈和 SubAgent/MainAgent 监控体系：
+> 将系统升级为 **座舱控制 + 运营总览** 架构，引入三语言栈：
 > - 三语言栈: Go (并发网关) + Python (AI 服务) + TypeScript (前端)
-> - 多租户隔离: Redis DB 分区 / Milvus Collection 前缀 / MySQL `cockpit_id` 行级隔离
-> - SubAgent 异步巡检 + MainAgent 二次确认 + 三层降本策略（规则→记忆库→LLM）
-> - Go 网关原生处理非 AI 请求（健康检查/中间件状态/数据中台/座舱列表）
+> - 座舱隔离: Redis DB 分区 / Milvus Collection 前缀 / MySQL `cockpit_id` 行级隔离
+> - Go 网关原生处理非 AI 请求（健康检查/中间件状态/运营总览/座舱列表）
 > - 优先级令牌桶限流（High/Normal/Low 三级）
 > - RBAC 四级角色 + JWT 鉴权 + 声纹识别自动登录
-> - 前端新增数据中台看板 + 中间件状态看板 + RBAC 菜单控制 + 座舱切换
+> - 前端新增运营总览看板 + 中间件状态看板 + RBAC 菜单控制 + 座舱切换
 >
 > ---
 >
 > ## v2.0 架构升级
 >
-> v2.0 将 v1.0 的线性 Planner→Executor→Responder→Reviewer 升级为 **Supervisor + 5 Expert Agents** 架构：
+> v2.0 将 v1.0 的线性 Planner→Executor→Responder→Reviewer 升级为 **Supervisor + 5 Expert Agents** 架构（v1.0 Planner/Executor 已删除）：
 > - Supervisor 统一调度，5 个专家并行执行
-> - 新增 12 个技能（总计 21 个）
+> - v2.2 新增 9 个技能（总计 19 个）
 > - RAG 三路融合检索 + Rerank 重排
 > - Redis Stack KNN 语义缓存
 > - 前端 HUD 科幻风升级（3D 车型 + 实时图表 + 动效）
@@ -49,16 +48,15 @@
 | 项目初始化与架构设计 | ✅ 已完成 | 100% | 七层架构设计、目录结构、文档体系 |
 | 后端核心代码实现 | ✅ 已完成 | 100% | L0-L7 全部模块代码就位 (v2.0 Supervisor+Experts) |
 | 前端界面实现 | ✅ 已完成 | 95% | HUD 科幻风升级，4 页面 + 3D 模型 + 实时图表 |
-| 基础设施 (Docker) | ✅ 已完成 | 100% | Milvus/Neo4j/Redis/RabbitMQ/MySQL/Prometheus/Grafana |
+| 基础设施 (Docker) | ✅ 已完成 | 100% | Milvus/Neo4j/Redis/MySQL/Prometheus/Grafana (v2.2: RabbitMQ 已移除) |
 | 双模式部署 | ✅ 已完成 | 100% | 本地 Docker ⇄ 云端 API/AK·SK 一键切换 (Zilliz/AuraDB/云Redis/硅基流动) |
-| OSS 对象存储集成 | ✅ 已完成 | 100% | 阿里云 OSS 已接入，支持上传/下载/公开读 |
 | 工程化配置 | ✅ 已完成 | 100% | Makefile/pre-commit/CI/CD/.gitignore |
 | 前后端分离 | ✅ 已完成 | 100% | backend_design/ 与 frontend_design/ 独立 |
-| Skills 体系 | ✅ 已完成 | 100% | 9 个 catpaw skill + 21 个业务技能 |
+| Skills 体系 | ✅ 已完成 | 100% | 9 个 catpaw skill + 19 个业务技能 |
 | 测试文档 | ✅ 已完成 | 100% | VERIFICATION.md + TESTING.md |
 | 模型下载与部署 | ⏳ 待执行 | 0% | 需用户按 SETUP.md 下载 |
 | API Key 配置 | ⏳ 待执行 | 0% | 需用户填入 ARK_API_KEY 等 |
-| v2.1 多座舱 CS 架构 | ✅ 已完成 | 100% | Go 网关 + SubAgent 监控 + 多租户隔离 + RBAC + 声纹 |
+| 座舱控制 + 运营总览架构 | ✅ 已完成 | 100% | Go 网关 + 多租户隔离 + RBAC + 声纹 |
 | 前后端联调 | ⏳ 待执行 | 0% | 需启动后端后联调 |
 | 性能压测 | 🔲 未开始 | 0% | 联调通过后进行 |
 
@@ -66,18 +64,18 @@
 
 | 模块 | 路径 | 状态 | 关键文件 |
 |------|------|------|----------|
-| 配置中心 | `backend_design/nexus/config.py` | ✅ | 支持 OSS、相对路径自动解析 |
+| 配置中心 | `backend_design/nexus/config.py` | ✅ | Pydantic Settings 分层配置 + 相对路径自动解析 (v2.2: OSS 已移除) |
 | 日志系统 | `backend_design/nexus/core/logger.py` | ✅ | structlog JSON 格式 |
 | 异常处理 | `backend_design/nexus/core/exceptions.py` | ✅ | 统一 NexusError |
 | 熔断器 | `backend_design/nexus/core/circuit_breaker.py` | ✅ | tenacity 重试 + 熔断 |
-| OSS 存储 | `backend_design/nexus/core/oss.py` | ✅ | upload/download/sign_url |
+| 个性化服务 | `backend_design/nexus/core/personalization.py` | ✅ | v2.2: 声纹识别+偏好匹配+Prompt 注入 |
 | ASR 引擎 | `backend_design/nexus/asr/engine.py` | ✅ | FunASR SenseVoice |
 | TTS 引擎 | `backend_design/nexus/tts/engine.py` | ✅ | CosyVoice-300M |
 | Embedding | `backend_design/nexus/rag/embedding.py` | ✅ | Qwen3-Embedding-4B |
 | 向量存储 | `backend_design/nexus/rag/vector_store.py` | ✅ | Milvus HNSW + 双模式 (Zilliz Cloud) |
 | 图谱存储 | `backend_design/nexus/rag/graph_store.py` | ✅ | Neo4j + 双模式 (AuraDB) v2.1.1: coalesce 修复 |
 | 意图路由 | `backend_design/nexus/intent/` | ✅ | 启发式 + LLM 双路 |
-| 技能系统 | `backend_design/nexus/skills/` | ✅ | 21 个技能 (v1.0: 9 + v2.0: 12) + 装饰器注册 |
+| 技能系统 | `backend_design/nexus/skills/` | ✅ | 19 个技能 (车载 6 + 非车载 4 + v2.0 新增 9) + 装饰器注册 |
 | 车控适配 | `backend_design/nexus/vehicle/` | ✅ | Mock/HTTP/MCP 三模式 |
 | Agent 层 | `backend_design/nexus/agent/` | ✅ | v2.0: SupervisorGraph + 5 Expert Agents |
 | 专家 Agent | `backend_design/nexus/agent/experts/` | ✅ | v2.0: Vehicle/Nav/Lifestyle/Health/Chat |
@@ -87,7 +85,7 @@
 | RAG 检索 | `backend_design/nexus/rag/` | ✅ | v2.0: 三路融合+Rerank+CherryKB |
 | JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
 | 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis Lua 脚本原子化滑动窗口 |
-| 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | RabbitMQ/Celery |
+| 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | v2.2: asyncio.create_task 进程内异步 (Celery/RabbitMQ 已移除) |
 | 会话存储 | `backend_design/nexus/middleware/session_store.py` | ✅ | Redis 持久化 + 内存回退 |
 | 认证路由 | `backend_design/nexus/api/routes/auth.py` | ✅ | POST /auth/token 令牌签发 |
 | API 路由 | `backend_design/nexus/api/routes/` | ✅ | chat/vehicle/admin/health |
@@ -110,11 +108,10 @@
 | 多租户上下文 | `backend_design/nexus/core/tenant_context.py` | ✅ | contextvars 请求级 cockpit_id 隔离 |
 | 数据库管理器 | `backend_design/nexus/core/db_manager.py` | ✅ | aiomysql 异步连接池 |
 | 声纹识别 | `backend_design/nexus/core/voiceprint.py` | ✅ | CAM++ 声纹提取/比对 + JWT 自动签发 |
-| SubAgent 监控器 | `backend_design/nexus/agent/subagent_monitor.py` | ✅ | 三层降本 (规则→记忆库→LLM) + Prometheus P95 |
-| MainAgent 确认层 | `backend_design/nexus/agent/mainagent_confirm.py` | ✅ | Redis Pub/Sub 二次确认 + 安全回传 |
+| v2.2 简化说明 | — | ✅ | SubAgent 监控器和 MainAgent 确认层已移除（过度设计，未落地） |
 | 座舱 API | `backend_design/nexus/api/routes/cockpit.py` | ✅ | `/cockpit/{id}/*` 路由 + CockpitContext |
 | 数据中台 API | `backend_design/nexus/api/routes/dataplatform.py` | ✅ | overview/concurrency/alerts/comparison |
-| 中间件看板 API | `backend_design/nexus/api/routes/middleware_status.py` | ✅ | Redis/Milvus/Neo4j/RabbitMQ/MySQL 状态 |
+| 中间件看板 API | `backend_design/nexus/api/routes/middleware_status.py` | ✅ | Redis/Milvus/Neo4j/MySQL 状态 (v2.2: RabbitMQ 已移除) |
 | 设置中心 API | `backend_design/nexus/api/routes/settings.py` | ✅ | 座舱/用户/中间件管理 + 声纹注册/验证 |
 | 座舱指标 | `backend_design/nexus/observability/cockpit_metrics.py` | ✅ | Prometheus Gauge/Counter/Histogram |
 | 数据保留策略 | `backend_design/nexus/observability/data_retention.py` | ✅ | 过期日志自动清理 |
@@ -133,7 +130,7 @@
 | 车控面板 | `/vehicle` | ✅ | 空调/车窗/座椅/媒体/导航/状态 6 卡片 |
 | 设置 | `/settings` | ✅ | v2.0: API 密钥/模型配置/数据库状态 (Framer Motion 动效) |
 | 数据中台 | `/dataplatform` | ✅ | v2.1: 统计概览 + 座舱对比 + 告警历史 + 并发监控 |
-| 中间件看板 | `/middleware` | ✅ | v2.1: Redis/Milvus/Neo4j/RabbitMQ/MySQL 状态面板 |
+| 中间件看板 | `/middleware` | ✅ | v2.1: Redis/Milvus/Neo4j/MySQL 状态面板 (v2.2: RabbitMQ 已移除) |
 
 ### 前端工程化改进 (v1.0)
 
@@ -191,7 +188,7 @@
 │ L5 中间件层          │           │           │                      │
 │ ┌──────────┐┌──────────┐┌──────────┐                              │
 │ │语义缓存  ││限流器    ││任务队列  │                              │
-│ │(Redis)   ││(Lua滑动) ││(RabbitMQ)│                              │
+│ │(Redis)   ││(Lua滑动) ││(asyncio) │                              │
 │ └──────────┘└──────────┘└──────────┘                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L4 Agent 层 (v2.0 Supervisor + Experts)                                │
@@ -202,23 +199,23 @@
 │                      │                                             │
 │ L3 服务层            │                                             │
 │ ┌──────┐┌──────┐┌──┴──────┐┌──────┐┌──────┐┌──────┐             │
-│ │ASR   ││TTS   ││Skills   ││Intent││Memory││Vehicle│             │
-│ │(语音)││(合成)││(21技能) ││(路由)││(记忆)││(车控) │             │
+│ │TTS   ││Skills   ││Intent││Memory││Vehicle│             │
+│ │(语音)││(合成)││(19技能) ││(路由)││(记忆)││(车控) │             │
 │ └──────┘└──────┘└─────────┘└──────┘└──────┘└──────┘             │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L2 数据层                                                           │
 │ ┌──────────┐┌──────────┐┌──────────┐┌──────────┐                 │
-│ │Milvus    ││Neo4j     ││MySQL     ││OSS       │                 │
-│ │(向量库)  ││(知识图谱)││(用户数据)││(对象存储)│                 │
+│ │Milvus    ││Neo4j     ││MySQL     ││Redis     │                 │
+│ │(向量库)  ││(知识图谱)││(用户数据)││(缓存)    │                 │
 │ └──────────┘└──────────┘└──────────┘└──────────┘                 │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L1 核心层                                                           │
-│ ┌──────┐┌──────┐┌──────────┐┌──────────┐┌──────┐               │
-│ │Config││Logger││Exceptions││CircuitBr ││OSS   │               │
-│ └──────┘└──────┘└──────────┘└──────────┘└──────┘               │
+│ ┌──────┐┌──────┐┌──────────┐┌──────────┐┌────────────┐        │
+│ │Config││Logger││Exceptions││CircuitBr ││Personaliz. │        │
+│ └──────┘└──────┘└──────────┘└──────────┘└────────────┘        │
 ├─────────────────────────────────────────────────────────────────────┤
 │ L0 基础设施 (Docker Compose)                                        │
-│ Milvus + etcd + MinIO + Neo4j + Redis + RabbitMQ + MySQL           │
+│ Milvus + etcd + MinIO + Neo4j + Redis + MySQL                      │
 │ + Prometheus + Grafana + Loki                                       │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -284,14 +281,12 @@ NexusCockpit/
 │   │   ├── agent/                  # v2.0: Supervisor + 5 Expert Agents
 │   │   │   ├── supervisor_graph.py # v2.0 编排核心
 │   │   │   ├── experts/            # v2.0 专家 Agent (vehicle/nav/lifestyle/health/chat)
-│   │   │   ├── graph.py           # [DEPRECATED] v1.0 AgentGraph
-│   │   │   ├── planner.py         # [DEPRECATED] v1.0
-│   │   │   ├── responder.py       # v1.0 复用
-│   │   │   └── reviewer.py        # v1.0 复用
+│   │   │   ├── responder.py       # v1.0 复用 (仅 ContextCompressor 被 SupervisorGraph 使用)
+│   │   │   └── reviewer.py        # v1.0 复用 (逻辑已内联到 SupervisorGraph._reviewer_node)
 │   │   ├── prompts/                # v2.0: 外置 Prompt 模板
 │   │   ├── asr/                    # 语音识别引擎
 │   │   ├── tts/                    # 语音合成引擎
-│   │   ├── core/                   # 核心组件 (日志/异常/熔断/OSS)
+│   │   ├── core/                   #   核心组件 (日志/异常/熔断/个性化)
 │   │   ├── intent/                 # 意图路由
 │   │   ├── mcp/                    # MCP 网关
 │   │   ├── memory/                 # 记忆管理
@@ -299,7 +294,7 @@ NexusCockpit/
 │   │   ├── models/                 # 数据模型
 │   │   ├── observability/          # 可观测性
 │   │   ├── rag/                    # v2.0: 三路融合检索 + Rerank + CherryKB + 双模式(本地/云端)
-│   │   ├── skills/                 # v2.0: 21 个技能 + 装饰器注册
+│   │   ├── skills/                 # v2.0: 19 个技能 + 装饰器注册
 │   │   └── vehicle/                # 车控适配器
 │   ├── tests/                      # 测试用例
 │   ├── scripts/                    # 初始化脚本

@@ -368,7 +368,7 @@ class DatabaseManager:
 
         Args:
             cockpit_id: 座舱 ID
-            request_type: 请求类型（chat/subagent_judge/mainagent_confirm）
+            request_type: 请求类型（chat/reflection/tool_synthesis）
             model_name: 模型名称
             prompt_tokens: 输入 token 数
             completion_tokens: 输出 token 数

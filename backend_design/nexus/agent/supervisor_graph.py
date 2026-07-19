@@ -41,7 +41,6 @@ from datetime import datetime, timezone, timedelta
 from time import perf_counter
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-import redis.asyncio as aioredis
 from langgraph.graph import END, StateGraph
 from openai import AsyncOpenAI
 
@@ -53,7 +52,6 @@ from nexus.agent.experts import (
     VehicleExpert,
 )
 from nexus.agent.experts.base import BaseExpertAgent
-from nexus.agent.mainagent_confirm import MainAgentConfirmLayer
 from nexus.agent.responder import ResponderAgent
 from nexus.agent.reviewer import ReviewerAgent
 from nexus.config import get_config
@@ -80,7 +78,6 @@ class SupervisorGraph:
         skill_registry: 技能注册中心
         llm_client: OpenAI 兼容的 LLM 客户端（可选）
         checkpoint_saver: LangGraph checkpoint 持久化器（可选）
-        redis_client: Redis 客户端（v2.1 MainAgent 确认层需要，可选）
     """
 
     def __init__(
@@ -90,7 +87,6 @@ class SupervisorGraph:
         skill_registry: SkillRegistry,
         llm_client: Optional[AsyncOpenAI] = None,
         checkpoint_saver=None,
-        redis_client: Optional[aioredis.Redis] = None,
     ):
         self.intent_router = intent_router
         self.memory_manager = memory_manager
@@ -119,17 +115,6 @@ class SupervisorGraph:
         # v2.0 Prompt 模板管理器
         self.prompt_manager = PromptManager()
 
-        # 【v2.1 新增】MainAgent 确认层（需要 redis_client 用于快通道查询和 Pub/Sub）
-        self.mainagent_confirm = MainAgentConfirmLayer(
-            llm_client=self.llm_client,
-            redis_client=redis_client,
-        )
-        if redis_client is None:
-            logger.warning(
-                "MainAgentConfirmLayer initialized without redis_client — "
-                "fast-path checks and Pub/Sub will be disabled until redis is set"
-            )
-
         # Checkpoint 持久化
         self.checkpoint_saver = checkpoint_saver
 
@@ -152,7 +137,6 @@ class SupervisorGraph:
         workflow.add_node("chat_expert", self.experts["chat"].run)
         workflow.add_node("responder", self._responder_node)
         workflow.add_node("reflection", self._reflection_node)  # v2.2
-        workflow.add_node("mainagent_confirm", self._mainagent_confirm_node)  # v2.1
         workflow.add_node("reviewer", self._reviewer_node)
 
         # ---- 入口 ----
@@ -176,10 +160,10 @@ class SupervisorGraph:
         workflow.add_node("dispatch", self._dispatch_node)
         workflow.add_edge("dispatch", "responder")
 
-        # ---- v2.2: Responder → Reflection → MainAgent Confirm → Reviewer → END ----
+        # ---- v2.2: Responder → Reflection → Reviewer → END ----
+        # v2.2 简化: 移除 MainAgent 确认层（过度设计），reflection 直接连接 reviewer
         workflow.add_edge("responder", "reflection")       # responder → reflection
-        workflow.add_edge("reflection", "mainagent_confirm") # reflection → confirm
-        workflow.add_edge("mainagent_confirm", "reviewer")   # confirm → reviewer
+        workflow.add_edge("reflection", "reviewer")         # reflection → reviewer
         workflow.add_edge("reviewer", END)
 
         # 编译图（可选 checkpoint）
@@ -766,52 +750,6 @@ class SupervisorGraph:
         logger.info(f"Search reflection done: latency={latency_ms}ms")
 
         return update
-
-    async def _mainagent_confirm_node(self, state: SupervisorState) -> Dict[str, Any]:
-        """【v2.1】主 Agent 确认节点：检查 SubAgent 异常上报，二次确认。
-
-        快通道 (<50ms)：查 Redis 缓存的告警状态。
-        - 无告警 → 放行
-        - 有告警且 should_block → 拦截结果，返回降级提示
-        - 有告警且 action=pass → 放行
-        """
-        cockpit_id = state.get("cockpit_id", "cockpit-01")
-
-        # 1. 检查是否有未决告警
-        try:
-            alert = await self.mainagent_confirm.check_before_response(cockpit_id)
-        except Exception as e:
-            logger.error(f"MainAgent confirm check failed: {e}")
-            alert = None
-
-        if alert:
-            confirmation = alert.get("mainagent_confirmation", {})
-            action = confirmation.get("action", "pass")
-            should_block = confirmation.get("should_block", False)
-
-            if should_block or action in ("block", "degrade"):
-                # 拦截结果，返回降级提示
-                degrade_strategy = confirmation.get("degrade_strategy", "")
-                alert_type = alert.get("alert_type", "unknown")
-                logger.warning(
-                    f"MainAgent blocked response for {cockpit_id}: "
-                    f"type={alert_type}, action={action}"
-                )
-                return {
-                    "final_response": (
-                        f"系统检测到异常 ({alert_type})，"
-                        f"已启动降级模式。请稍后重试。"
-                        f"{f' 降级策略: {degrade_strategy}' if degrade_strategy else ''}"
-                    ),
-                    "metadata": {
-                        "blocked_by_mainagent": True,
-                        "alert": alert,
-                        "mainagent_confirmed": True,
-                    },
-                }
-
-        # 2. 无异常或确认放行
-        return {"metadata": {"mainagent_confirmed": True, "mainagent_passed": True}}
 
     def _get_system_prompt(self, state: SupervisorState) -> str:
         """根据技能类型选择合适的系统提示词，注入用户画像和记忆。

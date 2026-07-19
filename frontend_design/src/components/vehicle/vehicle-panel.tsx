@@ -21,7 +21,7 @@
  *   - 语音助手触发车控时通过 vehicle-events 事件总线通知刷新
  *   - 后端不可用时自动降级到 Mock 数据（离线模式）
  *
- * v2.1: 支持多座舱切换，每个座舱有独立的车控状态
+ * 支持座舱间切换，每个座舱有独立的车控状态
  */
 "use client";
 
@@ -112,8 +112,10 @@ export function VehiclePanel() {
   useEffect(() => {
     if (!audioRef.current || !status?.media) return;
     const media = status.media as any;
-    const trackIndex = media.track_index ?? 0;
-    const trackUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/audio/music/track_${String(trackIndex + 1).padStart(2, "0")}.wav`;
+    // v2.2: 优先使用后端返回的 track.url，避免硬编码 track_01.wav
+    const trackUrl = media.track?.url
+      ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${media.track.url}`
+      : `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/audio/music/track_${String((media.track_index ?? 0) + 1).padStart(2, "0")}.wav`;
 
     if (media.playing) {
       if (audioRef.current.src !== trackUrl) {
@@ -124,7 +126,7 @@ export function VehiclePanel() {
     } else {
       audioRef.current.pause();
     }
-  }, [status?.media?.playing, (status?.media as any)?.track_index, (status?.media as any)?.volume]);
+  }, [status?.media?.playing, (status?.media as any)?.track, (status?.media as any)?.track_index, (status?.media as any)?.volume]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -553,7 +555,10 @@ fetchStatus();
             {(status.media as any).playlist && (
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 <p className="text-xs text-muted-foreground">播放列表</p>
-                {((status.media as any).playlist as string[]).map((track, idx) => (
+                {((status.media as any).playlist as any[]).map((track, idx) => {
+                  // v2.2: 兼容 dict 格式（含 title/url）和旧版字符串格式
+                  const trackTitle = typeof track === 'object' ? track.title : track;
+                  return (
                   <button
                     key={idx}
                     onClick={() => handleCommand("vehicle_media", { op: "play_track", track: idx })}
@@ -570,9 +575,10 @@ fetchStatus();
                         {status.media.playing ? <Volume2 className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
                       </span>
                     )}
-                    <span>{idx + 1}. {track}</span>
+                    <span>{idx + 1}. {trackTitle}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

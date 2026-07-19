@@ -49,32 +49,24 @@ class ReviewerAgent:
             state.final_response = "抱歉，我没有理解你的意思，能再说一次吗？"
             state.metadata["reviewer_fallback"] = True
 
-        # 2. 触发后台记忆存储 (优先使用 Celery 任务队列，降级为进程内异步)
+        # 2. 触发后台记忆存储 (v2.2: 移除 Celery/RabbitMQ，直接使用进程内异步)
         if state.final_response:
             try:
-                # 尝试通过 Celery 任务队列异步存储 (非阻塞，不阻塞响应)
-                from nexus.middleware.task_queue import task_store_memory
-                task_store_memory.delay(state.user_input, state.user_id)
-                state.metadata["memory_storage_triggered"] = True
-                state.metadata["memory_storage_backend"] = "celery"
-            except Exception as celery_err:
-                # Celery 不可用时降级为进程内异步存储
-                logger.debug(f"Celery unavailable, fallback to in-process: {celery_err}")
+                # v2.2 简化: 直接使用进程内异步存储，不再依赖 Celery
                 if self.memory_manager:
-                    try:
-                        self.memory_manager.store_from_text_async(
-                            state.user_input, state.user_id
-                        )
-                        state.metadata["memory_storage_triggered"] = True
-                        state.metadata["memory_storage_backend"] = "in_process"
-                    except Exception as e:
-                        logger.error(f"Memory storage trigger failed: {e}")
+                    self.memory_manager.store_from_text_async(
+                        state.user_input, state.user_id
+                    )
+                    state.metadata["memory_storage_triggered"] = True
+                    state.metadata["memory_storage_backend"] = "in_process"
+            except Exception as e:
+                logger.debug(f"Memory storage failed: {e}")
 
         # 3. 计算总延迟
         state.metadata["reviewer_latency_ms"] = round((perf_counter() - t0) * 1000, 2)
         total_latency = sum(
             state.metadata.get(k, 0)
-            for k in ("planner_latency_ms", "executor_latency_ms", "responder_latency_ms", "reviewer_latency_ms")
+            for k in ("supervisor_latency_ms", "responder_latency_ms", "reflection_latency_ms", "reviewer_latency_ms")
         )
         state.latency_ms = round(total_latency, 2)
         state.metadata["total_latency_ms"] = state.latency_ms

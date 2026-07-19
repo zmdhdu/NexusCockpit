@@ -79,7 +79,6 @@ async def get_cockpit_detail(cockpit_id: str) -> Dict[str, Any]:
         "cockpit_id": cockpit_id,
         "name": config.name,
         "is_active": config.is_active,
-        "subagent_status": config.subagent_status,
         "stats": stats,
     }
 

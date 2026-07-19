@@ -9,7 +9,9 @@ Mock Vehicle Bus — 模拟车控总线
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import glob
+import os
+from typing import Any, Dict, List, Optional
 
 from nexus.core.logger import get_logger
 from nexus.vehicle.base import BaseVehicleAdapter, VehicleCommandResult
@@ -57,21 +59,8 @@ class MockVehicleBus(BaseVehicleAdapter):
     }
 
     def __init__(self):
-        # 内置播放列表 (12 首热门歌曲)
-        self._playlist = [
-            "爱错 - 王力宏",
-            "晴天 - 周杰伦",
-            "起风了 - 买辣椒也用券",
-            "夜曲 - 周杰伦",
-            "稻香 - 周杰伦",
-            "光年之外 - 邓紫棋",
-            "说好不哭 - 周杰伦",
-            "告白气球 - 周杰伦",
-            "年少有为 - 李荣浩",
-            "陪你去流浪 - 薛之谦",
-            "其实 - 薛之谦",
-            "天份 - 薛之谦",
-        ]
+        # v2.2: 动态扫描音频目录，构建播放列表
+        self._playlist: List[Dict[str, Any]] = self._scan_music_dir()
         self._track_index = 0
         self.climate: Dict[str, Any] = {
             "temperature": 22,
@@ -95,9 +84,9 @@ class MockVehicleBus(BaseVehicleAdapter):
             "playing": False,
             "volume": 18,
             "source": "local",
-            "track": self._playlist[0],
-            "playlist": list(self._playlist),
+            "track": self._playlist[0] if self._playlist else None,  # v2.2: 改为 dict
             "track_index": 0,
+            "playlist": list(self._playlist),  # v2.2: 完整的播放列表（含 url）
         }
         self.navigation: Dict[str, Any] = {
             "destination": "",
@@ -117,6 +106,63 @@ class MockVehicleBus(BaseVehicleAdapter):
             "maintenance": "normal",
         }
         logger.info("MockVehicleBus initialized")
+
+    def _scan_music_dir(self) -> List[Dict[str, Any]]:
+        """扫描 assets/audio/music/ 目录，构建播放列表。
+
+        v2.2 新增: 替代硬编码播放列表，动态扫描本地音频文件。
+
+        支持的格式: .mp3, .wav
+
+        Returns:
+            播放列表，每项包含 title, filename, url, format
+        """
+        # 项目根目录: backend_design/nexus/vehicle/mock.py → 向上四级
+        music_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.dirname(os.path.abspath(__file__))
+            ))),
+            "assets", "audio", "music"
+        )
+        supported_formats = {".mp3", ".wav"}
+        playlist: List[Dict[str, Any]] = []
+
+        if os.path.isdir(music_dir):
+            for filepath in sorted(glob.glob(os.path.join(music_dir, "*"))):
+                ext = os.path.splitext(filepath)[1].lower()
+                if ext not in supported_formats:
+                    continue
+                filename = os.path.basename(filepath)
+                title = self._parse_title(filename)
+                playlist.append({
+                    "title": title,
+                    "filename": filename,
+                    "url": f"/audio/music/{filename}",  # 前端可直接用
+                    "format": ext.lstrip("."),
+                })
+
+        if not playlist:
+            logger.warning(f"No audio files found in {music_dir}")
+        else:
+            logger.info(f"Loaded {len(playlist)} songs from {music_dir}")
+
+        return playlist
+
+    @staticmethod
+    def _parse_title(filename: str) -> str:
+        """从文件名解析歌曲标题。
+
+        "王力宏-爱错.mp3" → "爱错 - 王力宏"
+        "周杰伦 - 晴天.wav" → "晴天 - 周杰伦"（已规范则不变）
+        """
+        name = os.path.splitext(filename)[0]
+        if " - " in name:
+            parts = [p.strip() for p in name.split(" - ", 1)]
+            return f"{parts[1]} - {parts[0]}" if len(parts) == 2 else name
+        elif "-" in name:
+            parts = [p.strip() for p in name.split("-", 1)]
+            return f"{parts[1]} - {parts[0]}" if len(parts) == 2 else name
+        return name
 
     def vehicle_climate(
         self,
@@ -443,31 +489,33 @@ class MockVehicleBus(BaseVehicleAdapter):
 
         if op in ("play", "resume"):
             self.media["playing"] = True
-            if not self.media.get("track"):
+            if not self.media.get("track") and self._playlist:
                 self.media["track"] = self._playlist[self._track_index]
         elif op in ("pause", "stop"):
             self.media["playing"] = False
         elif op in ("next", "next_track"):
-            self._track_index = (self._track_index + 1) % len(self._playlist)
-            self.media["track"] = self._playlist[self._track_index]
-            self.media["track_index"] = self._track_index
-            self.media["playing"] = True
+            if self._playlist:
+                self._track_index = (self._track_index + 1) % len(self._playlist)
+                self.media["track"] = self._playlist[self._track_index]
+                self.media["track_index"] = self._track_index
+                self.media["playing"] = True
         elif op in ("prev", "previous_track"):
-            self._track_index = (self._track_index - 1) % len(self._playlist)
-            self.media["track"] = self._playlist[self._track_index]
-            self.media["track_index"] = self._track_index
-            self.media["playing"] = True
+            if self._playlist:
+                self._track_index = (self._track_index - 1) % len(self._playlist)
+                self.media["track"] = self._playlist[self._track_index]
+                self.media["track_index"] = self._track_index
+                self.media["playing"] = True
         elif op in ("play_track", "select_track"):
-            if track is not None:
-                # 按名称或索引选择歌曲
+            if track is not None and self._playlist:
+                # 按索引或名称选择歌曲
                 if isinstance(track, int) or (isinstance(track, str) and track.isdigit()):
                     idx = int(track)
                     if 0 <= idx < len(self._playlist):
                         self._track_index = idx
                 else:
-                    # 按名称查找
+                    # 按名称模糊查找（支持 title 和 filename 匹配）
                     for i, t in enumerate(self._playlist):
-                        if track in t:
+                        if track in t["title"] or track in t["filename"]:
                             self._track_index = i
                             break
                 self.media["track"] = self._playlist[self._track_index]

@@ -119,15 +119,27 @@ class VoiceprintService:
         self._ensure_model()
         user_dir = self._get_user_dir(cockpit_id, user_id)
 
+        # v2.2 修复: 模型不可用时返回警告状态
+        embedding = await self._extract_embedding(audio_data, audio_format)
+        if embedding is None:
+            return {
+                "cockpit_id": cockpit_id,
+                "user_id": user_id,
+                "enroll_count": len([
+                    f for f in os.listdir(user_dir)
+                    if f.startswith("enroll_") and f.endswith(".npy")
+                ]),
+                "required_count": self.enroll_count,
+                "completed": False,
+                "message": "声纹识别服务不可用（模型未加载），注册失败",
+            }
+
         # 统计已注册的音频数
         existing = [
             f for f in os.listdir(user_dir)
             if f.startswith("enroll_") and f.endswith(".npy")
         ]
         enroll_num = len(existing) + 1
-
-        # 提取声纹特征
-        embedding = await self._extract_embedding(audio_data, audio_format)
 
         # 存储 embedding
         embed_path = os.path.join(user_dir, f"enroll_{enroll_num:02d}.npy")
@@ -174,8 +186,15 @@ class VoiceprintService:
         """
         self._ensure_model()
 
-        # 提取待验证音频的声纹特征
+        # v2.2 修复: 模型不可用时返回未验证状态
         verify_embedding = await self._extract_embedding(audio_data, audio_format)
+        if verify_embedding is None:
+            return {
+                "verified": False,
+                "user_id": None,
+                "similarity": 0.0,
+                "message": "声纹识别服务不可用（模型未加载）",
+            }
 
         # 遍历该座舱下所有已注册用户
         cockpit_dir = os.path.join(_SPEAKER_ROOT, cockpit_id)
@@ -274,17 +293,18 @@ class VoiceprintService:
             return True
         return False
 
-    async def _extract_embedding(self, audio_data: bytes, audio_format: str) -> np.ndarray:
+    async def _extract_embedding(self, audio_data: bytes, audio_format: str) -> Optional[np.ndarray]:
         """提取音频的声纹特征向量。
 
-        如果 CAM++ 模型可用，使用模型提取；否则返回随机向量（mock 模式）。
+        v2.2 修复: 模型不可用时返回 None 并记 warn，不再返回假数据。
+        调用方需处理 None 返回值，跳过声纹验证步骤。
 
         Args:
             audio_data: 音频二进制数据
             audio_format: 音频格式
 
         Returns:
-            声纹特征向量 (numpy array)
+            声纹特征向量 (numpy array)，模型不可用时返回 None
         """
         if self._model is not None:
             # 使用真实模型提取特征
@@ -305,13 +325,12 @@ class VoiceprintService:
                 embedding = self._model(waveform)
                 return embedding.detach().cpu().numpy().flatten()
             except Exception as e:
-                logger.error(f"Model extraction failed: {e}, using mock")
+                logger.error(f"Model extraction failed: {e}")
+                return None
 
-        # Mock 模式: 生成确定性随机向量（基于音频内容哈希）
-        import hashlib
-        hash_val = int(hashlib.md5(audio_data).hexdigest()[:8], 16)
-        rng = np.random.RandomState(hash_val)
-        return rng.randn(192).astype(np.float32)  # CAM++ 输出 192 维
+        # v2.2 修复: 模型不可用时返回 None，不再返回假随机向量
+        logger.warning("CAM++ model not loaded, voiceprint verification skipped")
+        return None
 
     @staticmethod
     def _compute_similarity(embed1: np.ndarray, embed2: np.ndarray) -> float:

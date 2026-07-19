@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: data_knowledge
+title: 运行时数据与静态知识库
+scope:
+    - data/
+source_files: []
+depends_on: []
+related_to: []

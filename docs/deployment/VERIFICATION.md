@@ -54,7 +54,6 @@ python -c "import fastapi; print(f'FastAPI {fastapi.__version__}')"
 python -c "import torch; print(f'PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}')"
 python -c "import pymilvus; print(f'PyMilvus {pymilvus.__version__}')"
 python -c "import langgraph; print('LangGraph OK')"
-python -c "import oss2; print('OSS SDK OK')"
 ```
 
 **验证清单**:
@@ -64,7 +63,6 @@ python -c "import oss2; print('OSS SDK OK')"
 - [ ] PyTorch 可导入
 - [ ] PyMilvus 可导入
 - [ ] LangGraph 可导入
-- [ ] oss2 可导入 (OSS SDK)
 
 ### 1.3 Node.js 环境验证
 
@@ -123,7 +121,6 @@ docker compose ps
 - [ ] minio 容器状态为 `running`
 - [ ] neo4j 容器状态为 `running`
 - [ ] redis 容器状态为 `running`
-- [ ] rabbitmq 容器状态为 `running`
 - [ ] mysql 容器状态为 `running`
 - [ ] prometheus 容器状态为 `running`
 - [ ] grafana 容器状态为 `running`
@@ -136,7 +133,7 @@ docker exec nexuscockpit-redis-1 redis-cli ping
 # 预期: PONG
 
 # RabbitMQ 验证
-# 打开 http://localhost:15672 (guest/guest)
+# v2.2 简化: RabbitMQ 已移除，无需验证
 
 # Neo4j 验证
 # 打开 http://localhost:7474 (neo4j/nexuscockpit)
@@ -158,7 +155,6 @@ curl http://localhost:9091/healthz
 
 **验证清单**:
 - [ ] Redis 返回 PONG
-- [ ] RabbitMQ 管理界面可访问
 - [ ] Neo4j Browser 可访问
 - [ ] MySQL 数据库存在
 - [ ] Milvus 健康检查返回 OK

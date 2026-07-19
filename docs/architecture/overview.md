@@ -29,7 +29,7 @@ NexusCockpit 采用 **7 层分层架构**，每一层职责单一、可独立演
                                     │
               ┌─────────────────────▼─────────────────────┐
               │         L4 Agent 层 (Multi-Agent)         │
-              │  Planner → Executor → Responder → Reviewer│
+              │  Supervisor → 5 Experts → Responder → Reviewer│
               └──────┬──────────┬──────────┬──────────────┘
                      │          │          │
               ┌──────▼────┐ ┌──▼───────┐ ┌▼────────────┐
@@ -47,7 +47,7 @@ NexusCockpit 采用 **7 层分层架构**，每一层职责单一、可独立演
                                     │
               ┌─────────────────────▼─────────────────────┐
               │        L0 基础设施层 (Infrastructure)     │
-              │  Docker / Milvus / Neo4j / Redis / RMQ    │
+              │  Docker / Milvus / Neo4j / Redis / MySQL  │
               └───────────────────────────────────────────┘
 ```
 
@@ -61,10 +61,11 @@ NexusCockpit 采用 **7 层分层架构**，每一层职责单一、可独立演
   → L5 中间件 (语义缓存检查)
     ├─ 命中缓存 → 直接返回
     └─ 未命中 → 继续
-  → L4 Agent (graph.py) 启动工作流
-    → Planner: 意图路由 + 记忆召回 + 规划
-    → Executor: 技能调度 / RAG 检索 / LLM 调用
+  → L4 Agent (supervisor_graph.py) 启动工作流
+    → Supervisor: 意图路由 + 记忆召回 + 专家分派
+    → Experts: 5 专家并行执行技能
     → Responder: 响应生成 (流式)
+    → Reflection: 事实性/无幻觉检查
     → Reviewer: 质量检查 + 记忆存储
   → L5 中间件 (写入缓存)
   → L6 API 返回响应
@@ -103,7 +104,6 @@ L0 基础设施 → 独立部署 (Docker)
 | L0 | 向量库 | Milvus 2.4 | 开源、高性能、HNSW |
 | L0 | 图数据库 | Neo4j 5.x | Cypher、ACID、APOC |
 | L0 | 缓存 | Redis 7 | 语义缓存、限流、PubSub |
-| L0 | 消息队列 | RabbitMQ 3.13 | AMQP、管理界面 |
 | L0 | 关系库 | MySQL 8.0 | 成熟、utf8mb4 |
 | L1 | 配置 | Pydantic Settings | 类型安全、env 文件 |
 | L1 | 日志 | structlog | 结构化 JSON |
@@ -118,7 +118,7 @@ L0 基础设施 → 独立部署 (Docker)
 | L4 | Agent 编排 | LangGraph | 有状态图、条件路由 |
 | L4 | LLM | DeepSeek-V3 (Ark) | 高性能、低成本 |
 | L5 | 缓存策略 | Redis 向量搜索 | 语义级匹配 |
-| L5 | 异步任务 | Celery 5 | Python 生态成熟 |
+| L5 | 异步任务 | asyncio.create_task | 进程内异步 (Celery 已移除) |
 | L6 | Web 框架 | FastAPI | 异步原生、自动文档 |
 | L6 | 认证 | PyJWT | 轻量、标准 |
 | L7 | 追踪 | Langfuse | LLM 专用 |
