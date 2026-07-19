@@ -30,15 +30,15 @@ from prometheus_client import make_asgi_app
 
 # 导入 API 路由
 from nexus.api.routes.admin import router as admin_router
-from nexus.api.routes.asr import router as asr_router  # v2.1 ASR
+from nexus.api.routes.asr import router as asr_router
 from nexus.api.routes.auth import router as auth_router
 from nexus.api.routes.chat import router as chat_router
-from nexus.api.routes.chat_sessions import router as chat_sessions_router  # v2.2.2
-from nexus.api.routes.cockpit import router as cockpit_router  # v2.1
-from nexus.api.routes.dataplatform import router as dataplatform_router  # v2.1
+from nexus.api.routes.chat_sessions import router as chat_sessions_router
+from nexus.api.routes.cockpit import router as cockpit_router
+from nexus.api.routes.dataplatform import router as dataplatform_router
 from nexus.api.routes.health import router as health_router
-from nexus.api.routes.middleware_status import router as middleware_router  # v2.1
-from nexus.api.routes.settings import router as settings_router  # v2.1
+from nexus.api.routes.middleware_status import router as middleware_router
+from nexus.api.routes.settings import router as settings_router
 from nexus.api.routes.vehicle import router as vehicle_router
 from nexus.api.websocket import router as ws_router
 from nexus.config import get_config
@@ -47,7 +47,7 @@ from nexus.core.logger import get_logger, setup_logging
 from nexus.middleware.rate_limiter import RateLimiter
 from nexus.middleware.redis_cache import SemanticCache
 from nexus.middleware.session_store import SessionStore
-from nexus.observability.cockpit_metrics import CockpitMetrics  # v2.1
+from nexus.observability.cockpit_metrics import CockpitMetrics
 from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import init_metrics
 from nexus.rag.embedding import EmbeddingService
@@ -71,6 +71,13 @@ async def lifespan(app: FastAPI):
     config = get_config()
     setup_logging()       # 初始化结构化日志
     init_metrics()       # 初始化 Prometheus 指标
+
+    # 打印日志文件路径，方便查找
+    from nexus.core.logger import get_log_file_path
+    log_file = get_log_file_path()
+    if log_file:
+        logger.info(f"Log file: {log_file}")
+
     logger.info("NexusCockpit starting up...")
 
     # --- 0. 启动诊断: 打印 API Key 加载状态 (脱敏，仅显示长度和末 4 位) ---
@@ -107,7 +114,7 @@ async def lifespan(app: FastAPI):
     vehicle_adapter = build_vehicle_adapter()
     app.state.vehicle_adapter = vehicle_adapter
 
-    # --- 5. v2.2 简化: OSS 对象存储已移除（未集成，过度设计） ---
+    # --- 5. OSS 对象存储已移除（未集成） ---
     # 原第 110-114 行的 OSSStorage 初始化代码已删除
     # 如需对象存储，可参考 docs/architecture/ 中的存储方案设计
 
@@ -143,14 +150,14 @@ async def lifespan(app: FastAPI):
     app.state.cockpit_metrics_redis = metrics_redis
 
     # --- 8. 初始化 Agent 工作流 (核心!) ---
-    # v2.0: Supervisor + 5 专家 Agent 多智能体架构
+    # Supervisor + 5 专家 Agent 多智能体架构
     try:
         from nexus.agent.supervisor_graph import SupervisorGraph
         from nexus.intent.router import IntentRouterService
         from nexus.memory.manager import MemoryManager
         from nexus.skills.registry import SkillRegistry
 
-        # 技能注册中心: 管理所有车载/非车载技能（v2.0 装饰器自动发现）
+        # 技能注册中心: 管理所有车载/非车载技能（装饰器自动发现）
         skill_registry = SkillRegistry(graph_store=graph_store, vehicle_adapter=vehicle_adapter)
         # 记忆管理器: 管理用户短期/长期记忆
         memory_manager = MemoryManager(vector_store, graph_store)
@@ -160,7 +167,7 @@ async def lifespan(app: FastAPI):
             tool_catalog=skill_registry.get_all_tools(),
         )
 
-        # v2.0: SqliteSaver checkpoint 持久化
+        # SqliteSaver checkpoint 持久化
         checkpoint_saver = None
         try:
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -186,7 +193,7 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Checkpoint initialization failed (non-fatal): {e}")
             checkpoint_saver = None
 
-        # v2.0: Supervisor 多智能体工作流
+        # Supervisor 多智能体工作流
         agent_graph = SupervisorGraph(
             intent_router=intent_router,
             memory_manager=memory_manager,
@@ -194,7 +201,7 @@ async def lifespan(app: FastAPI):
             checkpoint_saver=checkpoint_saver,
         )
 
-        # v2.0: Cherry 知识库 + 统一检索器
+        # Cherry 知识库 + 统一检索器
         try:
             from nexus.rag.cherry_kb import CherryKnowledgeBase
             from nexus.rag.unified_retriever import UnifiedRetriever
@@ -210,7 +217,7 @@ async def lifespan(app: FastAPI):
         app.state.memory_manager = memory_manager
         app.state.agent_graph = agent_graph
         app.state.checkpoint_saver = checkpoint_saver
-        logger.info("Supervisor graph initialized (v2.0)")
+        logger.info("Supervisor graph initialized")
     except Exception as e:
         # Agent 初始化失败不阻止服务启动，但聊天功能不可用
         logger.error(f"Agent graph initialization failed: {e}")
@@ -219,7 +226,7 @@ async def lifespan(app: FastAPI):
     # --- 会话历史存储 (内存兼容层，实际数据走 SessionStore) ---
     # 已在上方初始化 session_store 和 session_histories
 
-    # --- 8.5. 初始化 MySQL 数据库管理器（v2.1 日志持久化 + 用户管理）---
+    # --- 8.5. 初始化 MySQL 数据库管理器（日志持久化 + 用户管理）---
     try:
         from nexus.core.db_manager import get_db_manager
         db_manager = get_db_manager()
@@ -228,7 +235,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"MySQL database manager init failed (non-fatal): {e}")
 
-    # --- 9. v2.2 简化: 座舱管理器初始化（移除 SubAgent 监控和 MainAgent 确认层） ---
+    # --- 9. 座舱管理器初始化 ---
     try:
         from nexus.core.cockpit_manager import get_cockpit_manager
         from nexus.observability.cockpit_metrics import set_cockpit_metrics
@@ -243,9 +250,9 @@ async def lifespan(app: FastAPI):
         logger.info(f"CockpitManager initialized with {len(cockpit_manager.list_cockpits())} cockpits")
 
     except Exception as e:
-        logger.error(f"v2.2 cockpit initialization failed: {e}")
+        logger.error(f"Cockpit initialization failed: {e}")
 
-    # --- 10. v2.1: 启动数据保留策略管理器（后台自动清理过期日志）---
+    # --- 10. 启动数据保留策略管理器（后台自动清理过期日志）---
     try:
         from nexus.observability.data_retention import get_retention_manager
         retention_manager = get_retention_manager()
@@ -262,12 +269,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("NexusCockpit shutting down...")
 
-    # v2.2 简化: SubAgent 监控和 MainAgent 确认层已移除（过度设计）
-    # 原第 294-302 行的 SubAgent 停止和 MainAgent 监听关闭代码已删除
-    # v2.1: 停止数据保留管理器
+    # 停止数据保留管理器
     if hasattr(app.state, "retention_manager"):
         await app.state.retention_manager.stop()
-    # v2.1: 关闭指标 Redis
+    # 关闭指标 Redis
     if hasattr(app.state, "cockpit_metrics_redis"):
         await app.state.cockpit_metrics_redis.close()
     if hasattr(app.state, "vector_store") and app.state.vector_store:
@@ -331,11 +336,11 @@ def create_app() -> FastAPI:
     app.include_router(chat_sessions_router) # /chat/sessions 多会话管理
     app.include_router(vehicle_router)      # /vehicle 车控接口
     app.include_router(admin_router)        # /admin 管理接口
-    app.include_router(cockpit_router)      # /cockpit v2.1 座舱接口
-    app.include_router(dataplatform_router) # /dataplatform v2.1 数据中台
-    app.include_router(middleware_router)   # /middleware v2.1 中间件状态
-    app.include_router(settings_router)     # /settings v2.1 设置中心
-    app.include_router(asr_router)          # /asr v2.1 语音识别
+    app.include_router(cockpit_router)      # /cockpit 座舱接口
+    app.include_router(dataplatform_router) # /dataplatform 数据中台
+    app.include_router(middleware_router)   # /middleware 中间件状态
+    app.include_router(settings_router)     # /settings 设置中心
+    app.include_router(asr_router)          # /asr 语音识别
     app.include_router(ws_router)           # /ws WebSocket 接口
 
     # 挂载 Prometheus 指标端点 (/metrics)
@@ -394,7 +399,7 @@ def create_app() -> FastAPI:
             },
         )
 
-    # v2.1: 纯 ASGI 中间件 — 提取座舱 ID + 请求计时
+    # 纯 ASGI 中间件 — 提取座舱 ID + 请求计时
     # 使用纯 ASGI 而非 @app.middleware("http")，因为 BaseHTTPMiddleware
     # 会在单独的 task 中运行端点，导致 contextvars 无法传播到端点。
     # 纯 ASGI 中间件在同一个上下文中运行，确保 set_cockpit_id() 生效。

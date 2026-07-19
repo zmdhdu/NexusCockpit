@@ -3,43 +3,30 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-19T03:52:48Z"
+exported_at: "2026-07-19T17:59:20Z"
 modules:
     "":
-        dir_name: NexusCockpit 车载语音 Agent 系统根工程
-        title: NexusCockpit 车载语音 Agent 系统根工程
+        dir_name: NexusCockpit 车载语音 Agent 工程根目录
+        title: NexusCockpit 车载语音 Agent 工程根目录
         scope:
             - README.md
             - .gitignore
-            - Makefile
-            - docker-compose.yml
-            - Project_Review_and_Fix_Report.md
             - .editorconfig
             - .pre-commit-config.yaml
+            - Makefile
+            - docker-compose.yml
+            - Agent.md
             - .env
             - .env.example
-            - Agent.md
             - LICENSE
-            - 修复报告.md
         source_files: []
         children:
-            - data_knowledge
-            - docs_images
-            - frontend_app
+            - docs
             - infra_config
-            - ml_models
+            - shared_assets
         depends_on: []
         related_to: []
-    data_knowledge:
-        dir_name: 运行时数据与静态知识库
-        title: 运行时数据与静态知识库
-        scope:
-            - data/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
-    docs_images:
+    docs:
         dir_name: NexusCockpit 项目文档中心
         title: NexusCockpit 项目文档中心
         scope:
@@ -47,19 +34,12 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
-    frontend_app:
-        dir_name: NexusCockpit 车载语音 Agent Web 控制台
-        title: NexusCockpit 车载语音 Agent Web 控制台
-        scope:
-            - frontend_design/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to: []
+        related_to:
+            - path: infra_config
+            - path: shared_assets
     infra_config:
-        dir_name: 基础设施配置与 CI_脚本
-        title: 基础设施配置与 CI/脚本
+        dir_name: 基础设施配置与 CI 流水线
+        title: 基础设施配置与 CI 流水线
         scope:
             - config/
             - scripts/
@@ -67,13 +47,19 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
-    ml_models:
-        dir_name: 多模态模型权重与二进制资源
-        title: 多模态模型权重与二进制资源
+        related_to:
+            - path: docs
+            - path: shared_assets
+    shared_assets:
+        dir_name: 共享静态资源与模型数据
+        title: 共享静态资源与模型数据
         scope:
+            - assets/
+            - data/
             - models/
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: docs
+            - path: infra_config

@@ -1,12 +1,11 @@
-# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+ # Copyright (c) 2026 zhangmengdi (NexusCockpit)
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Supervisor Graph — v2.0 Multi-Agent 工作流编排核心
+Supervisor Graph — Multi-Agent 工作流编排核心
 
-替代 v1.0 的 AgentGraph（线性 Planner→Executor→Responder→Reviewer），
-升级为 Supervisor 调度 + 5 专家并行 + Responder 汇总 + Reviewer 审查。
+Supervisor 调度 + 5 专家并行 + Responder 汇总 + Reflection 反思 + Reviewer 审查。
 
 图结构:
     supervisor → [条件分派] → vehicle_expert  ↘
@@ -16,7 +15,7 @@ Supervisor Graph — v2.0 Multi-Agent 工作流编排核心
                           → chat_expert       ↗
                           → responder (澄清/无专家时直连)
 
-v2.2 增强:
+增强特性:
     - Tool→LLM 合成: 工具调用结果回传 LLM 生成自然语言回复
     - 反思校验: 对 LLM 输出做事实性/一致性/无幻觉检查
     - 自我批评: 反思不通过时自动修正回复
@@ -67,7 +66,7 @@ logger = get_logger(__name__)
 
 
 class SupervisorGraph:
-    """v2.0 Supervisor 多智能体工作流编排器。
+    """Supervisor 多智能体工作流编排器。
 
     使用 LangGraph StateGraph 构建 Supervisor → Experts → Responder → Reviewer 工作流。
     支持 invoke()（同步）和 stream()（流式）两种调用模式。
@@ -108,11 +107,11 @@ class SupervisorGraph:
             "chat": ChatExpert(skill_registry),
         }
 
-        # Responder 和 Reviewer 复用 v1.0 实现
+        # Responder 和 Reviewer
         self.responder = ResponderAgent(self.llm_client)
         self.reviewer = ReviewerAgent(memory_manager)
 
-        # v2.0 Prompt 模板管理器
+        # Prompt 模板管理器
         self.prompt_manager = PromptManager()
 
         # Checkpoint 持久化
@@ -136,7 +135,7 @@ class SupervisorGraph:
         workflow.add_node("health_expert", self.experts["health"].run)
         workflow.add_node("chat_expert", self.experts["chat"].run)
         workflow.add_node("responder", self._responder_node)
-        workflow.add_node("reflection", self._reflection_node)  # v2.2
+        workflow.add_node("reflection", self._reflection_node)  # 反思校验
         workflow.add_node("reviewer", self._reviewer_node)
 
         # ---- 入口 ----
@@ -160,8 +159,7 @@ class SupervisorGraph:
         workflow.add_node("dispatch", self._dispatch_node)
         workflow.add_edge("dispatch", "responder")
 
-        # ---- v2.2: Responder → Reflection → Reviewer → END ----
-        # v2.2 简化: 移除 MainAgent 确认层（过度设计），reflection 直接连接 reviewer
+        # ---- Responder → Reflection → Reviewer → END ----
         workflow.add_edge("responder", "reflection")       # responder → reflection
         workflow.add_edge("reflection", "reviewer")         # reflection → reviewer
         workflow.add_edge("reviewer", END)
@@ -183,8 +181,13 @@ class SupervisorGraph:
     async def _supervisor_node(self, state: SupervisorState) -> Dict[str, Any]:
         """Supervisor 节点：记忆召回 + 用户画像加载 + 意图路由 + 专家分派决策。
 
-        v2.1 增强:
-            - 记忆召回改用 GraphRAG 三路融合 + Rerank
+        智能上下文记忆管理:
+            - 关键信息提取: 从短期对话历史中提取位置/偏好/身份等关键实体
+            - 查询增强: 当用户查询模糊时，用提取的关键信息增强长期记忆召回查询
+            - 阈值压缩: 对话轮数超阈值时自动压缩旧对话为滚动摘要
+
+        记忆召回:
+            - 使用 GraphRAG 三路融合 + Rerank
             - 加载用户画像（Neo4j）和习惯（MySQL）
             - 习惯记忆注入到 state，供 prompt 使用
 
@@ -203,18 +206,84 @@ class SupervisorGraph:
             "clarification_prompt": "",
             "active_experts": [],
             "expert_results": [],
+            "key_context": {},  # 提取的关键上下文
         }
 
         user_id = state.get("user_id", "default")
         user_input = state.get("user_input", "")
+        # 从 state 中获取短期对话历史
+        short_term_history = state.get("history", [])  # 对话历史列表 [{role, content}, ...]
+        running_summary = state.get("running_summary", "")
 
-        # v2.1 优化: 记忆召回 + 用户画像 + 意图路由 并行执行
-        # 原来串行需要 3 倍时间，并行后只取最慢的一个
+        # 关键信息提取 — 从对话历史中提取位置/偏好/身份等关键实体
+        # 这是零 LLM 调用的纯正则匹配，不会增加延迟
+        key_context = self.responder.compressor.extract_key_context(short_term_history)
 
-        async def _recall_memory():
-            """记忆召回"""
+        # 如果对话历史中没有提取到位置，从车辆适配器获取 GPS 位置补充
+        # 场景: 用户从没说过"我在杭州"，但 GPS 定位在杭州电子科技大学
+        if not key_context.get("location"):
             try:
-                memories = await self.memory_manager.recall(user_input, user_id, top_k=3)
+                cockpit_id = state.get("cockpit_id", "")
+                adapter = None
+                if cockpit_id:
+                    from nexus.vehicle.factory import get_cockpit_vehicle_adapter
+                    adapter = get_cockpit_vehicle_adapter(cockpit_id)
+                else:
+                    from nexus.vehicle.factory import build_vehicle_adapter
+                    adapter = build_vehicle_adapter()
+                if adapter and hasattr(adapter, "navigation"):
+                    nav = adapter.navigation
+                    loc = nav.get("current_location", "")
+                    if loc and "未知" not in loc and "不可用" not in loc:
+                        if not key_context:
+                            key_context = {}
+                        key_context["location"] = loc
+            except Exception as e:
+                logger.debug(f"Failed to get location from vehicle adapter for key_context: {e}")
+
+        if key_context:
+            update["key_context"] = key_context
+            logger.info(f"Key context extracted: {key_context}")
+
+        # 阈值压缩 — 对话轮数超阈值时自动压缩旧对话为滚动摘要
+        # 这确保长期对话的关键信息不会因 SessionStore 的 20 条截断而丢失
+        compressed_history = short_term_history
+        new_running_summary = running_summary
+        try:
+            compressed_history, new_running_summary = (
+                await self.responder.compressor.compress_history_with_threshold(
+                    short_term_history, running_summary
+                )
+            )
+            if new_running_summary != running_summary:
+                update["running_summary"] = new_running_summary
+                logger.info(
+                    f"Running summary updated: len={len(new_running_summary)}, "
+                    f"history_compressed={len(short_term_history)}→{len(compressed_history)} msgs"
+                )
+            if len(compressed_history) < len(short_term_history):
+                # 更新 state 中的历史为压缩后的版本
+                # 注意：这里不能直接覆盖 state["history"]，因为 history 是 Annotated[list, add] reducer
+                # 压缩后的历史会在后续 build_context 中使用
+                update["_compressed_history"] = compressed_history
+        except Exception as e:
+            logger.error(f"Threshold compression failed, using original history: {e}")
+
+        # 记忆召回 + 用户画像 + 意图路由 并行执行
+        async def _recall_memory():
+            """记忆召回：使用查询增强提升长期记忆召回质量。
+
+            通过 extract_key_context + augment_recall_query 增强召回查询，
+            核心场景: 用户说"我在杭州"后，问"明天天气如何"时能召回位置记忆。
+            """
+            try:
+                # 查询增强 — 当用户查询模糊时，从短期记忆补充关键词
+                augmented_query = self.responder.compressor.augment_recall_query(
+                    user_input, key_context
+                )
+
+                # 长期记忆检索（使用增强后的查询）
+                memories = await self.memory_manager.recall(augmented_query, user_id, top_k=3)
                 return memories
             except Exception as e:
                 logger.error(f"Memory recall failed: {e}")
@@ -278,6 +347,7 @@ class SupervisorGraph:
             f"memories={len(update['recalled_memories'])}, "
             f"profile={'yes' if update['user_profile'] else 'no'}, "
             f"clarify={update['need_clarification']}, "
+            f"key_ctx={'yes' if update.get('key_context') else 'no'}, "
             f"latency={latency_ms}ms"
         )
         return update
@@ -376,7 +446,7 @@ class SupervisorGraph:
                             merged[key] = result[key]
                         elif key == "skill_action" and result[key]:
                             merged[key] = result[key]
-                # v2.2: 传递 tool_result 到顶层 state
+                # 传递 tool_result 到顶层 state
                 if result.get("tool_result"):
                     merged["tool_result"] = result["tool_result"]
                 # 合并 metadata
@@ -401,9 +471,11 @@ class SupervisorGraph:
     async def _responder_node(self, state: SupervisorState) -> Dict[str, Any]:
         """Responder 节点：汇总专家输出，生成最终回复。
 
-        v2.2 增强:
+        增强特性:
             - 分支 B 优化: 当工具返回结构化数据时，将结果回传 LLM 做自然语言合成
             - 不再直接返回原始工具消息，而是经过 LLM 解读后输出
+            - 返回 running_summary 确保 LangGraph 持久化滚动摘要
+            - 使用压缩后的历史作为 history_update 的基础
         """
         t0 = perf_counter()
         full_response = ""
@@ -418,7 +490,7 @@ class SupervisorGraph:
             if state.get("skill_action") == "web_search" and state.get("search_context"):
                 full_response = await self._generate_llm_response(state)
 
-            # B2: v2.2 工具返回了结构化数据 → Tool→LLM 合成
+            # B2: 工具返回了结构化数据 → Tool→LLM 合成
             elif state.get("tool_result") and state.get("tool_result", {}).get("data"):
                 full_response = await self._synthesize_tool_response(state)
 
@@ -434,7 +506,8 @@ class SupervisorGraph:
         else:
             full_response = await self._generate_llm_response(state)
 
-        # 更新历史
+        # 更新历史 — 新的一轮追加到压缩后的历史（如果进行了阈值压缩）
+        # 这样 SessionStore 保存的就是压缩后的历史 + 新轮次
         history_update = [
             {"role": "user", "content": state.get("user_input", "")},
             {"role": "assistant", "content": full_response},
@@ -443,21 +516,33 @@ class SupervisorGraph:
         latency_ms = round((perf_counter() - t0) * 1000, 2)
         logger.info(f"Responder done: response_len={len(full_response)}, latency={latency_ms}ms")
 
-        return {
+        # 返回 running_summary 确保 LangGraph 持久化
+        # _generate_llm_response / _synthesize_tool_response 已将新摘要写入 state
+        result: Dict[str, Any] = {
             "final_response": full_response,
             "history": history_update,
             "metadata": {"responder_latency_ms": latency_ms},
         }
+        # 如果有压缩后的历史，返回它以便 LangGraph 更新 state
+        compressed = state.get("_compressed_history")
+        if compressed is not None:
+            result["_compressed_history"] = compressed + history_update
+        # 返回更新后的滚动摘要
+        running_summary = state.get("running_summary", "")
+        if running_summary:
+            result["running_summary"] = running_summary
+
+        return result
 
     async def _synthesize_tool_response(self, state: SupervisorState) -> str:
-        """【v2.2】Tool→LLM 合成：将工具调用结果回传 LLM，生成自然语言回复。
+        """Tool→LLM 合成：将工具调用结果回传 LLM，生成自然语言回复。
 
         核心思路（CoT 模式）:
             1. 工具返回的结构化数据作为事实依据
             2. LLM 根据用户问题 + 工具结果，推理生成自然回复
             3. 确保回复基于工具真实数据，不编造额外信息
 
-        v2.2.1 修复:
+        安全约束:
             - 工具返回失败/未知结果时跳过 LLM 合成，直接返回原始消息
             - 强化提示词，明确禁止添加天气/新闻等工具结果外的信息
             - 不注入记忆和习惯，避免 LLM 基于历史记忆编造信息
@@ -475,7 +560,7 @@ class SupervisorGraph:
 
         user_input = state.get("user_input", "")
 
-        # v2.2.1: 工具返回失败/未知结果时，跳过 LLM 合成，直接返回原始消息
+        # 工具返回失败/未知结果时，跳过 LLM 合成，直接返回原始消息
         # 避免 LLM 在“未知位置”基础上编造天气、地址等虚假信息
         failure_indicators = ("未知", "不可用", "失败", "错误", "无法", "不支持")
         if any(indicator in tool_message for indicator in failure_indicators):
@@ -486,6 +571,17 @@ class SupervisorGraph:
             return tool_message
 
         # 构建包含工具结果的系统提示
+        # 针对导航类工具增加专门约束，防止编造路线/路况/距离信息
+        navigation_constraint = ""
+        if "nav" in tool_name.lower() or "navigation" in tool_name.lower():
+            navigation_constraint = (
+                "\n7. **导航类工具特殊约束（极其重要）**:\n"
+                "   - 工具只返回了目的地坐标和名称，**没有路线规划、路况、距离、预计时间等信息**\n"
+                "   - **绝对禁止编造**具体路线（如'沿XX路直行'）、路况（如'畅通'）、距离（如'约5公里'）、预计时间（如'约15分钟'）\n"
+                "   - 只需告知用户已开始导航到目的地，并给出目的地名称和坐标即可\n"
+                "   - 不要描述沿途 landmarks 或道路名称，除非工具结果中明确包含\n"
+            )
+
         system_msg = (
             "你是车载语音助手小千。你刚刚通过工具获取了真实数据，"
             "请基于以下工具返回的结果回答用户问题。\n\n"
@@ -499,20 +595,28 @@ class SupervisorGraph:
             "3. **禁止使用记忆或历史对话中的信息**来补充工具结果\n"
             "4. 用自然口语化的方式转述工具结果，像在跟用户聊天一样\n"
             "5. 回答简洁明了，直接给出用户关心的核心信息\n"
-            "6. 如果工具结果已经是一句完整的话，可以自然地转述即可\n"
+            "6. 如果工具结果已经是一句完整的话，可以自然地转述即可"
+            f"{navigation_constraint}\n"
         )
 
-        # v2.2.1: 不注入记忆和习惯，避免 LLM 基于历史记忆编造信息
+        # 不注入记忆和习惯，避免 LLM 基于历史记忆编造信息
+
+        # 使用压缩后的历史（如果 supervisor 节点执行了阈值压缩）
+        history = state.get("_compressed_history", state.get("history", []))
 
         # 构建对话上下文
         msgs, new_summary = await self.responder.compressor.build_context(
             system_prompt=system_msg,
             user_input=user_input,
-            history=state.get("history", []),
+            history=history,
             running_summary=state.get("running_summary", ""),
-            memory_str="",  # v2.2.1: 不注入记忆
+            memory_str="",  # 不注入记忆
             search_ctx="",
         )
+
+        # 保存更新后的滚动摘要到 state
+        if new_summary and new_summary != state.get("running_summary", ""):
+            state["running_summary"] = new_summary
 
         try:
             response = await self.llm_client.chat.completions.create(
@@ -532,7 +636,7 @@ class SupervisorGraph:
             return tool_message  # 降级：返回原始工具消息
 
     async def _reflection_node(self, state: SupervisorState) -> Dict[str, Any]:
-        """【v2.2】反思校验节点：对 LLM 输出做事实性、一致性、无幻觉检查。
+        """反思校验节点：对 LLM 输出做事实性、一致性、无幻觉检查。
 
         反思策略:
             - 有工具数据时：执行 LLM 反思（CoT 自我批评）
@@ -540,12 +644,12 @@ class SupervisorGraph:
               2. 检查回复是否包含编造信息（无幻觉）
               3. 检查回复是否回答了用户问题（相关性）
               4. 不通过时自动修正
-            - 有搜索结果时：执行 LLM 反思（v2.2.2 新增）
+            - 有搜索结果时：执行 LLM 反思
               1. 检查回复是否基于搜索结果，无编造
               2. 检查搜索结果时效性是否被正确传达
             - 无工具数据时：轻量检查（非空、长度合理）
 
-        v2.1.2: 可通过 REFLECTION_ENABLED=false 关闭以减少 LLM 调用。
+        可通过 REFLECTION_ENABLED=false 关闭以减少 LLM 调用。
 
         Args:
             state: 包含 final_response 和 tool_result 的 SupervisorState
@@ -561,7 +665,7 @@ class SupervisorGraph:
 
         update: Dict[str, Any] = {"metadata": {}}
 
-        # v2.1.2: 反思开关 — 关闭时跳过所有 LLM 反思，仅做轻量检查
+        # 反思开关 — 关闭时跳过所有 LLM 反思，仅做轻量检查
         if not get_config().llm.reflection_enabled:
             if not final_response or len(final_response.strip()) < 2:
                 update["final_response"] = "抱歉，我没有理解你的意思，能再说一次吗？"
@@ -569,7 +673,7 @@ class SupervisorGraph:
             else:
                 update["metadata"]["reflection_result"] = "disabled_by_config"
 
-            # v2.2.5: 即使反思禁用，也要做幻觉兜底检查
+            # 即使反思禁用，也要做幻觉兜底检查
             # 防止 LLM 编造对话历史（如"您最初是问..."）
             hallucination_fix = self._post_check_chat_response(state, final_response)
             if hallucination_fix is not None:
@@ -581,25 +685,19 @@ class SupervisorGraph:
             logger.info(f"Reflection skipped (disabled by config): latency={latency_ms}ms")
             return update
 
-        # v2.2.2: 搜索类回复也做反思校验
+        # 搜索类回复也做反思校验
         if not tool_result or not tool_result.get("message"):
             if search_context and state.get("skill_action") == "web_search":
                 # 搜索类反思：检查回复是否基于搜索结果，是否有时效性问题
                 return await self._reflect_search_response(
                     state, user_input, final_response, search_context, t0
                 )
-            
-            # 无工具数据且无搜索结果时，做轻量检查
-            if not final_response or len(final_response.strip()) < 2:
-                update["final_response"] = "抱歉，我没有理解你的意思，能再说一次吗？"
-                update["metadata"]["reflection_result"] = "fallback_empty"
-            else:
-                update["metadata"]["reflection_result"] = "skip_no_tool_data"
-            
-            latency_ms = round((perf_counter() - t0) * 1000, 2)
-            update["metadata"]["reflection_latency_ms"] = latency_ms
-            logger.info(f"Reflection done: latency={latency_ms}ms")
-            return update
+
+            # 通用闲聊反思 — 对所有非工具类回复做 LLM 质量校验（渐进式校验机制）
+            # 不再只做轻量检查，而是走完整的 LLM 反思 + retry 流程
+            return await self._reflect_chat_response(
+                state, user_input, final_response, t0
+            )
 
         # 有工具数据时，执行 LLM 反思
         tool_message = tool_result.get("message", "")
@@ -674,11 +772,80 @@ class SupervisorGraph:
 
         return update
 
+    def _deterministic_date_check(
+        self, user_input: str, response: str,
+    ) -> Optional[str]:
+        """确定性日期校验 — 使用正则表达式检测日期错误，无需 LLM 调用。
+
+        检测场景:
+            1. 用户问"明天"，但回复中"明天"后面跟着的日期等于今天的日期
+            2. 用户问"后天"，但回复中"后天"后面跟着的日期等于今天或明天的日期
+            3. 用户问"今天"，但回复中"今天"后面跟着的日期不等于今天的日期
+
+        Returns:
+            如果检测到错误，返回修正后的回复；否则返回 None 表示无问题。
+        """
+        cn_tz = timezone(timedelta(hours=8))
+        now_cn = datetime.now(cn_tz)
+        today_str = now_cn.strftime("%m月%d日").lstrip("0").replace("月0", "月")
+        tomorrow = now_cn + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime("%m月%d日").lstrip("0").replace("月0", "月")
+        day_after = now_cn + timedelta(days=2)
+        day_after_str = day_after.strftime("%m月%d日").lstrip("0").replace("月0", "月")
+
+        # 检测用户是否询问了"明天"或"后天"
+        asks_tomorrow = "明天" in user_input or "明日" in user_input
+        asks_day_after = "后天" in user_input or "後天" in user_input
+        asks_today = "今天" in user_input or "今日" in user_input
+
+        if not (asks_tomorrow or asks_day_after or asks_today):
+            return None
+
+        # 提取回复中"明天"后面紧跟的日期（支持 "7月19日" 和 "07月19日" 格式）
+        # 匹配模式: "明天" 后面的 50 字符内出现 X月X日
+        date_pattern = r"(\d{1,2})月(\d{1,2})日"
+
+        if asks_tomorrow:
+            # 找到"明天"后面出现的日期
+            for match in re.finditer(r"明天.{0,50}?" + date_pattern, response):
+                month, day = int(match.group(1)), int(match.group(2))
+                resp_date_str = f"{month}月{day}日"
+                if resp_date_str == today_str:
+                    # 明天后面跟了今天的日期 → 错误
+                    logger.warning(
+                        f"Date check FAILED: user asked '明天' but response says "
+                        f"'明天{resp_date_str}' (today={today_str}, tomorrow={tomorrow_str})"
+                    )
+                    # 直接替换错误日期
+                    corrected = response.replace(
+                        f"明天{resp_date_str}", f"明天{tomorrow_str}"
+                    ).replace(
+                        f"明天 {resp_date_str}", f"明天 {tomorrow_str}"
+                    )
+                    # 如果替换后没有变化，尝试更宽泛的替换
+                    if corrected == response:
+                        corrected = response.replace(resp_date_str, tomorrow_str, 1)
+                    return corrected
+
+        if asks_day_after:
+            for match in re.finditer(r"后天.{0,50}?" + date_pattern, response):
+                month, day = int(match.group(1)), int(match.group(2))
+                resp_date_str = f"{month}月{day}日"
+                if resp_date_str in (today_str, tomorrow_str):
+                    logger.warning(
+                        f"Date check FAILED: user asked '后天' but response says "
+                        f"'后天{resp_date_str}' (today={today_str}, day_after={day_after_str})"
+                    )
+                    corrected = response.replace(resp_date_str, day_after_str, 1)
+                    return corrected
+
+        return None
+
     async def _reflect_search_response(
         self, state: SupervisorState, user_input: str,
         final_response: str, search_context: str, t0: float,
     ) -> Dict[str, Any]:
-        """【v2.2.2】搜索类回复反思：检查回复是否基于搜索结果，是否正确传达时效性。
+        """搜索类回复反思：检查回复是否基于搜索结果，是否正确传达时效性。
 
         检查项:
             1. 回复中的信息是否都能在搜索结果中找到对应（无幻觉）
@@ -687,17 +854,46 @@ class SupervisorGraph:
         """
         update: Dict[str, Any] = {"metadata": {}}
 
+        # 确定性日期校验（正则，无 LLM 调用，即时完成）
+        # 如果检测到日期错误，直接修正并跳过 LLM 反思，大幅减少延迟
+        date_fix = self._deterministic_date_check(user_input, final_response)
+        if date_fix is not None:
+            update["final_response"] = date_fix
+            update["metadata"]["reflection_result"] = "date_corrected_deterministic"
+            update["metadata"]["reflection_reason"] = "确定性日期校验检测到日期错误，已自动修正"
+            update["metadata"]["original_response"] = final_response[:200]
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            logger.info(f"Search reflection: deterministic date check corrected, latency={latency_ms}ms")
+            return update
+
+        # 注入当前日期到反思 prompt，防止日期混淆
+        cn_tz = timezone(timedelta(hours=8))
+        now_cn = datetime.now(cn_tz)
+        current_date_str = now_cn.strftime("%Y年%m月%d日 %H:%M")
+
+        # 计算今天/明天的确切日期，注入反思 prompt
+        today_str = now_cn.strftime("%m月%d日").lstrip("0").replace("月0", "月")
+        tomorrow = now_cn + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime("%m月%d日").lstrip("0").replace("月0", "月")
+
         reflection_prompt = (
             "你是一个响应质量审查员。请检查助手的回复是否准确基于搜索结果。\n\n"
+            f"## 当前准确时间\n{current_date_str}\n\n"
+            f"## 日期对照（绝对准确）\n- 今天: {today_str}\n- 明天: {tomorrow_str}\n\n"
             f"## 用户问题\n{user_input}\n\n"
             f"## 搜索结果（真实数据）\n{search_context[:2000]}\n\n"
             f"## 助手回复\n{final_response}\n\n"
             "## 检查标准（逐条分析）\n"
             "1. **无幻觉**: 回复中的每个具体数据（温度、时间、风速等）是否都能在搜索结果中找到？\n"
-            "2. **时效性**: 搜索结果开头标注了当前时间。回复中的数据时间是否与当前时间差距过大？\n"
+            "2. **日期正确性（极其重要）**: 用户问'明天'时，请根据上方的日期对照验证：\n"
+            f"   - 今天是 {today_str}，明天是 {tomorrow_str}\n"
+            "   - 如果助手回复中的日期与当前日期相同却声称是'明天'，则判定为不合格\n"
+            "   - 如果助手回复中的日期是正确的明天日期，则判定为合格\n"
+            "3. **时效性**: 搜索结果开头标注了当前时间。回复中的数据时间是否与当前时间差距过大？\n"
             "   - 如果搜索结果数据时间距当前超过3小时，回复是否提到了'信息可能不够及时'？\n"
-            "3. **无编造**: 回复是否添加了搜索结果中没有的具体信息（如来源网站名、额外建议等）？\n"
-            "4. **相关性**: 回复是否直接回答了用户的问题？\n\n"
+            "4. **无编造**: 回复是否添加了搜索结果中没有的具体信息（如来源网站名、额外建议等）？\n"
+            "5. **相关性**: 回复是否直接回答了用户的问题？\n\n"
             "请先简要分析，然后输出以下 JSON（只输出 JSON，不要其他内容）:\n"
             '{"valid": true或false, "reason": "简短原因", '
             '"suggested_response": "如果不合格，给出修正后的回复；如果合格则留空"}'
@@ -751,34 +947,255 @@ class SupervisorGraph:
 
         return update
 
+    async def _reflect_chat_response(
+        self, state: SupervisorState, user_input: str,
+        final_response: str, t0: float,
+    ) -> Dict[str, Any]:
+        """通用闲聊反思：对所有非工具类回复做 LLM 质量校验。
+
+        反思 prompt 注入完整对话历史，防止反思 LLM 误判"编造对话历史"，
+        当用户询问对话历史时，反思 LLM 能对照实际历史记录判断。
+
+        渐进式校验机制（Loop Engineering）:
+            1. 首次反思：检查回复的相关性、准确性、一致性、完整性
+            2. 如果反思不通过且有修正建议 → 直接采用修正建议
+            3. 如果反思不通过但无修正建议 → 带反馈重新生成（最多 1 次重试）
+            4. 重试后再次反思，无论结果如何都返回（防止无限循环）
+
+        检查项:
+            - 相关性：回复是否直接回答了用户的问题
+            - 准确性：回复中是否有明显的 factual error
+            - 一致性：回复是否自相矛盾
+            - 完整性：回复是否过于简短或遗漏关键信息
+            - 无幻觉：回复是否编造了不存在的信息
+        """
+        update: Dict[str, Any] = {"metadata": {}}
+
+        # 注入当前时间，防止时间相关的幻觉
+        cn_tz = timezone(timedelta(hours=8))
+        now_cn = datetime.now(cn_tz)
+        current_date_str = now_cn.strftime("%Y年%m月%d日 %H:%M %A")
+
+        # 如果回复为空或极短，直接返回兜底
+        if not final_response or len(final_response.strip()) < 2:
+            update["final_response"] = "抱歉，我没有理解你的意思，能再说一次吗？"
+            update["metadata"]["reflection_result"] = "chat_fallback_empty"
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            return update
+
+        # 提取对话历史，注入反思 prompt，防止反思 LLM 误判"编造对话历史"
+        history = state.get("history", [])
+        history_str = ""
+        if history:
+            history_lines = []
+            for msg in history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    history_lines.append(f"用户: {content}")
+                elif role == "assistant":
+                    history_lines.append(f"助手: {content}")
+            history_str = "\n".join(history_lines)
+        else:
+            history_str = "（无历史记录，这是新对话的第一轮）"
+
+        reflection_prompt = (
+            "你是一个响应质量审查员。请检查助手的回复是否准确、相关、无幻觉。\n\n"
+            f"## 当前准确时间\n{current_date_str}\n\n"
+            f"## 当前对话历史（真实记录，用于判断助手是否编造历史）\n{history_str}\n\n"
+            f"## 用户问题\n{user_input}\n\n"
+            f"## 助手回复\n{final_response}\n\n"
+            "## 检查标准（逐条分析）\n"
+            "1. **相关性**: 回复是否直接回答了用户的问题？有没有答非所问？\n"
+            "2. **准确性**: 回复中是否有明显的 factual error？时间、地点、数据是否正确？\n"
+            "3. **一致性**: 回复是否自相矛盾？前后说法是否一致？\n"
+            "4. **完整性**: 回复是否过于简短？是否遗漏了用户关心的关键信息？\n"
+            "5. **无幻觉**: 回复是否编造了不存在的信息？是否捏造了数据、事件或事实？\n"
+            "   ⚠️ **对话历史判断（极其重要）**: 当用户询问对话历史（如'我之前问了什么'、'你还记得吗'）时：\n"
+            "   - 请对照上方'当前对话历史'中的真实记录来验证助手回复\n"
+            "   - 如果助手回复中提到的历史问题能在对话历史中找到对应，则**不算编造**，判定为合格\n"
+            "   - 只有当助手回复中提到的历史在对话历史中**完全找不到对应**时，才判定为编造\n"
+            "   - 如果对话历史为空（新对话），但助手声称用户之前问过某些问题，才判定为编造\n\n"
+            "请先简要分析，然后输出以下 JSON（只输出 JSON，不要其他内容）:\n"
+            '{"valid": true或false, "reason": "简短原因", '
+            '"suggested_response": "如果不合格，给出修正后的回复；如果合格则留空"}'
+        )
+
+        try:
+            response = await self.llm_client.chat.completions.create(
+                model=get_config().llm.llm_model,
+                messages=[{"role": "user", "content": reflection_prompt}],
+                temperature=0.0,
+                max_tokens=500,
+            )
+            content = (response.choices[0].message.content or "").strip()
+
+            # 解析 JSON
+            cleaned = content.replace("```json", "").replace("```", "").strip()
+            match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+            if match:
+                cleaned = match.group(0)
+            result = json.loads(cleaned)
+
+            if result.get("valid") is True:
+                logger.info(f"Chat reflection PASSED: {result.get('reason', '')}")
+                update["metadata"]["reflection_result"] = "chat_passed"
+                update["metadata"]["reflection_reason"] = result.get("reason", "")
+            else:
+                suggested = result.get("suggested_response", "").strip()
+                if suggested:
+                    logger.warning(
+                        f"Chat reflection FAILED: {result.get('reason', '')}, "
+                        f"applying corrected response"
+                    )
+                    update["final_response"] = suggested
+                    update["metadata"]["reflection_result"] = "chat_corrected"
+                    update["metadata"]["reflection_reason"] = result.get("reason", "")
+                    update["metadata"]["original_response"] = final_response[:200]
+                else:
+                    # 反思不通过但没有修正建议 → 带反馈重新生成（最多 1 次）
+                    logger.warning(
+                        f"Chat reflection FAILED, no suggestion, retrying with feedback: "
+                        f"{result.get('reason', '')}"
+                    )
+                    retry_response = await self._regenerate_with_feedback(
+                        state, user_input, final_response, result.get("reason", "")
+                    )
+                    if retry_response and retry_response != final_response:
+                        update["final_response"] = retry_response
+                        update["metadata"]["reflection_result"] = "chat_retried"
+                        update["metadata"]["reflection_reason"] = result.get("reason", "")
+                        update["metadata"]["original_response"] = final_response[:200]
+                    else:
+                        update["metadata"]["reflection_result"] = "chat_failed_no_suggestion"
+                        update["metadata"]["reflection_reason"] = result.get("reason", "")
+
+        except Exception as e:
+            logger.error(f"Chat reflection LLM call failed: {e}")
+            update["metadata"]["reflection_result"] = "chat_error"
+            update["metadata"]["reflection_error"] = str(e)
+
+        latency_ms = round((perf_counter() - t0) * 1000, 2)
+        update["metadata"]["reflection_latency_ms"] = latency_ms
+        logger.info(f"Chat reflection done: latency={latency_ms}ms")
+
+        return update
+
+    async def _regenerate_with_feedback(
+        self, state: SupervisorState, user_input: str,
+        original_response: str, feedback: str,
+    ) -> Optional[str]:
+        """带反思反馈重新生成回复（渐进式校验的 retry 环节）。
+
+        使用压缩后的历史，保存滚动摘要。
+
+        Args:
+            state: 当前状态
+            user_input: 用户原始输入
+            original_response: 首次生成的（有问题的）回复
+            feedback: 反思反馈的原因
+
+        Returns:
+            重新生成的回复，或 None 表示重试失败
+        """
+        system_msg = self._get_system_prompt(state)
+        search_ctx = "" if state.get("skill_action") == "web_search" else state.get("search_context", "")
+
+        # 使用压缩后的历史
+        history = state.get("_compressed_history", state.get("history", []))
+
+        msgs, new_summary = await self.responder.compressor.build_context(
+            system_prompt=system_msg,
+            user_input=user_input,
+            history=history,
+            running_summary=state.get("running_summary", ""),
+            memory_str=state.get("memory_str", ""),
+            search_ctx=search_ctx,
+        )
+
+        # 保存滚动摘要
+        if new_summary and new_summary != state.get("running_summary", ""):
+            state["running_summary"] = new_summary
+
+        # 在对话末尾添加反思反馈，引导 LLM 修正
+        msgs.append({
+            "role": "assistant",
+            "content": original_response,
+        })
+        msgs.append({
+            "role": "user",
+            "content": (
+                f"【系统校验反馈】你上面的回复存在问题：{feedback}\n"
+                "请基于用户最初的问题重新给出一个更准确、更相关的回复。"
+                "只输出修正后的回复内容，不要解释。"
+            ),
+        })
+
+        try:
+            response = await self.llm_client.chat.completions.create(
+                model=get_config().llm.llm_model,
+                messages=msgs,
+                temperature=0.5,
+                max_tokens=get_config().llm.max_tokens,
+            )
+            result = response.choices[0].message.content.strip()
+            logger.info(f"Regeneration with feedback done, len={len(result)}")
+            return result
+        except Exception as e:
+            logger.error(f"Regeneration with feedback failed: {e}")
+            return None
+
     def _get_system_prompt(self, state: SupervisorState) -> str:
         """根据技能类型选择合适的系统提示词，注入用户画像和记忆。
 
-        v2.1 增强:
+        增强特性:
+            - 注入 key_context（从短期对话历史提取的关键信息：位置/偏好/身份）
+            - 这些信息帮助 LLM 理解上下文，如用户之前说了"我在杭州"，
+              后续问"明天天气如何"时能自动关联位置
             - 注入 user_habits（用户习惯，从 MySQL 加载）
             - 注入 user_profile（用户画像，从 Neo4j 加载）
             - 动态选择 prompt 模板（chat / search / vehicle）
-
-        v2.2.1 修复:
             - 搜索类提示词注入位置状态，无位置时禁止编造地址
             - 闲聊提示词注入位置状态，避免 LLM 基于记忆编造位置
         """
-        # v2.2.1: 获取当前位置状态
+        # 获取当前位置状态
         location_status = self._get_location_status(state)
+
+        # 注入当前东八区时间，让 LLM 能正确回答时间相关问题
+        # 同时计算今天/明天/后天的日期，注入搜索提示词防止日期混淆
+        cn_tz = timezone(timedelta(hours=8))
+        now_cn = datetime.now(cn_tz)
+        weekday_map = {"Monday": "星期一", "Tuesday": "星期二", "Wednesday": "星期三",
+                        "Thursday": "星期四", "Friday": "星期五", "Saturday": "星期六",
+                        "Sunday": "星期日"}
+        weekday_cn = weekday_map.get(now_cn.strftime("%A"), now_cn.strftime("%A"))
+        current_time_str = (
+            f"{now_cn.strftime('%Y年%m月%d日')} {weekday_cn} "
+            f"{now_cn.strftime('%H:%M')}"
+        )
+        # 计算今天/明天/后天的日期字符串
+        today_date_str = now_cn.strftime("%m月%d日")
+        tomorrow_date_str = (now_cn + timedelta(days=1)).strftime("%m月%d日")
+        day_after_tomorrow_str = (now_cn + timedelta(days=2)).strftime("%m月%d日")
 
         # 搜索类技能使用专用 search 提示词
         if state.get("skill_action") == "web_search" and state.get("search_context"):
             search_prompt = self.prompt_manager.render(
                 "search",
                 search_context=state.get("search_context", ""),
+                current_time=current_time_str,
+                today_date=today_date_str,
+                tomorrow_date=tomorrow_date_str,
+                day_after_tomorrow_date=day_after_tomorrow_str,
             )
             if search_prompt:
-                # v2.2.1: 追加位置状态约束
+                # 追加位置状态约束
                 if location_status:
                     search_prompt += f"\n\n## 当前位置状态\n{location_status}\n"
                 return search_prompt
 
-        # v2.1: 加载用户画像和习惯
+        # 加载用户画像和习惯
         user_profile = state.get("user_profile", {})
         profile_str = ""
         if user_profile:
@@ -794,11 +1211,11 @@ class SupervisorGraph:
             elif user_profile.get("user_id"):
                 profile_str = f"用户: {user_profile['user_id']}"
 
-        # v2.1: 从 state 中获取习惯记忆（已在 recall 中加载）
+        # 从 state 中获取习惯记忆（已在 recall 中加载）
         memory_str = state.get("memory_str", "")
         habits_str = state.get("habits_str", "")
 
-        # v2.2.4: 注入当前东八区时间，让 LLM 能正确回答时间相关问题
+        # 注入当前东八区时间，让 LLM 能正确回答时间相关问题
         cn_tz = timezone(timedelta(hours=8))
         now_cn = datetime.now(cn_tz)
         weekday_map = {"Monday": "星期一", "Tuesday": "星期二", "Wednesday": "星期三",
@@ -810,7 +1227,7 @@ class SupervisorGraph:
             f"{now_cn.strftime('%H:%M')}"
         )
 
-        # 默认使用 chat 提示词（v2.1 增强版）
+        # 默认使用 chat 提示词
         prompt = self.prompt_manager.render(
             "chat",
             user_profile=profile_str,
@@ -819,9 +1236,26 @@ class SupervisorGraph:
             current_time=current_time_str,
         )
         if prompt:
-            # v2.2.1: 追加位置状态约束
+            # 追加位置状态约束
             if location_status:
                 prompt += f"\n\n## 当前位置状态\n{location_status}\n"
+            # 注入从短期对话历史提取的关键上下文
+            key_ctx = state.get("key_context", {})
+            if key_ctx:
+                key_ctx_str = self._format_key_context(key_ctx)
+                if key_ctx_str:
+                    prompt += f"\n\n## 当前对话关键上下文\n{key_ctx_str}\n"
+            # 当用户询问对话历史且存在滚动摘要时，引导 LLM 从摘要中查找
+            user_input = state.get("user_input", "")
+            running_summary = state.get("running_summary", "")
+            if running_summary and self._is_history_query(user_input):
+                prompt += (
+                    "\n\n## 重要指引 — 对话历史查询\n"
+                    "上方【历史摘要】包含了之前对话的压缩摘要，其中【对话脉络】部分按时间顺序列出了用户问过的所有问题。\n"
+                    "当用户询问\"我之前问了什么\"、\"第一个问题是什么\"等时，请从【历史摘要】的【对话脉络】中查找并回答。\n"
+                    "如果摘要中有相关信息，请如实告知；如果摘要中确实没有，才说\"不记得了\"。\n"
+                    "绝不能声称\"这是新对话\"或\"没有之前的交流\"，因为【历史摘要】证明之前有过对话。\n"
+                )
             return prompt
 
         # Fallback
@@ -832,10 +1266,42 @@ class SupervisorGraph:
         )
         if location_status:
             fallback += f"\n{location_status}"
+        # Fallback 也注入关键上下文
+        key_ctx = state.get("key_context", {})
+        if key_ctx:
+            key_ctx_str = self._format_key_context(key_ctx)
+            if key_ctx_str:
+                fallback += f"\n{key_ctx_str}"
         return fallback
 
+    @staticmethod
+    def _format_key_context(key_context: Dict[str, Any]) -> str:
+        """格式化关键上下文为可读文本，注入系统提示词。
+
+        将 extract_key_context 提取的字典格式化为 LLM 可理解的自然语言。
+        例如: {"location": "杭州", "preferences": ["喜欢咖啡"]}
+        → "用户位置：杭州\n用户偏好：喜欢咖啡"
+
+        Args:
+            key_context: 关键上下文字典
+
+        Returns:
+            格式化后的文本
+        """
+        if not key_context:
+            return ""
+        lines = []
+        if key_context.get("location"):
+            lines.append(f"- 用户提及位置：{key_context['location']}")
+        if key_context.get("preferences"):
+            prefs = "、".join(key_context["preferences"])
+            lines.append(f"- 用户偏好：{prefs}")
+        if key_context.get("identity"):
+            lines.append(f"- 用户身份：{key_context['identity']}")
+        return "\n".join(lines) if lines else ""
+
     def _get_location_status(self, state: SupervisorState) -> str:
-        """【v2.2.1】获取当前位置状态，用于注入提示词防止幻觉。
+        """获取当前位置状态，用于注入提示词防止幻觉。
 
         从车控适配器获取实时位置，如果位置不可用则明确告知 LLM
         不要编造地址信息。
@@ -867,7 +1333,7 @@ class SupervisorGraph:
 
         return ""
 
-    # ---- v2.2.5: 闲聊预校验 & 幻觉兜底 ----
+    # ---- 闲聊预校验 & 幻觉兜底 ----
 
     # 用户询问对话历史的关键词模式
     _HISTORY_QUERY_PATTERNS = [
@@ -885,24 +1351,37 @@ class SupervisorGraph:
     ]
 
     def _is_history_query(self, user_input: str) -> bool:
-        """【v2.2.5】检测用户是否在询问当前对话的历史记录。"""
+        """检测用户是否在询问当前对话的历史记录。"""
         return any(p in user_input for p in self._HISTORY_QUERY_PATTERNS)
 
     def _has_history(self, state: SupervisorState) -> bool:
-        """【v2.2.5】检查当前对话是否有历史记录（排除当前这一轮）。"""
+        """检查当前对话是否有历史记录（排除当前这一轮）。
+
+        即使对话被阈值压缩，只要 running_summary 存在，
+        就说明之前有对话历史（只是被折叠为摘要了）。
+        """
         history = state.get("history", [])
         # history 中每轮包含 user + assistant 两条，至少 2 条才算有历史
-        return bool(history) and len(history) >= 2
+        if bool(history) and len(history) >= 2:
+            return True
+        # 如果有滚动摘要，说明之前有对话（被压缩了）
+        running_summary = state.get("running_summary", "")
+        if running_summary and len(running_summary.strip()) > 0:
+            return True
+        return False
 
     def _is_hallucinated_history(self, response: str) -> bool:
-        """【v2.2.5】检测 LLM 回复是否包含编造的对话历史。"""
+        """检测 LLM 回复是否包含编造的对话历史。"""
         return any(p in response for p in self._HALLUCINATED_HISTORY_PATTERNS)
 
     def _pre_check_chat_response(self, state: SupervisorState) -> str | None:
-        """【v2.2.5】闲聊预校验 — 在调用 LLM 之前拦截明显的问题。
+        """闲聊预校验 — 在调用 LLM 之前拦截明显的问题。
+
+        只有在「既无对话历史」且「无滚动摘要」时才判定为新对话。
+        如果有滚动摘要（对话被压缩了），不拦截，让 LLM 基于摘要回答。
 
         检查场景:
-            1. 用户询问对话历史，但当前对话刚刚开始（无历史）
+            1. 用户询问对话历史，但当前对话完全无历史且无摘要
                → 直接返回"这是新对话"，不交给 LLM 编造
 
         Returns:
@@ -910,7 +1389,7 @@ class SupervisorGraph:
         """
         user_input = state.get("user_input", "")
 
-        # 场景 1: 用户问对话历史，但当前对话没有历史
+        # 场景 1: 用户问对话历史，但当前对话完全没有历史（包括无摘要）
         if self._is_history_query(user_input) and not self._has_history(state):
             logger.info(
                 f"Pre-check intercepted: history query with empty history, "
@@ -921,7 +1400,10 @@ class SupervisorGraph:
         return None
 
     def _post_check_chat_response(self, state: SupervisorState, response: str) -> str | None:
-        """【v2.2.5】闲聊后校验 — 在 LLM 回复返回后、呈现给用户前检查。
+        """闲聊后校验 — 在 LLM 回复返回后、呈现给用户前检查。
+
+        只有在「无历史」且「LLM 编造了历史模式」时才判定为幻觉。
+        如果有对话历史，不在此处拦截（交给 LLM 反思校验判断）。
 
         检查场景:
             1. 当前对话无历史，但 LLM 回复中出现了"您最初是问"等编造历史的模式
@@ -933,10 +1415,12 @@ class SupervisorGraph:
         user_input = state.get("user_input", "")
 
         # 场景 1: 无历史但 LLM 编造了对话历史
+        # 只有在确实没有历史的情况下，才检查是否编造了历史
+        # 如果有对话历史，助手引用历史是合理的，不在此处拦截
         if (not self._has_history(state)
                 and self._is_hallucinated_history(response)):
             logger.warning(
-                f"Post-check intercepted: hallucinated history detected, "
+                f"Post-check intercepted: hallucinated history detected (no history in state), "
                 f"user_input='{user_input[:50]}', response='{response[:80]}'"
             )
             return "这是一个新的对话，我们还没有之前的交流记录。请问有什么可以帮您的？"
@@ -946,9 +1430,12 @@ class SupervisorGraph:
     async def _generate_llm_response(self, state: SupervisorState) -> str:
         """调用 LLM 生成回复（非流式）。
 
-        v2.2.5: 增加预校验和后校验，防止编造对话历史。
+        特性:
+            - 使用压缩后的历史（如果 _supervisor_node 执行了阈值压缩）
+            - 将 build_context 返回的 new_summary 保存回 state，确保滚动摘要跨轮次持久化
+            - 预校验和后校验，防止编造对话历史
         """
-        # v2.2.5: 预校验 — 拦截明显的问题，不浪费 LLM 调用
+        # 预校验 — 拦截明显的问题，不浪费 LLM 调用
         pre_check = self._pre_check_chat_response(state)
         if pre_check is not None:
             return pre_check
@@ -958,14 +1445,21 @@ class SupervisorGraph:
         # 搜索类技能不需要重复传入 search_ctx（已在 system_msg 中）
         search_ctx = "" if state.get("skill_action") == "web_search" else state.get("search_context", "")
 
+        # 使用压缩后的历史（如果 supervisor 节点执行了阈值压缩）
+        history = state.get("_compressed_history", state.get("history", []))
+
         msgs, new_summary = await self.responder.compressor.build_context(
             system_prompt=system_msg,
             user_input=state.get("user_input", ""),
-            history=state.get("history", []),
+            history=history,
             running_summary=state.get("running_summary", ""),
             memory_str=state.get("memory_str", ""),
             search_ctx=search_ctx,
         )
+
+        # 保存更新后的滚动摘要到 state
+        if new_summary and new_summary != state.get("running_summary", ""):
+            state["running_summary"] = new_summary
 
         try:
             response = await self.llm_client.chat.completions.create(
@@ -976,7 +1470,7 @@ class SupervisorGraph:
             )
             result = response.choices[0].message.content.strip()
 
-            # v2.2.5: 后校验 — 检测 LLM 是否编造了对话历史
+            # 后校验 — 检测 LLM 是否编造了对话历史
             post_check = self._post_check_chat_response(state, result)
             if post_check is not None:
                 return post_check
@@ -989,9 +1483,10 @@ class SupervisorGraph:
     async def _stream_llm_response(self, state: SupervisorState) -> AsyncGenerator[str, None]:
         """流式调用 LLM 生成回复。
 
-        v2.2.5: 增加预校验，如果预校验拦截则直接返回替代回复。
+        使用压缩后的历史，保存滚动摘要。
+        增加预校验，如果预校验拦截则直接返回替代回复。
         """
-        # v2.2.5: 预校验 — 拦截明显的问题，不浪费 LLM 调用
+        # 预校验 — 拦截明显的问题，不浪费 LLM 调用
         pre_check = self._pre_check_chat_response(state)
         if pre_check is not None:
             yield pre_check
@@ -1002,14 +1497,21 @@ class SupervisorGraph:
         # 搜索类技能不需要重复传入 search_ctx（已在 system_msg 中）
         search_ctx = "" if state.get("skill_action") == "web_search" else state.get("search_context", "")
 
+        # 使用压缩后的历史
+        history = state.get("_compressed_history", state.get("history", []))
+
         msgs, new_summary = await self.responder.compressor.build_context(
             system_prompt=system_msg,
             user_input=state.get("user_input", ""),
-            history=state.get("history", []),
+            history=history,
             running_summary=state.get("running_summary", ""),
             memory_str=state.get("memory_str", ""),
             search_ctx=search_ctx,
         )
+
+        # 保存滚动摘要
+        if new_summary and new_summary != state.get("running_summary", ""):
+            state["running_summary"] = new_summary
 
         try:
             response = await self.llm_client.chat.completions.create(
@@ -1030,7 +1532,7 @@ class SupervisorGraph:
     async def _reviewer_node(self, state: SupervisorState) -> Dict[str, Any]:
         """Reviewer 节点：质量检查 + 记忆存储 + 对话向量化 + 延迟统计。
 
-        v2.1 增强:
+        增强特性:
             - 记忆提取存储（store_from_text）
             - 对话向量化存储（store_conversation）
             - 两者异步执行，不阻塞响应
@@ -1044,7 +1546,7 @@ class SupervisorGraph:
             update["final_response"] = "抱歉，我没有理解你的意思，能再说一次吗？"
             update["metadata"] = {"reviewer_fallback": True}
 
-        # 2. 触发后台记忆存储（v2.1: 三重记忆存储）
+        # 2. 触发后台记忆存储（三重记忆存储）
         if self.memory_manager and final_response:
             user_id = state.get("user_id", "default")
             user_input = state.get("user_input", "")
@@ -1057,7 +1559,7 @@ class SupervisorGraph:
             except Exception as e:
                 logger.error(f"Memory storage trigger failed: {e}")
 
-            # 2b. v2.1: 对话向量化 → Milvus（语义检索用）
+            # 2b. 对话向量化 → Milvus（语义检索用）
             try:
                 self.memory_manager.store_conversation_async(
                     user_input, final_response, user_id, cockpit_id
@@ -1088,6 +1590,37 @@ class SupervisorGraph:
         update.setdefault("metadata", {})["reviewer_latency_ms"] = reviewer_latency
         update["metadata"]["total_latency_ms"] = update["latency_ms"]
 
+        # 记录 Agent 活动到 MySQL subagent_logs（供运营总览引擎活动时间线展示）
+        try:
+            from nexus.core.db_manager import get_db_manager
+            db = get_db_manager()
+            if db.is_connected:
+                cockpit_id = state.get("cockpit_id", "cockpit-01")
+                intent = state.get("intent", {})
+                active_experts = state.get("active_experts", [])
+                skill_action = state.get("skill_action", "")
+                reflection_result = metadata.get("reflection_result", "")
+
+                check_items = {
+                    "user_input": state.get("user_input", "")[:100],
+                    "intent": intent.get("Intent", ""),
+                    "experts": active_experts,
+                    "skill_action": skill_action,
+                    "reflection": reflection_result,
+                    "latency_ms": update["latency_ms"],
+                }
+                is_anomaly = reflection_result in ("hallucination_guard", "corrected", "failed_no_suggestion")
+
+                await db.insert_subagent_log(
+                    cockpit_id=cockpit_id,
+                    check_items=check_items,
+                    llm_judgment={"reflection": reflection_result, "reason": metadata.get("reflection_reason", "")},
+                    decision_trace={"intent_source": intent.get("Route_Source", ""), "experts": active_experts},
+                    is_anomaly=is_anomaly,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to log agent activity: {e}")
+
         logger.info(
             f"Reviewer done: total_latency={update['latency_ms']}ms, "
             f"response='{final_response[:50]}...'"
@@ -1098,6 +1631,9 @@ class SupervisorGraph:
 
     async def invoke(self, state: SupervisorState) -> SupervisorState:
         """同步执行整个工作流（等待全部完成）。
+
+        如果执行了阈值压缩，用压缩后的历史替换 state["history"]，
+        确保 SessionStore 保存的是压缩后的历史而非原始历史。
 
         Args:
             state: SupervisorState 字典（用 create_initial_state 创建）
@@ -1110,6 +1646,14 @@ class SupervisorGraph:
             thread_id = state.get("session_id") or state.get("user_id", "default")
             config = {"configurable": {"thread_id": thread_id}}
         result = await self._graph.ainvoke(state, config=config)
+
+        # 如果执行了阈值压缩，用压缩后的历史（含新轮次）替换原始历史
+        # LangGraph 的 add reducer 会将新轮次追加到原始历史，
+        # 但我们希望保存的是压缩后的历史 + 新轮次
+        compressed = result.pop("_compressed_history", None)
+        if compressed is not None:
+            result["history"] = compressed
+
         return result
 
     async def stream(self, state: SupervisorState) -> AsyncGenerator[str, None]:
@@ -1153,11 +1697,11 @@ class SupervisorGraph:
         full_response = ""
 
         if state.get("skill_handled"):
-            # B1: 搜索类技能 → v2.2.2: 先收集完整回复，做反思后统一发送
+            # B1: 搜索类技能 → 先收集完整回复，做反思后统一发送
             if state.get("skill_action") == "web_search" and state.get("search_context"):
                 full_response = await self._generate_llm_response(state)
                 state["final_response"] = full_response
-                # v2.2.2: 搜索类回复也走反思校验
+                # 搜索类回复也走反思校验
                 reflection_update = await self._reflection_node(state)
                 if reflection_update.get("final_response"):
                     full_response = reflection_update["final_response"]
@@ -1165,7 +1709,7 @@ class SupervisorGraph:
                     state.setdefault("metadata", {}).update(reflection_update["metadata"])
                 yield full_response
 
-            # B2: v2.2 工具返回了结构化数据 → Tool→LLM 合成 + 反思
+            # B2: 工具返回了结构化数据 → Tool→LLM 合成 + 反思
             elif state.get("tool_result") and state.get("tool_result", {}).get("data"):
                 full_response = await self._synthesize_tool_response(state)
                 state["final_response"] = full_response
@@ -1188,18 +1732,30 @@ class SupervisorGraph:
 
         # 分支 C: LLM 闲聊
         if not full_response:
-            # v2.2.5: 闲聊回复改为"先生成完整回复 → 校验 → 再发送"
-            # 不再直接流式输出未校验的内容，防止幻觉信息呈现给用户
+            # 闲聊回复改为"先生成完整回复 → 渐进式反思校验 → 再发送"
+            # 对所有闲聊回复都走 LLM 反思 + retry 流程，确保答案准确后再返回用户
             full_response = await self._generate_llm_response(state)
+            state["final_response"] = full_response
+            # 通用闲聊反思校验（渐进式校验机制）
+            reflection_update = await self._reflection_node(state)
+            if reflection_update.get("final_response"):
+                full_response = reflection_update["final_response"]
+            if reflection_update.get("metadata"):
+                state.setdefault("metadata", {}).update(reflection_update["metadata"])
             yield full_response
 
         state["final_response"] = full_response
 
-        # 更新历史
-        state.setdefault("history", []).extend([
+        # 更新历史 — 如果执行了阈值压缩，使用压缩后的历史作为基础
+        # 这样 SessionStore 保存的就是压缩后的历史 + 新轮次
+        new_turn = [
             {"role": "user", "content": state.get("user_input", "")},
             {"role": "assistant", "content": full_response},
-        ])
+        ]
+        if "_compressed_history" in state:
+            state["history"] = state["_compressed_history"] + new_turn
+        else:
+            state.setdefault("history", []).extend(new_turn)
 
         # Phase 5: Reviewer 后台异步执行（不阻塞流式输出）
         try:
@@ -1210,9 +1766,9 @@ class SupervisorGraph:
             logger.error(f"Background reviewer task failed: {e}")
 
     async def stream_with_events(self, state: SupervisorState) -> AsyncGenerator[dict, None]:
-        """流式执行工作流，输出结构化事件（v2.0 新增）。
+        """流式执行工作流，输出结构化事件。
 
-        v2.1 性能优化:
+        性能优化:
             - 启发式路由优先，常见车控指令 <1ms 命中
             - Reviewer 后台异步执行，不阻塞 done 事件
             - 用户感知延迟大幅降低
@@ -1271,13 +1827,13 @@ class SupervisorGraph:
         full_response = ""
 
         if state.get("skill_handled"):
-            # B1: 搜索类技能 → v2.2.2: 先收集完整回复，做反思后统一发送
+            # B1: 搜索类技能 → 先收集完整回复，做反思后统一发送
             if state.get("skill_action") == "web_search" and state.get("search_context"):
                 yield {"type": "thinking", "data": {"message": "正在分析搜索结果..."}}
                 # 先生成完整回复（不流式）
                 full_response = await self._generate_llm_response(state)
                 state["final_response"] = full_response
-                # v2.2.2: 搜索类回复也走反思校验
+                # 搜索类回复也走反思校验
                 reflection_update = await self._reflection_node(state)
                 if reflection_update.get("final_response"):
                     full_response = reflection_update["final_response"]
@@ -1286,7 +1842,7 @@ class SupervisorGraph:
                     state.setdefault("metadata", {}).update(reflection_update["metadata"])
                 yield {"type": "chunk", "data": {"chunk": full_response}}
 
-            # B2: v2.2 工具返回了结构化数据 → Tool→LLM 合成 + 反思
+            # B2: 工具返回了结构化数据 → Tool→LLM 合成 + 反思
             elif state.get("tool_result") and state.get("tool_result", {}).get("data"):
                 yield {"type": "thinking", "data": {"message": "正在分析工具结果..."}}
                 full_response = await self._synthesize_tool_response(state)
@@ -1309,19 +1865,30 @@ class SupervisorGraph:
                         break
 
         if not full_response:
-            # v2.2.5: 闲聊回复改为"先生成完整回复 → 校验 → 再发送"
-            # 不再直接流式输出未校验的内容，防止幻觉信息呈现给用户
-            # 预校验（_pre_check_chat_response）已内置于 _generate_llm_response
-            # 后校验（_post_check_chat_response）也内置于 _generate_llm_response
+            # 闲聊回复改为"先生成完整回复 → 渐进式反思校验 → 再发送"
+            # 对所有闲聊回复都走 LLM 反思 + retry 流程，确保答案准确后再返回用户
             yield {"type": "thinking", "data": {"message": "正在生成回复..."}}
             full_response = await self._generate_llm_response(state)
+            state["final_response"] = full_response
+            # 通用闲聊反思校验（渐进式校验机制）
+            yield {"type": "thinking", "data": {"message": "正在校验回复质量..."}}
+            reflection_update = await self._reflection_node(state)
+            if reflection_update.get("final_response"):
+                full_response = reflection_update["final_response"]
+            if reflection_update.get("metadata"):
+                state.setdefault("metadata", {}).update(reflection_update["metadata"])
             yield {"type": "chunk", "data": {"chunk": full_response}}
 
         state["final_response"] = full_response
-        state.setdefault("history", []).extend([
+        # 更新历史 — 如果执行了阈值压缩，使用压缩后的历史作为基础
+        new_turn = [
             {"role": "user", "content": state.get("user_input", "")},
             {"role": "assistant", "content": full_response},
-        ])
+        ]
+        if "_compressed_history" in state:
+            state["history"] = state["_compressed_history"] + new_turn
+        else:
+            state.setdefault("history", []).extend(new_turn)
 
         # Phase 5: 立即发送 done 事件（不等 Reviewer）
         # 计算已有延迟（supervisor + dispatch）

@@ -5,7 +5,7 @@
 """
 Unified Retriever — 统一检索路由层
 
-v2.0 新增模块:
+核心特性:
   - 根据 query_type 分发至不同知识库
   - GraphRAG（记忆/习惯）↔ Cherry KB（手册/故障/FAQ）
   - 支持混合检索模式（同时查两个知识库）

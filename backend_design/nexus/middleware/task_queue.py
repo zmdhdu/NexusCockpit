@@ -5,10 +5,7 @@
 """
 Task Queue — 异步任务队列
 
-v2.2 简化: 移除 Celery/RabbitMQ 依赖，改为使用 asyncio.create_task() 进程内异步执行。
-原 Celery 任务（task_store_memory, task_cleanup_cache）已移除：
-- task_store_memory: 改为在 ReviewerAgent 中直接调用 memory_manager.store_from_text_async()
-- task_cleanup_cache: 从未调用，已移除
+使用 asyncio.create_task() 进程内异步执行，无需额外中间件。
 
 优势:
   - 无需额外中间件（RabbitMQ）
@@ -37,7 +34,7 @@ _background_tasks: Set[asyncio.Task] = set()
 def create_background_task(coro, name: str = "") -> asyncio.Task:
     """创建后台异步任务，自动管理强引用。
 
-    v2.2 替代 Celery 的 task_store_memory.delay() 调用。
+    替代传统消息队列的 delay() 调用，实现进程内异步执行。
 
     Args:
         coro: 协程对象
@@ -56,7 +53,7 @@ def create_background_task(coro, name: str = "") -> asyncio.Task:
 async def store_memory_async(user_text: str, user_id: str) -> int:
     """异步记忆存储任务。
 
-    v2.2 替代原 Celery task_store_memory。
+    在后台异步执行记忆提取和存储，不阻塞主对话流程。
 
     Args:
         user_text: 用户输入的对话文本

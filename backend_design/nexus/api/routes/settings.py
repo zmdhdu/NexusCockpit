@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-设置中心 API 路由 — v2.1 座舱管理/用户管理/中间件配置/声纹
+设置中心 API 路由 — 座舱管理/用户管理/中间件配置/声纹
 
 Demo 阶段由 Python 提供 CRUD API。
 生产环境由 Go 网关直接操作 MySQL。
@@ -177,6 +177,42 @@ async def delete_user(
     return {"success": True, "message": f"User {user_id} deleted"}
 
 
+@router.put("/users/{user_id}/password")
+async def reset_user_password(
+    user_id: str = Path(...),
+    body: Dict[str, str] = ...,
+    request: Request = ...,
+) -> Dict[str, Any]:
+    """管理员重置用户密码。"""
+    db = get_db_manager()
+    if not db.is_connected:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    new_password = body.get("password", "")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    # 生成密码哈希
+    import hashlib
+    password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+
+    # 更新密码
+    success = await db.update_user_password(user_id, password_hash)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+
+    # 写入审计日志
+    await db.insert_audit_log(
+        cockpit_id="global",
+        user_id=request.state.user_id if hasattr(request.state, "user_id") else "admin",
+        action="password_reset",
+        detail={"target_user_id": user_id},
+    )
+
+    logger.info(f"Password reset for user: {user_id} by admin")
+    return {"success": True, "message": f"User {user_id} password reset successfully"}
+
+
 # ============================================================
 # 中间件配置
 # ============================================================
@@ -184,11 +220,9 @@ async def delete_user(
 @router.get("/middleware")
 async def get_middleware_config() -> Dict[str, Any]:
     """获取中间件配置。"""
-    config = get_config().cockpit
     redis_config = get_config().redis
     return {
-        "isolation_mode": config.isolation_mode,
-        # v2.2 简化: subagent_check_min/max/mainagent_confirm_enabled 已移除
+        # isolation_mode / subagent_check_min/max / mainagent_confirm_enabled 已移除
         "cache_similarity_threshold": redis_config.cache_similarity_threshold,
         "rate_limit_qps": 100,
     }
@@ -260,11 +294,20 @@ async def enroll_voiceprint(
     user_id: str = Form(...),
     audio: UploadFile = File(...),
 ) -> Dict[str, Any]:
-    """声纹注册。"""
+    """声纹注册。
+
+    模型不可用时返回 HTTP 503，前端能正确识别失败。
+    """
     service = get_voiceprint_service()
     audio_data = await audio.read()
     audio_format = audio.filename.split(".")[-1] if audio.filename else "wav"
-    return await service.enroll(cockpit_id, user_id, audio_data, audio_format)
+    result = await service.enroll(cockpit_id, user_id, audio_data, audio_format)
+
+    # 模型不可用或特征提取失败时返回 503，让前端走 catch 分支
+    if not result.get("success", True):
+        raise HTTPException(status_code=503, detail=result.get("message", "声纹注册失败"))
+
+    return result
 
 
 @router.post("/voiceprint/verify")

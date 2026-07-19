@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: docs
+title: NexusCockpit 项目文档中心
+scope:
+    - docs/
+source_files: []
+depends_on: []
+related_to:
+    - path: infra_config
+    - path: shared_assets

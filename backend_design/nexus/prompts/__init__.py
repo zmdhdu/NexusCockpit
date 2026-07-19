@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Prompt Manager — v2.0 Prompt 模板管理
+Prompt Manager — Prompt 模板管理
 
 功能:
   1. 模板外置：所有 prompt 从 nexus/prompts/ 目录加载 .md 文件

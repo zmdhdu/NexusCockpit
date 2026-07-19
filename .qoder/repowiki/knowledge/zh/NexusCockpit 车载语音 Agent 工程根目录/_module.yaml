@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: NexusCockpit 车载语音 Agent 工程根目录
+scope:
+    - README.md
+    - .gitignore
+    - .editorconfig
+    - .pre-commit-config.yaml
+    - Makefile
+    - docker-compose.yml
+    - Agent.md
+    - .env
+    - .env.example
+    - LICENSE
+source_files: []
+depends_on: []
+related_to: []

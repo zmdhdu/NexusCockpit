@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-座舱 API 路由 — v2.1 多座舱对话/车控/状态接口
+座舱 API 路由 — 多座舱对话/车控/状态接口
 
 所有路由以 /cockpit/{cockpit_id} 为前缀，
 支持按座舱隔离的对话、车控、状态查询。

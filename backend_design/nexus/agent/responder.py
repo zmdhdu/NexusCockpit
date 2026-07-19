@@ -51,7 +51,7 @@ class ResponderAgent:
             base_url=self.config.ark_base_url,
         )
         self.compressor = compressor or ContextCompressor(self.client)
-        # v2.2 新增: 本地 LLM 降级客户端
+        # 本地 LLM 降级客户端
         self._fallback_client: AsyncOpenAI | None = None
         if self.config.fallback_enabled:
             self._fallback_client = AsyncOpenAI(
@@ -186,7 +186,7 @@ class ResponderAgent:
             return response.choices[0].message.content.strip()
         except Exception as e:
             logger.error(f"LLM response failed: {e}")
-            # v2.2 新增: 云端 LLM 失败时降级到本地 LLM
+            # 云端 LLM 失败时降级到本地 LLM
             if self._fallback_client:
                 logger.warning("Falling back to local LLM")
                 try:
@@ -243,7 +243,7 @@ class ResponderAgent:
                     yield content
         except Exception as e:
             logger.error(f"LLM streaming failed: {e}")
-            # v2.2 新增: 云端 LLM 失败时降级到本地 LLM
+            # 云端 LLM 失败时降级到本地 LLM
             if self._fallback_client:
                 logger.warning("Falling back to local LLM (streaming)")
                 try:

@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-数据中台 API 路由 — v2.1 全局统计/座舱对比/告警/Agent 活动
+数据中台 API 路由 — 全局统计/座舱对比/告警/Agent 活动
 
 所有数据中台 API 由 Python 提供（Demo 阶段）。
 生产环境由 Go 网关直接查 MySQL/Prometheus 返回。
@@ -44,7 +44,8 @@ async def get_overview() -> Dict[str, Any]:
         total_vehicle_cmds += int(stats.get("vehicle_cmd_count", 0))
         total_cache_hits += int(stats.get("cache_hits", 0))
         total_cache_misses += int(stats.get("cache_misses", 0))
-        lat = stats.get("last_latency_ms", 0)
+        # 使用各座舱的平均延迟来汇总全局平均延迟
+        lat = stats.get("avg_latency_ms", 0)
         if lat:
             total_latency += lat
             latency_count += 1
@@ -232,11 +233,70 @@ async def get_cockpit_comparison() -> List[Dict[str, Any]]:
             "chat_count": int(stats.get("chat_count", 0)),
             "vehicle_cmd_count": int(stats.get("vehicle_cmd_count", 0)),
             "cache_hit_rate": round(stats.get("cache_hit_rate", 0) * 100, 1),
-            "avg_latency_ms": round(stats.get("last_latency_ms", 0), 2),
+            # 车控成功率（运营对比中的"命中率"）— 基于车控指令成功数/总数
+            "vehicle_cmd_success_rate": round(stats.get("vehicle_cmd_success_rate", 1.0) * 100, 1),
+            # 平均延迟使用累加值计算的真实平均，而非最后一次延迟
+            "avg_latency_ms": round(stats.get("avg_latency_ms", stats.get("last_latency_ms", 0)), 2),
             "health_score": _calculate_health_score(stats),
         })
 
     return result
+
+
+@router.get("/cache-trend")
+async def get_cache_trend() -> List[Dict[str, Any]]:
+    """缓存趋势数据 — 按小时聚合最近 24 小时的缓存命中/未命中数据。
+
+    从 MySQL chat_logs 表查询真实数据，按小时分组统计 cache_hit=True/False 的数量。
+    返回 24 个数据点（每小时一个），前端可按需合并为 2 小时间隔显示。
+
+    Returns:
+        [{"hour": "00:00", "hits": 5, "misses": 2}, ...]
+    """
+    db = get_db_manager()
+    if not db.is_connected:
+        # 后端未连接时返回空数据（24 个零点）
+        return [{"hour": f"{h:02d}:00", "hits": 0, "misses": 0} for h in range(0, 25, 2)]
+
+    try:
+        rows = await db.execute_query(
+            "SELECT "
+            "  HOUR(created_at) as hr, "
+            "  SUM(CASE WHEN cache_hit = 1 THEN 1 ELSE 0 END) as hits, "
+            "  SUM(CASE WHEN cache_hit = 0 THEN 1 ELSE 0 END) as misses "
+            "FROM chat_logs "
+            "WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR) "
+            "GROUP BY HOUR(created_at) "
+            "ORDER BY hr"
+        )
+
+        # 构建完整的时间线（0-24 点，2 小时间隔）
+        hour_map = {int(r["hr"]): {
+            "hits": int(r.get("hits", 0) or 0),
+            "misses": int(r.get("misses", 0) or 0),
+        } for r in rows}
+
+        # 按小时填充，然后合并为 2 小时间隔
+        hourly = []
+        for h in range(24):
+            data = hour_map.get(h, {"hits": 0, "misses": 0})
+            hourly.append({"hour": h, "hits": data["hits"], "misses": data["misses"]})
+
+        # 合并为 2 小时间隔
+        trend = []
+        for h in range(0, 24, 2):
+            combined_hits = hourly[h]["hits"] + (hourly[h + 1]["hits"] if h + 1 < 24 else 0)
+            combined_misses = hourly[h]["misses"] + (hourly[h + 1]["misses"] if h + 1 < 24 else 0)
+            label = f"{h:02d}:00"
+            trend.append({"time": label, "hits": combined_hits, "misses": combined_misses})
+
+        # 添加 24:00 点（用于显示完整时间线）
+        trend.append({"time": "24:00", "hits": 0, "misses": 0})
+
+        return trend
+    except Exception as e:
+        logger.error(f"Failed to get cache trend: {e}")
+        return [{"time": f"{h:02d}:00", "hits": 0, "misses": 0} for h in range(0, 25, 2)]
 
 
 # ============================================================
@@ -310,10 +370,12 @@ def _calculate_health_score(stats: Dict[str, Any]) -> int:
     error_rate = stats.get("error_rate", 0.0)
     if error_rate > 0.05:
         score -= 30
-    # 延迟高扣分
-    latency = stats.get("last_latency_ms", 0)
-    if latency > 500:
-        score -= 20
-    elif latency > 1000:
+    # 延迟高扣分 — 优先使用平均延迟，回退到最后一次延迟
+    latency = stats.get("avg_latency_ms", stats.get("last_latency_ms", 0))
+    # 修复：先判断 >1000（扣 40 分），再判断 >500（扣 20 分）
+    # 此前 elif 顺序反了，导致 >1000 的请求也只扣 20 分，健康分无区分度
+    if latency > 1000:
         score -= 40
+    elif latency > 500:
+        score -= 20
     return max(score, 0)

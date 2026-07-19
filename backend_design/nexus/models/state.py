@@ -3,12 +3,12 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Supervisor State — v2.0 Multi-Agent 共享状态定义
+Supervisor State — Multi-Agent 共享状态定义
 
-v2.0 变更:
-  - 从 @dataclass 改为 TypedDict（LangGraph 原生支持）
+核心特性:
+  - 使用 TypedDict（LangGraph 原生支持）
   - 增加 Annotated reducer：list 用 add 累加，dict 用 merge_dict 合并
-  - 新增 expert_results / active_experts / query_type 等字段
+  - 包含 expert_results / active_experts / query_type 等字段
   - history 用 add 累加，避免节点间覆盖
 
 reducer 说明:
@@ -36,14 +36,18 @@ def merge_dict(left: dict, right: dict) -> dict:
 
 
 class SupervisorState(TypedDict, total=False):
-    """v2.0 Supervisor 多智能体工作流共享状态。
+    """Supervisor 多智能体工作流共享状态。
 
     所有节点（Supervisor / 5个专家 / Responder / Reviewer）
     读写同一个 SupervisorState 字典，通过 reducer 机制自动合并。
 
+    关键字段:
+        - key_context: 从短期对话历史提取的关键上下文（位置/偏好/身份）
+        - _compressed_history: 阈值压缩后的历史（内部使用，不持久化）
+
     字段分组:
         - 输入: user_input, user_id, session_id
-        - 记忆: recalled_memories, memory_str, user_profile
+        - 记忆: recalled_memories, memory_str, user_profile, key_context
         - Supervisor 路由: intent, intent_source, need_clarification,
           active_experts, query_type
         - 专家输出: expert_results (累加), search_context
@@ -55,13 +59,14 @@ class SupervisorState(TypedDict, total=False):
     user_input: str
     user_id: str
     session_id: str
-    cockpit_id: str  # v2.1: 座舱 ID（多租户隔离键）
+    cockpit_id: str  # 座舱 ID（多租户隔离键）
 
     # ---- 记忆召回 ----
     recalled_memories: Annotated[List[str], add]
     memory_str: str
-    habits_str: str  # v2.1: 用户习惯（从 MySQL 加载）
+    habits_str: str  # 用户习惯（从 MySQL 加载）
     user_profile: Dict[str, Any]
+    key_context: Dict[str, Any]  # 从短期历史提取的关键上下文（位置/偏好/身份）
 
     # ---- 意图路由 / Supervisor 分派 ----
     intent: Dict[str, Any]
@@ -74,12 +79,12 @@ class SupervisorState(TypedDict, total=False):
     # ---- 专家输出（并行累加） ----
     expert_results: Annotated[List[Dict[str, Any]], add]
 
-    # ---- 兼容 v1.0 技能字段 ----
+    # ---- 技能字段 ----
     skill_result: Any                   # DispatchResult
     skill_handled: bool
     skill_action: str
     search_context: str
-    # v2.2: 工具调用结果（供 Responder 做 LLM 合成和反思校验）
+    # 工具调用结果（供 Responder 做 LLM 合成和反思校验）
     tool_result: Dict[str, Any]         # {tool_name, message, data, handled}
     # 副作用标记: 车控等操作会修改车辆状态，此类响应禁止写入语义缓存
     # 避免 "打开空调" 缓存命中后车控指令不执行的安全事故 (from main L5 fix)
@@ -89,6 +94,7 @@ class SupervisorState(TypedDict, total=False):
     history: Annotated[List[Dict[str, str]], add]
     running_summary: str
     llm_response: str
+    _compressed_history: List[Dict[str, str]]  # 阈值压缩后的历史（内部传递用）
 
     # ---- 最终输出 ----
     final_response: str
@@ -100,9 +106,9 @@ class SupervisorState(TypedDict, total=False):
     latency_ms: float
 
 
-# ---- v1.0 向后兼容 ----
+# ---- 向后兼容 ----
 # chat.py 等旧代码用 AgentState(user_input=..., ...) 构造，
-# v2.0 改为直接用 dict，但保留别名避免大规模改键
+# 改为直接用 dict，但保留别名避免大规模改键
 
 AgentState = SupervisorState
 
@@ -112,17 +118,22 @@ def create_initial_state(
     user_id: str = "default",
     session_id: str = "",
     history: List[Dict[str, str]] | None = None,
+    running_summary: str = "",
 ) -> SupervisorState:
-    """创建初始 SupervisorState（v2.0 推荐入口）。
+    """创建初始 SupervisorState（推荐入口）。
 
-    替代 v1.0 的 AgentState(user_input=..., ...) 构造方式，
     确保所有带 reducer 的字段都有正确的初始值。
+
+    特性:
+        - 支持 running_summary 参数，从 SessionStore 加载滚动摘要
+        - 初始化 key_context 为空字典
 
     Args:
         user_input: 用户输入文本
         user_id: 用户 ID
         session_id: 会话 ID
         history: 历史对话（从 checkpoint 或内存恢复）
+        running_summary: 滚动摘要（从 SessionStore 加载）
 
     Returns:
         初始化好的 SupervisorState 字典
@@ -131,11 +142,12 @@ def create_initial_state(
         user_input=user_input,
         user_id=user_id,
         session_id=session_id,
-        cockpit_id="cockpit-01",  # v2.1: 默认座舱
+        cockpit_id="cockpit-01",  # 默认座舱
         recalled_memories=[],
         memory_str="",
-        habits_str="",  # v2.1: 用户习惯
+        habits_str="",  # 用户习惯
         user_profile={},
+        key_context={},  # 关键上下文
         intent={},
         intent_source="",
         need_clarification=False,
@@ -147,10 +159,10 @@ def create_initial_state(
         skill_handled=False,
         skill_action="",
         search_context="",
-        tool_result={},  # v2.2: 工具调用结果
+        tool_result={},  # 工具调用结果
         has_side_effect=False,
         history=list(history) if history else [],
-        running_summary="",
+        running_summary=running_summary,  # 从 SessionStore 加载的滚动摘要
         llm_response="",
         final_response="",
         metadata={},

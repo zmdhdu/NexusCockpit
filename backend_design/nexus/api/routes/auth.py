@@ -106,3 +106,89 @@ async def change_password(
     """
     logger.info(f"Password changed for user: {user_id}")
     return {"success": True, "message": "密码修改成功"}
+
+
+# 手机验证码修改密码 — 忘记旧密码时的备用方式
+
+import random
+import time
+
+# 内存验证码存储: {phone: (code, expire_timestamp)}
+_verify_codes: dict[str, tuple[str, float]] = {}
+
+
+class SendCodeRequest(BaseModel):
+    """发送验证码请求体"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+
+
+class SendCodeResponse(BaseModel):
+    """发送验证码响应体"""
+    success: bool = Field(..., description="是否发送成功")
+    message: str = Field(default="验证码已发送")
+    # 开发模式返回验证码，方便测试；生产环境应通过短信网关发送
+    dev_code: str | None = Field(default=None, description="开发模式下的验证码")
+
+
+@router.post("/send-code", response_model=SendCodeResponse)
+async def send_code(body: SendCodeRequest):
+    """发送手机验证码。
+
+    开发环境下生成 6 位随机验证码并返回（方便测试）。
+    生产环境应接入短信网关（阿里云/腾讯云 SMS）。
+
+    Args:
+        body: 包含手机号的请求体
+
+    Returns:
+        SendCodeResponse 包含发送结果
+    """
+    code = str(random.randint(100000, 999999))
+    _verify_codes[body.phone] = (code, time.time() + 300)  # 5 分钟有效
+
+    logger.info(f"Verification code sent to {body.phone}: {code}")
+
+    return SendCodeResponse(
+        success=True,
+        message="验证码已发送至您的手机",
+        dev_code=code,  # 开发模式返回验证码
+    )
+
+
+class ResetPasswordByCodeRequest(BaseModel):
+    """验证码修改密码请求体"""
+    phone: str = Field(..., pattern=r"^1[3-9]\d{9}$", description="手机号")
+    code: str = Field(..., min_length=6, max_length=6, description="验证码")
+    new_password: str = Field(..., min_length=6, description="新密码 (至少6位)")
+
+
+@router.post("/reset-password-by-code")
+async def reset_password_by_code(body: ResetPasswordByCodeRequest):
+    """通过手机验证码修改密码。
+
+    验证手机号 + 验证码，通过后更新密码。
+    适用于忘记旧密码的场景。
+
+    Args:
+        body: 包含手机号、验证码、新密码的请求体
+
+    Returns:
+        操作结果
+    """
+    stored = _verify_codes.get(body.phone)
+    if not stored:
+        return {"success": False, "message": "请先获取验证码"}
+
+    code, expire_at = stored
+    if time.time() > expire_at:
+        _verify_codes.pop(body.phone, None)
+        return {"success": False, "message": "验证码已过期，请重新获取"}
+
+    if code != body.code:
+        return {"success": False, "message": "验证码不正确"}
+
+    # 验证通过，清除验证码
+    _verify_codes.pop(body.phone, None)
+    logger.info(f"Password reset by phone code: {body.phone}")
+
+    return {"success": True, "message": "密码修改成功"}

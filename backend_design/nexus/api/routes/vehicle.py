@@ -9,7 +9,7 @@ Vehicle Routes — 车控命令 REST 接口
   POST /vehicle/command — 直接执行车控命令 (不经过 Agent 工作流)
   GET  /vehicle/status  — 获取车辆当前状态
 
-v2.1 多座舱隔离:
+多座舱隔离:
   每个座舱拥有独立的车控适配器实例，
   从请求头 X-Cockpit-Id 或 tenant_context 获取座舱 ID，
   确保 cockpit-01 的空调温度不影响 cockpit-02。
@@ -53,7 +53,7 @@ async def vehicle_command(
     """直接执行车控命令 (绕过 Agent 工作流)。
 
     需要 JWT 认证。适用于前端车控面板的按钮直接调用。
-    每个座舱拥有独立的车控状态（v2.1 隔离）。
+    每个座舱拥有独立的车控状态（座舱隔离）。
 
     Args:
         body: 包含 command 和 arguments 的请求体
@@ -80,7 +80,7 @@ async def vehicle_status(request: Request, user_id: str = Depends(get_current_us
     """获取车辆当前状态 (空调、车窗、座椅、媒体、导航、车况)。
 
     需要JWT认证。
-    每个座舱返回各自独立的车控状态（v2.1 隔离）。
+    每个座舱返回各自独立的车控状态（座舱隔离）。
 
     Returns:
         包含车辆各子系统状态的字典
@@ -110,7 +110,7 @@ async def update_location(
     """
     adapter = _get_adapter(request)
 
-    # v2.2.3: 仅存储 GPS 坐标到 adapter，不触发逆地理编码
+    # 仅存储 GPS 坐标到 adapter，不触发逆地理编码
     # 逆地理编码在用户查询位置/周边时按需调用（通过 NavExpert 或 POI 搜索技能）
     if hasattr(adapter, "navigation"):
         adapter.navigation["latitude"] = body.latitude

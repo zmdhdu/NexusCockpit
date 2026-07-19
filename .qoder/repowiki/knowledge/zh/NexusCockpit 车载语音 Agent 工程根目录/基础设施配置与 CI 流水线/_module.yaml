@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: infra_config
+title: 基础设施配置与 CI 流水线
+scope:
+    - config/
+    - scripts/
+    - .github/workflows/ci.yml
+source_files: []
+depends_on: []
+related_to:
+    - path: docs
+    - path: shared_assets

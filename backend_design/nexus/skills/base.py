@@ -5,16 +5,16 @@
 """
 Skill Base — 技能基类定义 + 装饰器自动注册
 
-v2.0 变更:
-  - 新增 @register_skill 装饰器，技能类标记后自动注册到全局表
-  - 新增 SkillGroup 枚举，标识技能归属的专家
-  - BaseSkill 新增 has_side_effect / cache_ttl 属性，用于缓存安全控制
+核心特性:
+  - @register_skill 装饰器，技能类标记后自动注册到全局表
+  - SkillGroup 枚举，标识技能归属的专家
+  - BaseSkill 提供 has_side_effect / cache_ttl 属性，用于缓存安全控制
   - SkillRegistry 初始化时自动扫描已注册技能，无需硬编码
 
 技能分类:
     车载技能: 空调/车窗/座椅/导航/媒体/状态查询
     非车载技能: 联网搜索/外卖点餐/声纹注册
-    v2.0 新增: 习惯画像/日程提醒/车辆健康/本地生活推荐
+    扩展技能: 习惯画像/日程提醒/车辆健康/本地生活推荐
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class BaseSkill(ABC):
     类属性 (name, description, parameters 等) 描述了技能的元信息，
     用于 LLM 意图路由和 Tool Schema 生成。
 
-    v2.0 新增类属性:
+    装饰器注入的类属性:
         _skill_name: 由 @register_skill 设置
         _skill_group: 归属专家分组
         _skill_has_side_effect: 是否有副作用（控制缓存）
@@ -131,7 +131,7 @@ class BaseSkill(ABC):
     requires_auth: bool = False
     idempotent: bool = True
 
-    # v2.0 装饰器注入的属性
+    # 装饰器注入的属性
     _skill_name: str = ""
     _skill_group: SkillGroup = SkillGroup.CHAT
     _skill_has_side_effect: bool = False

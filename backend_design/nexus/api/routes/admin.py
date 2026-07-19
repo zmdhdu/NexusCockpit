@@ -107,7 +107,7 @@ async def list_sessions(request: Request, user_id: str = Depends(get_current_use
     return {"sessions": sessions, "count": len(sessions)}
 
 
-# ---- v2.0 知识库管理接口 ----
+# ---- 知识库管理接口 ----
 
 class KBUploadResponse(BaseModel):
     """知识库上传响应"""

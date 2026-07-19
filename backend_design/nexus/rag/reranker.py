@@ -5,7 +5,7 @@
 """
 Rerank 模型封装 — BAAI/bge-reranker-v2-m3
 
-v2.0 新增模块:
+核心特性:
   - 加载本地 bge-reranker-v2-m3 模型（约560MB）
   - 对检索结果 Top-N 重排，提升精度
   - 支持 GPU/CPU 推理，CPU 延迟约200ms/20条

@@ -397,6 +397,22 @@ export async function changePassword(oldPassword: string, newPassword: string) {
   return data;
 }
 
+/** 发送手机验证码 */
+export async function sendVerifyCode(phone: string) {
+  const { data } = await api.post("/auth/send-code", { phone });
+  return data;
+}
+
+/** 通过手机验证码修改密码 */
+export async function changePasswordByCode(phone: string, code: string, newPassword: string) {
+  const { data } = await api.post("/auth/reset-password-by-code", {
+    phone,
+    code,
+    new_password: newPassword,
+  });
+  return data;
+}
+
 /** 获取缓存统计信息 */
 export async function getCacheStats(): Promise<CacheStats> {
   const { data } = await api.get<CacheStats>("/admin/cache/stats");
@@ -404,7 +420,7 @@ export async function getCacheStats(): Promise<CacheStats> {
 }
 
 // ============================================================
-// v2.0 Admin API — 配置保存 & 知识库管理
+// Admin API — 配置保存 & 知识库管理
 // ============================================================
 
 /** 保存系统配置 */
@@ -492,7 +508,7 @@ export async function sendCockpitChat(
 }
 
 // ============================================================
-// v2.1 DataPlatform API — 数据中台
+// DataPlatform API — 数据中台
 // ============================================================
 
 /** 数据中台全局概览 */
@@ -535,8 +551,14 @@ export async function getCockpitComparison(): Promise<CockpitComparison[]> {
   return data;
 }
 
+/** 缓存趋势数据（按 2 小时间隔聚合最近 24 小时的真实缓存命中/未命中数据） */
+export async function getCacheTrend(): Promise<{ time: string; hits: number; misses: number }[]> {
+  const { data } = await api.get<{ time: string; hits: number; misses: number }[]>("/dataplatform/cache-trend");
+  return data;
+}
+
 // ============================================================
-// v2.1 Middleware Status API — 中间件状态
+// Middleware Status API — 中间件状态
 // ============================================================
 
 /** 获取所有中间件状态
@@ -580,7 +602,7 @@ export async function getMiddlewareStatus(name: string): Promise<MiddlewareStatu
 }
 
 // ============================================================
-// v2.1 ASR API — 语音转文字
+// ASR API — 语音转文字
 // ============================================================
 
 /** 上传音频文件到后端 ASR 引擎进行语音转文字 */
@@ -600,7 +622,7 @@ export async function transcribeAudio(audioBlob: Blob): Promise<{ text: string; 
 }
 
 // ============================================================
-// v2.1 Settings API — 设置中心
+// Settings API — 设置中心
 // ============================================================
 
 /** 获取中间件配置 */
@@ -632,8 +654,18 @@ export async function registerUser(body: {
   return data;
 }
 
+/** 删除用户 */
+export async function deleteUser(user_id: string) {
+  await api.delete(`/settings/users/${user_id}`);
+}
+
+/** 重置用户密码 */
+export async function resetUserPassword(user_id: string, body: { password: string }) {
+  await api.put(`/settings/users/${user_id}/password`, body);
+}
+
 // ============================================================
-// v2.2.2 Chat Sessions API — 多会话管理
+// Chat Sessions API — 多会话管理
 // ============================================================
 
 /** 会话信息 */
@@ -679,8 +711,14 @@ export async function getSessionMessages(sessionId: string): Promise<Message[]> 
   }));
 }
 
+/** 更新会话标题（首次消息后用用户问题作为标题，豆包风格） */
+export async function updateChatSessionTitle(sessionId: string, title: string): Promise<{ success: boolean; title?: string }> {
+  const { data } = await api.patch(`/chat/sessions/${sessionId}/title`, { title });
+  return data;
+}
+
 // ============================================================
-// v2.1 Voiceprint API — 声纹注册/验证
+// Voiceprint API — 声纹注册/验证
 // ============================================================
 
 /** 获取声纹注册状态 */

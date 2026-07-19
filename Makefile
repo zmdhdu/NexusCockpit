@@ -15,7 +15,7 @@
 #   └── Makefile         # 本文件
 # ============================================================
 
-.PHONY: help install install-gpu install-frontend dev dev-frontend dev-all test lint format check clean docker-up docker-down docker-logs docker-clean init-db
+.PHONY: help install install-gpu install-frontend dev dev-frontend dev-all dev-log dev-frontend-log dev-gateway-log test lint format check clean docker-up docker-down docker-logs docker-clean init-db
 
 PYTHON := python
 PIP := pip
@@ -67,6 +67,19 @@ dev-all: ## Start backend + frontend (requires two terminals)
 	@echo "Run in separate terminals:"
 	@echo "  Terminal 1: make dev"
 	@echo "  Terminal 2: make dev-frontend"
+
+# v2.4: 带完整日志捕获的启动命令（终端输出 + 日志文件）
+# 所有终端输出（包括 uvicorn 访问日志、npm 编译日志等）都会写入日志文件
+# 日志文件位置: logs/{backend,frontend,go}_logs/
+
+dev-log: ## Start backend dev server with full log capture (PowerShell)
+	powershell -ExecutionPolicy Bypass -File scripts/start-backend.ps1
+
+dev-frontend-log: ## Start frontend dev server with full log capture (PowerShell)
+	powershell -ExecutionPolicy Bypass -File scripts/start-frontend.ps1
+
+dev-gateway-log: ## Start Go gateway with full log capture (PowerShell)
+	powershell -ExecutionPolicy Bypass -File scripts/start-gateway.ps1
 
 # ============================================================
 # Docker (Infrastructure)

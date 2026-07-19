@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-日程提醒技能组 — v2.0 新增
+日程提醒技能组
 
 3 个技能:
   1. set_reminder:    解析时间+内容，持久化存储提醒

@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: shared_assets
+title: 共享静态资源与模型数据
+scope:
+    - assets/
+    - data/
+    - models/
+source_files: []
+depends_on: []
+related_to:
+    - path: docs
+    - path: infra_config

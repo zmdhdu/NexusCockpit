@@ -108,7 +108,9 @@ export function useAudioRecorder() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const chunksRef = useRef<Float32Array[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const supportedRef = useRef(false);
+  // 改用 state 跟踪浏览器支持情况，检测到支持后触发重渲染，
+  // 避免 useRef 不触发重渲染导致首次渲染时按钮被误禁用。
+  const [supported, setSupported] = useState(false);
 
   useEffect(() => {
     // 浏览器兼容性检查
@@ -117,7 +119,7 @@ export function useAudioRecorder() {
       navigator.mediaDevices &&
       (window.AudioContext || (window as any).webkitAudioContext)
     ) {
-      supportedRef.current = true;
+      setSupported(true);
     }
     return () => {
       // 清理资源
@@ -134,7 +136,7 @@ export function useAudioRecorder() {
   }, []);
 
   const startRecording = useCallback(async () => {
-    if (!supportedRef.current) {
+    if (!supported) {
       setError("当前浏览器不支持录音功能");
       return;
     }
@@ -187,7 +189,7 @@ export function useAudioRecorder() {
         setError(`录音启动失败: ${err?.message || "未知错误"}`);
       }
     }
-  }, []);
+  }, [supported]);
 
   const stopRecording = useCallback((): Promise<Blob | null> => {
     return new Promise((resolve) => {
@@ -292,7 +294,7 @@ export function useAudioRecorder() {
     duration,
     error,
     audioBlob,
-    supported: supportedRef.current,
+    supported,
     startRecording,
     stopRecording,
     cancelRecording,

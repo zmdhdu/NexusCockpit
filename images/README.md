@@ -24,7 +24,7 @@
 | 文件名 | 对应页面 | URL | 说明 |
 |--------|----------|-----|------|
 | `dataplatform.png` | 数据中台看板 | http://localhost:3000/dataplatform | 跨座舱数据统计与分析平台 |
-| `middleware-monitor.png` | 中间件监控看板 | http://localhost:3000/middleware | Milvus/Neo4j/Redis/RabbitMQ/MySQL 状态监控 |
+| `middleware-monitor.png` | 中间件监控看板 | http://localhost:3000/middleware | Milvus/Neo4j/Redis/MySQL/ASR/TTS/LLM 状态监控（每行2个组件布局） |
 | `grafana.png` | Grafana 监控面板 | http://localhost:3001 | Prometheus 指标 + Grafana 可视化看板 |
 
 ### 🏗️ `architecture/` — 架构设计图（可选）

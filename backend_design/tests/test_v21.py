@@ -1,5 +1,5 @@
 """
-NexusCockpit v2.1 单元测试 — 多座舱管理 + 多租户上下文
+NexusCockpit 单元测试 — 多座舱管理 + 多租户上下文
 
 测试覆盖:
 1. CockpitManager: 座舱注册/查询/更新/注销/隔离

@@ -5,10 +5,10 @@
 """
 Skill Registry — 技能注册中心
 
-v2.0 变更:
-  - 从硬编码 __init__ 改为装饰器自动发现 + 手动注册兼容
-  - 新增按 SkillGroup 分组查询接口（供专家 Agent 使用）
-  - 新增 has_side_effect / cache_ttl 查询接口（供缓存层使用）
+核心特性:
+  - 装饰器自动发现 + 手动注册兼容
+  - 按 SkillGroup 分组查询接口（供专家 Agent 使用）
+  - has_side_effect / cache_ttl 查询接口（供缓存层使用）
 
 技能注册方式:
   1. 装饰器自动注册: @register_skill("name", SkillGroup.XXX) 标记技能类
@@ -35,10 +35,10 @@ logger = get_logger(__name__)
 class SkillRegistry:
     """技能注册中心。
 
-    v2.0 初始化流程:
+    初始化流程:
       1. 扫描 _SKILL_REGISTRY 全局表，获取所有用 @register_skill 标记的技能类
       2. 实例化每个技能类（通过 factory 回调注入 graph_store / vehicle_adapter 等依赖）
-      3. 同时支持手动 register() 注册兼容 v1.0
+      3. 同时支持手动 register() 注册
 
     Args:
         graph_store: Neo4j 图谱存储（供点餐/习惯技能查询）
@@ -55,7 +55,7 @@ class SkillRegistry:
         # 1. 自动扫描装饰器注册的技能
         self._auto_discover()
 
-        # 2. 兼容 v1.0：注册未被装饰器标记的技能
+        # 2. 注册未被装饰器标记的技能
         self._register_legacy_skills()
 
         logger.info(f"SkillRegistry initialized with {len(self._skills)} skills: {list(self._skills.keys())}")
@@ -95,8 +95,8 @@ class SkillRegistry:
         return cls(**kwargs)
 
     def _register_legacy_skills(self) -> None:
-        """兼容 v1.0：注册未被 @register_skill 标记的旧技能。"""
-        # v1.0 的技能如果已经用 @register_skill 标记，_auto_discover 已处理
+        """注册未被 @register_skill 标记的旧技能。"""
+        # 如果已经用 @register_skill 标记，_auto_discover 已处理
         # 这里只处理未标记的旧技能（通过检查 _SKILL_REGISTRY 是否覆盖了它们）
         from nexus.skills.special import AmapPoiSearchSkill, FoodDeliverySkill, RegisterVoiceSkill, WebSearchSkill
         from nexus.skills.vehicle.climate import ClimateControlSkill
@@ -139,7 +139,7 @@ class SkillRegistry:
                     logger.error(f"Failed to register legacy skill '{name}': {e}")
 
     def register(self, name: str, skill: BaseSkill) -> None:
-        """手动注册技能（兼容 v1.0 接口）。"""
+        """手动注册技能。"""
         self._skills[name] = skill
 
     def get_skill(self, name: str) -> Optional[BaseSkill]:
@@ -155,14 +155,14 @@ class SkillRegistry:
         return [skill.get_tool_schema() for skill in self._skills.values()]
 
     def get_skills_by_group(self, group: SkillGroup) -> Dict[str, BaseSkill]:
-        """按专家分组获取技能（v2.0 新增，供专家 Agent 使用）。"""
+        """按专家分组获取技能（供专家 Agent 使用）。"""
         return {
             name: skill for name, skill in self._skills.items()
             if getattr(skill, "_skill_group", SkillGroup.CHAT) == group
         }
 
     def get_side_effect_skills(self) -> List[str]:
-        """获取所有有副作用的技能名称（v2.0 新增，供缓存层使用）。"""
+        """获取所有有副作用的技能名称（供缓存层使用）。"""
         return [
             name for name, skill in self._skills.items()
             if getattr(skill, "_skill_has_side_effect", False)

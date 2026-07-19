@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-车辆健康/诊断技能组 — v2.0 新增
+车辆健康/诊断技能组
 
 3 个技能:
   1. diagnose_vehicle:    车辆异常问题解读，调取车辆状态

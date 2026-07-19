@@ -5,7 +5,7 @@
 """
 Cherry Knowledge Base — 文档型知识库
 
-v2.0 新增模块:
+核心特性:
   - 基于 Milvus 文档向量集合存储长文档（车手册、故障码、FAQ、保养规范）
   - 完整链路: 文档分块 → Embedding → Milvus 存储 → KBRetriever 检索
   - 与 GraphRAG（记忆/习惯）分层互补

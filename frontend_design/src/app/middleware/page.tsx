@@ -13,8 +13,6 @@ import {
   MemoryStick,
   Server,
   Activity,
-  CheckCircle2,
-  XCircle,
   RefreshCw,
   Volume2,
   Mic,
@@ -30,7 +28,6 @@ const middlewareIcons: Record<string, typeof Database> = {
   redis: Database,
   milvus: HardDrive,
   neo4j: Activity,
-  rabbitmq: Server,
   mysql: Database,
   python_ai: Server,
   llm: Server,
@@ -45,7 +42,6 @@ const middlewareNames: Record<string, string> = {
   redis: "Redis",
   milvus: "Milvus",
   neo4j: "Neo4j",
-  rabbitmq: "RabbitMQ",
   mysql: "MySQL",
   python_ai: "Python AI 服务",
   llm: "LLM 大语言模型",
@@ -57,7 +53,7 @@ const middlewareNames: Record<string, string> = {
 
 // 健康状态集合 — 后端可能返回的 "正常" 状态值
 const HEALTHY_STATUSES = new Set([
-  "connected",   // Redis/Milvus/Neo4j/RabbitMQ/MySQL 连接成功
+  "connected",   // Redis/Milvus/Neo4j/MySQL 连接成功
   "online",      // 在线
   "available",   // LLM/TTS/ASR/OSS 已配置且可用
   "running",     // 应用运行中
@@ -77,15 +73,14 @@ const STATUS_LABELS: Record<string, string> = {
   model_not_found: "模型缺失",
 };
 const middlewareColors: Record<string, string> = {
-  redis: "text-red-400",
+  asr: "text-cyan-400",
+  tts: "text-pink-400",
   milvus: "text-sky-400",
   neo4j: "text-emerald-400",
-  rabbitmq: "text-orange-400",
+  redis: "text-red-400",
   mysql: "text-blue-400",
   python_ai: "text-violet-400",
   llm: "text-indigo-400",
-  tts: "text-pink-400",
-  asr: "text-cyan-400",
   app: "text-emerald-400",
   oss: "text-amber-400",
 };
@@ -137,8 +132,8 @@ export default function MiddlewarePage() {
         </button>
       </div>
 
-      {/* 概览卡片 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-3">
+      {/* 中间件状态卡片 — 每行2个，按 asr→tts→milvus→neo4j→mysql→redis→llm→app→oss 排列 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {middlewareEntries.map(([key, status], index) => {
           const Icon = middlewareIcons[key] || Database;
           const color = middlewareColors[key] || "text-muted-foreground";
@@ -151,52 +146,6 @@ export default function MiddlewarePage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05, duration: 0.3 }}
-            >
-              <Card className="glass">
-                <CardContent className="p-4">
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/50">
-                      <Icon className={`h-5 w-5 ${color}`} />
-                    </div>
-                    <p className="text-sm font-bold">{name}</p>
-                    <div className="flex items-center gap-1">
-                      {isConnected ? (
-                        <>
-                          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                          <span className="text-xs text-emerald-400">{STATUS_LABELS[status.status] || "正常"}</span>
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="h-3 w-3 text-red-400" />
-                          <span className="text-xs text-red-400">{STATUS_LABELS[status.status] || status.status}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          );
-        })}
-        {middlewareEntries.length === 0 && loading && (
-          <div className="col-span-5 py-8 text-center text-muted-foreground">加载中...</div>
-        )}
-      </div>
-
-      {/* 详细状态卡片 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {middlewareEntries.map(([key, status], index) => {
-          const Icon = middlewareIcons[key] || Database;
-          const color = middlewareColors[key] || "text-muted-foreground";
-          const isConnected = HEALTHY_STATUSES.has(status.status);
-          const name = middlewareNames[key] || status.name || key;
-
-          return (
-            <motion.div
-              key={`detail-${key}`}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.1 + index * 0.1, duration: 0.4 }}
             >
               <Card className="glass">
                 <CardHeader>
@@ -250,6 +199,9 @@ export default function MiddlewarePage() {
             </motion.div>
           );
         })}
+        {middlewareEntries.length === 0 && loading && (
+          <div className="col-span-2 py-8 text-center text-muted-foreground">加载中...</div>
+        )}
       </div>
 
       {/* 隔离信息说明 */}

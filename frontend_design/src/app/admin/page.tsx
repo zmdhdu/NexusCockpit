@@ -16,11 +16,13 @@ import {
   ShieldCheck,
   Server,
   RefreshCw,
+  Lock,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordChangeDialog } from "@/components/ui/password-change-dialog";
 import { toast } from "sonner";
 import {
   getCockpits,
@@ -28,6 +30,7 @@ import {
   deleteCockpit,
   getUsers,
   registerUser,
+  deleteUser,
   getMiddlewareConfig,
   updateMiddlewareConfig,
 } from "@/lib/api";
@@ -65,6 +68,10 @@ export default function AdminPage() {
     cockpit_id: "cockpit-01",
     role: "cockpit_user",
   });
+
+  // 密码重置弹窗
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordTargetUser, setPasswordTargetUser] = useState<User | null>(null);
 
   /**
    * 生成随机用户名 — 字母 + 下划线 + 数字组合，数字不开头
@@ -137,6 +144,10 @@ export default function AdminPage() {
 
   // 用户操作
   const handleRegisterUser = async () => {
+    if (!userForm.user_id || !userForm.username) {
+      toast.error("请填写用户 ID 和用户名");
+      return;
+    }
     try {
       await registerUser(userForm);
       toast.success("用户添加成功");
@@ -145,6 +156,18 @@ export default function AdminPage() {
       fetchData();
     } catch {
       toast.error("用户添加失败");
+    }
+  };
+
+  // 删除用户
+  const handleDeleteUser = async (user_id: string) => {
+    if (!confirm(`确认删除用户 ${user_id}?`)) return;
+    try {
+      await deleteUser(user_id);
+      toast.success("用户已删除");
+      fetchData();
+    } catch {
+      toast.error("删除失败");
     }
   };
 
@@ -380,7 +403,9 @@ export default function AdminPage() {
                       <th className="p-3 text-left font-medium">用户名</th>
                       <th className="p-3 text-left font-medium">座舱</th>
                       <th className="p-3 text-left font-medium">身份</th>
+                      <th className="p-3 text-left font-medium">密码</th>
                       <th className="p-3 text-left font-medium">创建时间</th>
+                      <th className="p-3 text-left font-medium">操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -403,12 +428,35 @@ export default function AdminPage() {
                               {roleLabels[u.role] || u.role}
                             </span>
                           </td>
+                          <td className="p-3 text-xs text-muted-foreground">****</td>
                           <td className="p-3 text-xs text-muted-foreground">{u.created_at}</td>
+                          <td className="p-3 flex gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setPasswordTargetUser(u);
+                                setPasswordDialogOpen(true);
+                              }}
+                              className="text-primary hover:bg-primary/10"
+                            >
+                              <Lock className="h-3 w-3 mr-1" />
+                              重置密码
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteUser(u.user_id)}
+                              className="text-red-400 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                        <td colSpan={7} className="p-8 text-center text-muted-foreground">
                           {loading ? "加载中..." : "暂无用户"}
                         </td>
                       </tr>
@@ -420,6 +468,15 @@ export default function AdminPage() {
           </Card>
         </motion.div>
       )}
+
+      {/* 密码重置弹窗 — 支持旧密码验证或手机验证码 */}
+      <PasswordChangeDialog
+        open={passwordDialogOpen}
+        onOpenChange={setPasswordDialogOpen}
+        mode="admin_reset"
+        targetUserId={passwordTargetUser?.user_id}
+        targetUserLabel={passwordTargetUser?.user_id}
+      />
 
       {/* 系统配置 */}
       {activeTab === "config" && (

@@ -330,7 +330,7 @@ graph.add_edge("reviewer", END)
 
 | 顺序 | 文件 | 学到什么 | 重点 |
 |------|------|----------|------|
-| ① | `backend_design/scripts/v2.1_migration.sql` | v2.1 数据库迁移 | 建表语句、索引、外键 |
+| ① | `backend_design/scripts/v2.1_migration.sql` | 数据库迁移 | 建表语句、索引、外键 |
 | ② | `backend_design/nexus/core/db_manager.py` | 异步数据库管理 | MySQL 连接池、CRUD 操作 |
 
 ### 6.4 测试与脚本 (30 分钟)
@@ -673,7 +673,7 @@ MemoryManager 让 AI 能"记住"这些信息，实现个性化服务。
 
 3. **非阻塞存储** (`store_from_text_async` / `store_conversation_async`):
    - 对话回复不等待记忆存储完成，用 `asyncio.create_task()` 在后台执行
-   - v2.1.1 修复: 原来用线程+新事件循环，导致 embedding 跨循环报错；改为共享当前事件循环
+   - 修复: 原来用线程+新事件循环，导致 embedding 跨循环报错；改为共享当前事件循环
 
 #### 📁 关键文件
 
@@ -738,7 +738,7 @@ MemoryManager 让 AI 能"记住"这些信息，实现个性化服务。
 
 3. **用户画像** (`get_user_profile`):
    ```cypher
-   -- v2.1.1 修复: 使用 coalesce 处理可能缺失的 mid 属性
+   -- 使用 coalesce 处理可能缺失的 mid 属性
    RETURN type(r) as relation, t.name as target,
           labels(t) as labels, coalesce(r.mid, -1) as mid
    ```
@@ -773,7 +773,7 @@ MemoryManager 让 AI 能"记住"这些信息，实现个性化服务。
 
 ## 附录 D: 记忆存储数据流图
 
-### 🔄 数据流图: 对话记忆存储 (v2.1.1)
+### 🔄 数据流图: 对话记忆存储
 
 ```
 用户在聊天框输入 "我喜欢听爵士乐"
@@ -793,7 +793,7 @@ MemoryManager 让 AI 能"记住"这些信息，实现个性化服务。
   │       ├─ store_from_text_async(user_input, user_id)    ← 非阻塞!
   │       │   │
   │       │   ▼
-  │       │   [asyncio.create_task]  ← v2.1.1 修复: 共享当前事件循环
+  │       │   [asyncio.create_task]  ← 共享当前事件循环
   │       │   │
   │       │   ▼
   │       │   [_store_from_text_safe]  ← 安全包装: try/except

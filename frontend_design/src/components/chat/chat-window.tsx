@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useChatStore } from "@/stores/chat-store";
 import { useAuth } from "@/stores/auth-store";
-import { sendMessage, streamMessage, StreamError, transcribeAudio, createChatSession, listChatSessions, getSessionMessages } from "@/lib/api";
+import { sendMessage, streamMessage, StreamError, transcribeAudio, createChatSession, listChatSessions, getSessionMessages, updateChatSessionTitle } from "@/lib/api";
 import { emitVehicleRefresh } from "@/lib/vehicle-events";
 import { speak } from "@/lib/tts";
 import { cn, formatTime } from "@/lib/utils";
@@ -49,8 +49,10 @@ export function ChatWindow() {
   // 流式内容缓存在 ref 中，节流渲染避免阻塞 UI
   const streamingContentRef = useRef("");
   const rafScheduledRef = useRef(false);
+  // 当前正在生成的助手消息 ID（用于 handleStop 时更新 loading 状态）
+  const assistantIdRef = useRef<string | null>(null);
 
-  const { messages, addMessage, updateMessage, isStreaming, setStreaming, userId, cockpitId: chatCockpitId, setCockpitId, sessionId, setSessionId, newSession, setSessions, loadSessionMessages, sessionsByCockpit } =
+  const { messages, addMessage, updateMessage, isStreaming, setStreaming, userId, cockpitId: chatCockpitId, setCockpitId, sessionId, setSessionId, newSession, setSessions, loadSessionMessages, sessionsByCockpit, updateSessionTitle } =
     useChatStore();
   const { cockpitId: authCockpitId } = useAuth();
 
@@ -81,7 +83,7 @@ export function ChatWindow() {
     }
   }, [authCockpitId, chatCockpitId, setCockpitId]);
 
-  // v2.2.2: 加载会话列表（座舱切换时）
+  // 加载会话列表（座舱切换时）
   useEffect(() => {
     if (!chatCockpitId) return;
     const sessions = sessionsByCockpit[chatCockpitId];
@@ -114,7 +116,7 @@ export function ChatWindow() {
     }
   }, [chatCockpitId]);
 
-  // v2.2.2: 切换会话时从后端加载消息（如果本地缓存为空）
+  // 切换会话时从后端加载消息（如果本地缓存为空）
   useEffect(() => {
     if (!sessionId || !chatCockpitId) return;
     const key = `${chatCockpitId}:${sessionId}`;
@@ -202,6 +204,14 @@ export function ChatWindow() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setStreaming(false);
+      // 清除旧助手消息的 loading 状态，避免残留“思考中...”
+      if (assistantIdRef.current) {
+        const partialContent = streamingContentRef.current;
+        updateMessage(assistantIdRef.current, {
+          content: partialContent || "（已中断）",
+          loading: false,
+        });
+      }
     }
 
     setInput("");
@@ -216,6 +226,19 @@ export function ChatWindow() {
     };
     addMessage(userMsg);
 
+    // 首次消息后更新会话标题为用户问题摘要（豆包风格）
+    if (sessionId) {
+      const currentSessions = sessionsByCockpit[chatCockpitId] || [];
+      const currentSession = currentSessions.find((s) => s.session_id === sessionId);
+      if (currentSession && (currentSession.title === "新对话" || !currentSession.title)) {
+        const newTitle = text.length > 20 ? text.slice(0, 20) + "..." : text;
+        updateSessionTitle(sessionId, newTitle);
+        updateChatSessionTitle(sessionId, newTitle).catch(() => {
+          // 后端更新失败静默处理，本地已更新
+        });
+      }
+    }
+
     // Add placeholder assistant message
     const assistantId = crypto.randomUUID();
     const assistantMsg: Message = {
@@ -226,6 +249,7 @@ export function ChatWindow() {
       loading: true,
     };
     addMessage(assistantMsg);
+    assistantIdRef.current = assistantId;
     setStreaming(true);
     streamingContentRef.current = "";
 
@@ -290,7 +314,16 @@ export function ChatWindow() {
           }
         }
       } catch (streamErr) {
-        if (streamErr instanceof DOMException && streamErr.name === "AbortError") {
+        // 中断请求时清除 loading 状态，避免“思考中...”残留
+        if (
+          (streamErr instanceof DOMException && streamErr.name === "AbortError") ||
+          (streamErr instanceof Error && streamErr.name === "AbortError")
+        ) {
+          const partialContent = streamingContentRef.current;
+          updateMessage(assistantId, {
+            content: partialContent || "（已停止生成）",
+            loading: false,
+          });
           return;
         }
 
@@ -348,6 +381,16 @@ export function ChatWindow() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setStreaming(false);
+      // 立即更新助手消息的 loading 状态，让“思考中...”立即消失
+      if (assistantIdRef.current) {
+        const partialContent = streamingContentRef.current;
+        // 同步 ref 内容，防止 pending 的 rAF 回调用旧空内容覆盖
+        streamingContentRef.current = partialContent || "（已停止生成）";
+        updateMessage(assistantIdRef.current, {
+          content: partialContent || "（已停止生成）",
+          loading: false,
+        });
+      }
     }
   };
 

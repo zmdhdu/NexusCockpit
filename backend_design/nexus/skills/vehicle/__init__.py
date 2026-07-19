@@ -6,7 +6,7 @@
 Vehicle Base Skill — 车载技能基类
 统一通过 vehicle adapter 访问车控总线
 
-v2.1: 通过 tenant_context 获取当前座舱的独立适配器实例，
+通过 tenant_context 获取当前座舱的独立适配器实例，
 确保 Agent 工作流中的车控操作也按座舱隔离。
 """
 
@@ -30,7 +30,7 @@ class VehicleBaseSkill(BaseSkill):
 
     @property
     def adapter(self) -> BaseVehicleAdapter:
-        """获取当前座舱的车控适配器（v2.1 多座舱隔离）。"""
+        """获取当前座舱的车控适配器（多座舱隔离）。"""
         try:
             from nexus.core.tenant_context import get_cockpit_id
             from nexus.vehicle.factory import get_cockpit_vehicle_adapter

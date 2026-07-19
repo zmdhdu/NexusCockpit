@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 from typing import List, Optional
-from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -46,8 +45,8 @@ class EmbeddingService:
             },
             timeout=30.0,
         )
-        self._executor = ThreadPoolExecutor(max_workers=4)
         self._circuit = CircuitBreaker(name="embedding_api", failure_threshold=3, recovery_period=15.0)
+        self._closed = False
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
     async def embed(self, text: str) -> List[float]:
@@ -62,6 +61,10 @@ class EmbeddingService:
         Raises:
             LLMError: 重试 3 次仍失败时抛出
         """
+        if self._closed:
+            logger.debug("EmbedService already closed, skip embed")
+            return [0.0] * self.config.embedding_dim
+
         if not text or not text.strip():
             return [0.0] * self.config.embedding_dim
 
@@ -82,8 +85,8 @@ class EmbeddingService:
         Returns:
             向量列表，顺序与输入一致
         """
-        if not texts:
-            return []
+        if self._closed or not texts:
+            return [] if not texts else [[0.0] * self.config.embedding_dim] * len(texts)
 
         all_embeddings: List[Optional[List[float]]] = [None] * len(texts)
         batches = [
@@ -132,5 +135,10 @@ class EmbeddingService:
         return [item["embedding"] for item in sorted_data]
 
     async def close(self) -> None:
+        """关闭 httpx 客户端，释放连接池资源。
+
+        设置 _closed 标志位，避免关闭后仍有 pending 的 embed 请求
+        产生误导性错误日志（如 "Executor shutdown has been called"）。
+        """
+        self._closed = True
         await self.client.aclose()
-        self._executor.shutdown(wait=False)

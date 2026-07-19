@@ -3,7 +3,7 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Expert Agents — v2.0 专家 Agent 模块
+Expert Agents — 专家 Agent 模块
 
 5 个独立专家 Agent，各自封装一组相关技能:
   - VehicleExpert:   车控（空调/车窗/座椅/媒体/状态）

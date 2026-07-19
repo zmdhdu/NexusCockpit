@@ -7,9 +7,8 @@ Navigation Expert — 导航专家 Agent
 
 封装导航技能：目的地设置、路线规划、途经点、当前位置查询。
 
-v2.2.2 修复:
-    - 查询位置时，从 adapter 缓存中读取 GPS 坐标传入工具，
-      避免 IP 定位超时导致"未知位置"
+注: 查询位置时，从 adapter 缓存中读取 GPS 坐标传入工具，
+    避免 IP 定位超时导致"未知位置"
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ class NavExpert(BaseExpertAgent):
         # 过滤 None 值
         cleaned = {k: v for k, v in nav_action.items() if v is not None}
 
-        # v2.2.2: 查询位置时，从 adapter 缓存中读取 GPS 坐标传入工具
+        # 查询位置时，从 adapter 缓存中读取 GPS 坐标传入工具
         # 避免 IP 定位超时导致"未知位置"
         op = cleaned.get("op", "")
         if op in ("location", "current_location", "where", "位置", "我在哪"):

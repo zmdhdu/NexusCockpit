@@ -5,8 +5,6 @@
 """
 个性化服务 — 根据声纹识别的用户ID匹配偏好内容。
 
-v2.2 新增模块。
-
 功能:
 1. 读取用户偏好 JSON 文件（data/preferences/{user_id}.json）
 2. 读取 MySQL user_habits 表（频次加权）

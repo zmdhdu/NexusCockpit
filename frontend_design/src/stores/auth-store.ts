@@ -5,7 +5,7 @@
  */
 
 /**
- * 认证状态管理 — v2.1 RBAC + 座舱选择
+ * 认证状态管理 — RBAC + 座舱选择
  *
  * 从 JWT Token 中解析用户角色和座舱 ID，
  * 提供全局认证状态和座舱切换能力。
@@ -71,28 +71,33 @@ function parseToken(token: string): JWTPayload | null {
 function loadAuthFromStorage(): AuthState {
   if (typeof window === "undefined") return { ...defaultAuthState };
 
+  // 无论是否登录，都保留上次选择的座舱 ID。
+  // 修复未登录用户刷新后 cockpitId 重置为默认值，导致声纹列表消失的问题。
+  const savedCockpitId = localStorage.getItem(COCKPIT_KEY) || "cockpit-01";
+  // 确保 cockpit_id 始终写入 localStorage，供 API 拦截器使用
+  localStorage.setItem(COCKPIT_KEY, savedCockpitId);
+
   const token = localStorage.getItem(TOKEN_KEY);
-  if (!token) return { ...defaultAuthState };
+  if (!token) return { ...defaultAuthState, cockpitId: savedCockpitId };
 
   const payload = parseToken(token);
-  if (!payload) return { ...defaultAuthState };
+  if (!payload) return { ...defaultAuthState, cockpitId: savedCockpitId };
 
   // 检查是否过期
   if (payload.exp && Date.now() >= payload.exp * 1000) {
     localStorage.removeItem(TOKEN_KEY);
-    return { ...defaultAuthState };
+    return { ...defaultAuthState, cockpitId: savedCockpitId };
   }
 
-  // 从 localStorage 获取上次选择的座舱，如果没有则使用 Token 中的或默认值
-  const savedCockpitId = localStorage.getItem(COCKPIT_KEY) || payload.cockpit_id || "cockpit-01";
-  // 确保 cockpit_id 始终写入 localStorage，供 API 拦截器使用
-  localStorage.setItem(COCKPIT_KEY, savedCockpitId);
+  // token 中的座舱 ID 优先级低于用户手动选择的（localStorage 中已保存的）
+  const finalCockpitId = savedCockpitId || payload.cockpit_id || "cockpit-01";
+  localStorage.setItem(COCKPIT_KEY, finalCockpitId);
 
   return {
     token,
     userId: payload.sub || "",
     role: (payload.role as UserRole) || "cockpit_user",
-    cockpitId: savedCockpitId,
+    cockpitId: finalCockpitId,
     isAuthenticated: true,
   };
 }

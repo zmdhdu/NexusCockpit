@@ -80,6 +80,23 @@ const CLIMATE_MODES = [
   { key: "defrost", label: "除霜", icon: Snowflake },
 ];
 
+/**
+ * 从 track 字段提取可显示的标题。
+ *
+ * 后端将 media.track 从字符串改为对象
+ * `{ title, filename, url, format }`，直接渲染对象会触发 React 错误：
+ * "Objects are not valid as a React child"。
+ * 此函数兼容三种形态：对象、字符串、空值。
+ */
+function getTrackTitle(track: unknown): string {
+  if (!track) return "未播放";
+  if (typeof track === "string") return track;
+  if (typeof track === "object" && track !== null) {
+    return (track as { title?: string }).title || "未播放";
+  }
+  return "未播放";
+}
+
 export function VehiclePanel() {
   const { cockpitId } = useAuth();
   const [status, setStatus] = useState<VehicleStatus | null>(null);
@@ -112,7 +129,7 @@ export function VehiclePanel() {
   useEffect(() => {
     if (!audioRef.current || !status?.media) return;
     const media = status.media as any;
-    // v2.2: 优先使用后端返回的 track.url，避免硬编码 track_01.wav
+    // 优先使用后端返回的 track.url，避免硬编码 track_01.wav
     const trackUrl = media.track?.url
       ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${media.track.url}`
       : `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/audio/music/track_${String((media.track_index ?? 0) + 1).padStart(2, "0")}.wav`;
@@ -158,12 +175,12 @@ useEffect(() => {
 fetchStatus();
 }, []);
 
-// v2.1: 座舱切换时重新拉取车辆状态（每个座舱数据独立）
+// 座舱切换时重新拉取车辆状态（每个座舱数据独立）
 useEffect(() => {
 fetchStatus();
 }, [cockpitId]);
 
-  // v2.2.2: GPS 定位已提取到全局 hook (use-gps-location.ts)，在根布局中统一管理
+  // GPS 定位已提取到全局 hook (use-gps-location.ts)，在根布局中统一管理
   // 此处仅保留位置更新后的状态刷新
   useEffect(() => {
     if (typeof navigator !== "undefined" && navigator.geolocation) {
@@ -191,7 +208,7 @@ fetchStatus();
       // 首次获取（全局 hook 也会更新，但这里需要刷新车辆面板状态）
       fetchLocation();
 
-      // v2.2.3: 降低轮询频率到 5 分钟，仅刷新坐标缓存
+      // 降低轮询频率到 5 分钟，仅刷新坐标缓存
       const interval = setInterval(fetchLocation, 300000);
       return () => clearInterval(interval);
     }
@@ -479,7 +496,7 @@ fetchStatus();
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
-                  {(status.media as any).track || "未播放"}
+                  {getTrackTitle((status.media as any).track)}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {status.media.playing ? "播放中" : "已暂停"}
@@ -556,7 +573,7 @@ fetchStatus();
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 <p className="text-xs text-muted-foreground">播放列表</p>
                 {((status.media as any).playlist as any[]).map((track, idx) => {
-                  // v2.2: 兼容 dict 格式（含 title/url）和旧版字符串格式
+                  // 兼容 dict 格式（含 title/url）和旧版字符串格式
                   const trackTitle = typeof track === 'object' ? track.title : track;
                   return (
                   <button

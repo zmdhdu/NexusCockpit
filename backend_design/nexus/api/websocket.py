@@ -32,6 +32,7 @@ import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from nexus.config import get_config
 from nexus.core.auth import decode_token
 from nexus.core.exceptions import AuthError
 from nexus.core.logger import get_logger, bind_context, clear_context
@@ -145,7 +146,7 @@ async def ws_chat(websocket: WebSocket):
                     await websocket.send_json({"error": str(e)})
                     continue
 
-            # 构建 v2.0 SupervisorState
+            # 构建 SupervisorState
             from nexus.models.state import create_initial_state
 
             # 优先从 SessionStore 加载历史 (from main L5 fix)
@@ -165,7 +166,7 @@ async def ws_chat(websocket: WebSocket):
 
             start = time.perf_counter()
 
-            # v2.0 流式执行（使用 stream_with_events）
+            # 流式执行（使用 stream_with_events）
             try:
                 async for event in app.state.agent_graph.stream_with_events(state):
                     await websocket.send_json(event)
@@ -176,7 +177,7 @@ async def ws_chat(websocket: WebSocket):
                 state_history = state.get("history", [])
                 if session_store:
                     await session_store.async_set(session_key, state_history)
-                app.state.session_histories[session_key] = state_history[-20:]
+                app.state.session_histories[session_key] = state_history[-get_config().memory.max_history_len:]
 
             except Exception as e:
                 logger.error(f"WS agent error: {e}")
