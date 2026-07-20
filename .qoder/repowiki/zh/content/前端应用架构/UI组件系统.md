@@ -6,6 +6,7 @@
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 - [frontend_design/src/components/ui/password-change-dialog.tsx](file://frontend_design/src/components/ui/password-change-dialog.tsx)
 - [frontend_design/tailwind.config.ts](file://frontend_design/tailwind.config.ts)
 - [frontend_design/postcss.config.js](file://frontend_design/postcss.config.js)
@@ -14,6 +15,13 @@
 - [frontend_design/src/app/globals.css](file://frontend_design/src/app/globals.css)
 - [frontend_design/src/lib/utils.ts](file://frontend_design/src/lib/utils.ts)
 </cite>
+
+## 更新摘要
+**变更内容**   
+- 新增Tooltip工具提示组件文档，提供上下文帮助和用户引导功能
+- 更新核心组件章节，包含新的Tooltip组件
+- 扩展详细组件分析部分，添加Tooltip组件的完整说明
+- 更新架构图和依赖关系图，反映新组件的集成
 
 ## 目录
 1. [简介](#简介)
@@ -28,7 +36,7 @@
 10. [附录](#附录)
 
 ## 简介
-本文件面向前端开发者与UI工程师，系统化阐述基于TailwindCSS的UI组件设计与样式规范。文档覆盖基础组件（按钮、卡片、对话框、输入框）的属性接口与使用方法，主题与尺寸变体、样式覆盖机制、组合模式与复用策略，以及开发规范、测试方法与无障碍访问、跨浏览器兼容性建议。目标是帮助团队在Next.js + TailwindCSS技术栈下，构建一致、可维护、可扩展的UI体系。
+本文件面向前端开发者与UI工程师，系统化阐述基于TailwindCSS的UI组件设计与样式规范。文档覆盖基础组件（按钮、卡片、对话框、输入框、工具提示）的属性接口与使用方法，主题与尺寸变体、样式覆盖机制、组合模式与复用策略，以及开发规范、测试方法与无障碍访问、跨浏览器兼容性建议。目标是帮助团队在Next.js + TailwindCSS技术栈下，构建一致、可维护、可扩展的UI体系。
 
 ## 项目结构
 前端采用Next.js应用，UI组件集中于src/components/ui目录，样式由TailwindCSS驱动并通过PostCSS集成。全局样式入口位于src/app/globals.css，工具函数位于src/lib/utils.ts。
@@ -44,9 +52,12 @@ G["utils.ts<br/>通用工具函数"] --> H["ui/button.tsx"]
 G --> I["ui/card.tsx"]
 G --> J["ui/dialog.tsx"]
 G --> K["ui/input.tsx"]
-L["ui/password-change-dialog.tsx<br/>业务组合示例"] --> H
+G --> L["ui/tooltip.tsx<br/>新增工具提示组件"]
+M["ui/password-change-dialog.tsx<br/>业务组合示例"] --> H
+M --> I
+M --> J
+L --> H
 L --> I
-L --> J
 end
 ```
 
@@ -61,6 +72,7 @@ end
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 - [frontend_design/src/components/ui/password-change-dialog.tsx](file://frontend_design/src/components/ui/password-change-dialog.tsx)
 
 章节来源
@@ -72,17 +84,20 @@ end
 - [frontend_design/src/lib/utils.ts](file://frontend_design/src/lib/utils.ts)
 
 ## 核心组件
-本节聚焦基础UI组件：Button、Card、Dialog、Input。每个组件均遵循以下设计原则：
+本节聚焦基础UI组件：Button、Card、Dialog、Input、Tooltip。每个组件均遵循以下设计原则：
 - 以Tailwind原子类为主，结合className透传实现样式覆盖
 - 通过props暴露最小必要属性集，保持API稳定
 - 使用语义化HTML标签与ARIA属性，保障可访问性
 - 提供尺寸变体与状态反馈（默认、悬停、禁用等）
+
+**新增** Tooltip组件提供上下文帮助和用户引导功能，支持多种触发方式和定位策略。
 
 章节来源
 - [frontend_design/src/components/ui/button.tsx](file://frontend_design/src/components/ui/button.tsx)
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 
 ## 架构总览
 组件层与样式系统的交互关系如下：
@@ -118,6 +133,13 @@ class Input {
 +disabled : boolean
 +error : boolean
 }
+class Tooltip {
++content : string
++trigger : ReactNode
++position : string
++delay : number
++disabled : boolean
+}
 class Utils {
 +cn(...classes)
 }
@@ -125,6 +147,7 @@ Button --> Utils : "合并类名"
 Card --> Utils : "合并类名"
 Dialog --> Utils : "合并类名"
 Input --> Utils : "合并类名"
+Tooltip --> Utils : "合并类名"
 ```
 
 图表来源
@@ -132,6 +155,7 @@ Input --> Utils : "合并类名"
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 - [frontend_design/src/lib/utils.ts](file://frontend_design/src/lib/utils.ts)
 
 ## 详细组件分析
@@ -270,6 +294,46 @@ ShowError --> End
 章节来源
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
 
+### Tooltip 工具提示（新增）
+- 职责：提供上下文帮助和用户引导，增强用户体验
+- 关键属性
+  - content：提示内容文本或React节点
+  - trigger：触发元素（通常是Button或其他可交互组件）
+  - position：定位位置（top/bottom/left/right）
+  - delay：显示延迟时间（毫秒）
+  - disabled：禁用提示功能
+  - className：外部样式覆盖
+- 行为与状态
+  - 鼠标悬停或焦点进入时显示提示
+  - 鼠标离开或焦点移出时隐藏提示
+  - 智能定位避免超出视口边界
+- 可访问性
+  - 使用aria-describedby关联提示内容
+  - 支持键盘导航和屏幕阅读器
+- 组合与复用
+  - 包裹任何可交互元素提供额外说明
+  - 与Button、Input等组件组合使用
+
+```mermaid
+sequenceDiagram
+participant U as "用户"
+participant T as "Tooltip"
+participant Trigger as "触发元素"
+U->>Trigger : "鼠标悬停/获得焦点"
+Trigger->>T : "触发显示"
+T->>T : "计算定位位置"
+T->>U : "显示提示内容"
+U->>Trigger : "鼠标离开/失去焦点"
+Trigger->>T : "触发隐藏"
+T->>U : "隐藏提示内容"
+```
+
+图表来源
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
+
+章节来源
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
+
 ### PasswordChangeDialog 密码修改对话框（组合示例）
 - 职责：封装密码修改流程，组合Dialog、Input、Button等基础组件
 - 组成
@@ -329,6 +393,7 @@ UT["utils.ts"] --> BTN["button.tsx"]
 UT --> CARD["card.tsx"]
 UT --> DIALOG["dialog.tsx"]
 UT --> INPUT["input.tsx"]
+UT --> TOOLTIP["tooltip.tsx"]
 ```
 
 图表来源
@@ -342,6 +407,7 @@ UT --> INPUT["input.tsx"]
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 
 章节来源
 - [frontend_design/package.json](file://frontend_design/package.json)
@@ -358,6 +424,7 @@ UT --> INPUT["input.tsx"]
   - 避免在高频事件回调中创建对象或复杂计算；将稳定逻辑提升到useMemo/useCallback
 - 交互体验
   - 对话框打开/关闭动画尽量轻量；输入框防抖处理长文本输入
+  - Tooltip组件使用延迟显示减少不必要的DOM操作
 - 资源加载
   - 图标与图片懒加载；按需引入字体与第三方库
 
@@ -373,6 +440,10 @@ UT --> INPUT["input.tsx"]
 - 输入框校验异常
   - 检查value/onChange绑定是否正确
   - 确认错误态的aria属性与提示文案同步
+- Tooltip显示问题
+  - 检查触发元素是否正确传递
+  - 验证定位计算是否超出视口边界
+  - 确认z-index层级设置
 - 构建问题
   - 核对package.json依赖版本与PostCSS/Tailwind配置匹配
   - 清理缓存后重新安装依赖
@@ -381,11 +452,12 @@ UT --> INPUT["input.tsx"]
 - [frontend_design/src/app/globals.css](file://frontend_design/src/app/globals.css)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 - [frontend_design/package.json](file://frontend_design/package.json)
 - [frontend_design/postcss.config.js](file://frontend_design/postcss.config.js)
 
 ## 结论
-本UI组件系统以TailwindCSS为核心，结合Next.js与PostCSS构建高效、一致的界面层。基础组件提供稳定的属性接口与可访问性支持，通过工具函数实现灵活的样式覆盖与组合复用。建议在团队内推广统一的开发规范与测试方法，持续完善主题与尺寸变体，以提升整体交付质量与可维护性。
+本UI组件系统以TailwindCSS为核心，结合Next.js与PostCSS构建高效、一致的界面层。基础组件提供稳定的属性接口与可访问性支持，通过工具函数实现灵活的样式覆盖与组合复用。新增的Tooltip组件进一步增强了用户引导和上下文帮助能力。建议在团队内推广统一的开发规范与测试方法，持续完善主题与尺寸变体，以提升整体交付质量与可维护性。
 
 [本节为总结性内容，不直接分析具体文件]
 
@@ -418,10 +490,12 @@ UT --> INPUT["input.tsx"]
 - 复用策略
   - 抽取通用布局容器与表单模板，减少重复代码
   - 通过props插槽传递头部/尾部操作区，增强灵活性
+  - Tooltip组件可包裹任何可交互元素，提供统一的帮助提示
 
 章节来源
 - [frontend_design/src/components/ui/password-change-dialog.tsx](file://frontend_design/src/components/ui/password-change-dialog.tsx)
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 
 ### 开发规范
 - 命名
@@ -438,12 +512,14 @@ UT --> INPUT["input.tsx"]
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/card.tsx](file://frontend_design/src/components/ui/card.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 
 ### 测试方法
 - 单元测试
   - 断言组件渲染结构与属性行为（如禁用态不可点击）
 - 交互测试
   - 模拟用户操作（点击、键盘、输入）验证状态流转
+  - 测试Tooltip的悬停显示和隐藏行为
 - 可访问性测试
   - 检查ARIA属性与焦点管理是否符合标准
 - 快照测试
@@ -456,15 +532,19 @@ UT --> INPUT["input.tsx"]
   - 使用button、dialog、input、article等原生语义
 - ARIA属性
   - 为模态与表单元素设置aria-modal、aria-labelledby、aria-describedby、aria-invalid等
+  - Tooltip使用aria-describedby关联提示内容
 - 键盘可达性
   - 支持Tab导航、Enter/Space触发、Esc关闭对话框
+  - Tooltip支持键盘焦点管理和Esc键关闭
 - 焦点管理
   - 打开对话框时聚焦首个可交互元素，关闭后恢复原焦点
+  - Tooltip在显示时保持原有焦点状态
 
 章节来源
 - [frontend_design/src/components/ui/dialog.tsx](file://frontend_design/src/components/ui/dialog.tsx)
 - [frontend_design/src/components/ui/input.tsx](file://frontend_design/src/components/ui/input.tsx)
 - [frontend_design/src/components/ui/button.tsx](file://frontend_design/src/components/ui/button.tsx)
+- [frontend_design/src/components/ui/tooltip.tsx](file://frontend_design/src/components/ui/tooltip.tsx)
 
 ### 跨浏览器兼容性
 - 现代浏览器
