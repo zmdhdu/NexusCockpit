@@ -34,6 +34,7 @@ from fastapi.responses import StreamingResponse
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.core.tenant_context import get_cockpit_id
+from nexus.intent.heuristic import HeuristicRouter
 from nexus.middleware.rate_limiter import RateLimiter
 from nexus.models.schemas import ChatRequest, ChatResponse
 from nexus.models.state import create_initial_state
@@ -49,6 +50,26 @@ from nexus.observability.metrics import (
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+# 启发式路由器单例 — 用于判断是否为车控指令（跳过缓存）
+_heuristic_router = HeuristicRouter()
+
+# 车控意图字段集合 — 命中其中任一即为车控指令
+_VEHICLE_INTENT_KEYS = (
+    "Climate_Action", "Window_Action", "Seat_Action",
+    "Media_Action", "Vehicle_Status_Action",
+)
+
+
+def _is_vehicle_command(text: str) -> bool:
+    """检查文本是否为车控指令。
+
+    使用启发式路由器快速判断，如果命中车控意图则跳过缓存，
+    确保车控命令每次都实际执行而非返回旧缓存。
+    """
+    quick = _heuristic_router.route(text)
+    return any(k in quick for k in _VEHICLE_INTENT_KEYS)
+
 
 # 会话级别并发锁 — 防止同一 session 的并发请求交叉污染会话历史
 # 当用户快速连续发送多条消息时，确保前一条处理完再处理下一条
@@ -77,6 +98,7 @@ async def _record_chat_metrics(
     app, cockpit_id: str, user_id: str, latency_ms: float,
     cache_hit: bool, skill_action: str, user_input: str, response: str,
     session_id: str = "",
+    skill_success: bool = True,
 ):
     """记录对话指标到 Redis + 持久化聊天日志到 MySQL。
 
@@ -87,21 +109,22 @@ async def _record_chat_metrics(
         app: FastAPI 应用实例
         cockpit_id: 座舱 ID
         user_id: 用户 ID
-        latency_ms: 响应延迟
+        latency_ms: 响应延迟（毫秒）
         cache_hit: 是否命中缓存
         skill_action: 执行的技能动作
         user_input: 用户输入
         response: 助手回复
         session_id: 会话 ID
+        skill_success: 技能执行是否成功（车控指令的验证结果）
     """
     # 1. 记录实时指标到 Redis（供运营总览看板使用）
     try:
         metrics = get_cockpit_metrics()
         logger.info(f"record_chat_metrics: cockpit_id={cockpit_id}, redis={metrics._redis is not None}")
         await metrics.record_chat(cockpit_id, latency_ms, cache_hit)
-        # 如果是车控指令，额外记录车控指标
+        # 如果是车控指令，额外记录车控指标（包含成功/失败状态）
         if skill_action and skill_action.startswith("vehicle_"):
-            await metrics.record_vehicle_cmd(cockpit_id, success=True)
+            await metrics.record_vehicle_cmd(cockpit_id, success=skill_success)
     except Exception as e:
         logger.error(f"Failed to record chat metrics: {e}")
 
@@ -173,9 +196,12 @@ async def chat(request: Request, body: ChatRequest):
     if rate_limiter:
         await rate_limiter.check_or_raise(body.user_id, "chat")
 
-    # 语义缓存查询
+    # 语义缓存查询 — 车控指令跳过缓存，确保每次都实际执行
+    # 旧缓存可能存储了车控响应（has_side_effect 修复前写入），
+    # 导致"打开车窗"命中缓存后不执行实际车控操作
+    is_vehicle_cmd = _is_vehicle_command(body.text)
     cache = app.state.semantic_cache
-    if cache and cache.is_enabled:
+    if cache and cache.is_enabled and not is_vehicle_cmd:
         cached = await cache.get(body.text, body.user_id)
         if cached:
             CACHE_HITS.inc()
@@ -195,6 +221,9 @@ async def chat(request: Request, body: ChatRequest):
                 cache_hit=True,
             )
         CACHE_MISSES.inc()
+    elif is_vehicle_cmd:
+        CACHE_MISSES.inc()
+        logger.info(f"Vehicle command detected, skipping cache: '{body.text[:50]}'")
 
     # 构建 SupervisorState 并执行
     agent_graph = app.state.agent_graph
@@ -274,9 +303,18 @@ async def chat(request: Request, body: ChatRequest):
     REQUEST_LATENCY.labels(endpoint="chat").observe(latency / 1000)
 
     # 记录指标 + 持久化聊天日志
+    # 从 expert_results 中提取车控指令的成功/失败状态
+    expert_results = state.get("expert_results", [])
+    skill_success = True
+    if skill_action and skill_action.startswith("vehicle_"):
+        for er in expert_results:
+            if er.get("skill_status") == "error":
+                skill_success = False
+                break
     await _record_chat_metrics(
         app, cockpit_id, body.user_id, latency, False, skill_action, body.text, final_response,
         session_id=body.session_id,
+        skill_success=skill_success,
     )
 
     # 结束 Langfuse trace
@@ -328,10 +366,12 @@ async def chat_stream(request: Request, body: ChatRequest):
         session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
         start = time.perf_counter()
 
-        # 语义缓存检查 — 流式接口也需要缓存检查，否则 cache_hit 永远为 False
-        # 导致座舱运营对比的命中率永远 0%
+        # 语义缓存检查 — 车控指令跳过缓存，确保每次都实际执行
+        # 旧缓存可能存储了车控响应（has_side_effect 修复前写入），
+        # 导致"打开车窗"命中缓存后不执行实际车控操作
+        is_vehicle_cmd = _is_vehicle_command(body.text)
         cache = app.state.semantic_cache
-        if cache and cache.is_enabled:
+        if cache and cache.is_enabled and not is_vehicle_cmd:
             cached = await cache.get(body.text, body.user_id)
             if cached:
                 CACHE_HITS.inc()
@@ -349,6 +389,9 @@ async def chat_stream(request: Request, body: ChatRequest):
                 yield f"data: {json.dumps({'type': 'done', 'data': {'response': cached_response, 'latency_ms': latency, 'cache_hit': True}}, ensure_ascii=False)}\n\n"
                 return
             CACHE_MISSES.inc()
+        elif is_vehicle_cmd:
+            CACHE_MISSES.inc()
+            logger.info(f"Vehicle command detected, skipping cache (stream): '{body.text[:50]}'")
 
         # 获取会话锁，防止同一 session 的并发请求交叉污染历史
         session_lock = _get_session_lock(session_key)
@@ -411,10 +454,19 @@ async def chat_stream(request: Request, body: ChatRequest):
                 latency = round((time.perf_counter() - start) * 1000, 2)
                 REQUEST_COUNT.labels(endpoint="chat", method="POST", status="success").inc()
                 REQUEST_LATENCY.labels(endpoint="chat").observe(latency / 1000)
+                # 从 expert_results 中提取车控指令的成功/失败状态
+                stream_expert_results = state.get("expert_results", [])
+                stream_skill_success = True
+                if skill_action and skill_action.startswith("vehicle_"):
+                    for er in stream_expert_results:
+                        if er.get("skill_status") == "error":
+                            stream_skill_success = False
+                            break
                 await _record_chat_metrics(
                     app, cockpit_id, body.user_id, latency, False, skill_action,
                     body.text, full_response,
                     session_id=body.session_id,
+                    skill_success=stream_skill_success,
                 )
 
             except Exception as e:

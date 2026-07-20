@@ -17,7 +17,6 @@
 | `chat-page.png` | 聊天对话页面 | http://localhost:3000/chat | 独立聊天页面，展示 SSE 流式输出+Markdown 渲染 |
 | `settings.png` | 设置中心 | http://localhost:3000/settings | 座舱/用户/中间件管理界面 |
 | `admin.png` | 管理后台 | http://localhost:3000/admin | 系统管理页面，用户权限+座舱注册 |
-| `vehicle.png` | 车控模拟器 | http://localhost:3000/vehicle | 车控模拟页面，空调/车窗/灯光等操控 |
 
 ### 📊 `dashboard/` — 监控看板截图
 
@@ -27,22 +26,62 @@
 | `middleware-monitor.png` | 中间件监控看板 | http://localhost:3000/middleware | Milvus/Neo4j/Redis/MySQL/ASR/TTS/LLM 状态监控（每行2个组件布局） |
 | `grafana.png` | Grafana 监控面板 | http://localhost:3001 | Prometheus 指标 + Grafana 可视化看板 |
 
-### 🏗️ `architecture/` — 架构设计图（可选）
+> ⚠️ **注意**：实际文件名为 `grafana.png`（历史命名），引用时请使用 `images/dashboard/grafana.png`。
+
+### 🏗️ `architecture/` — 架构设计图
 
 | 文件名 | 说明 |
 |--------|------|
 | `7-layer-arch.png` | 7 层分层架构图 |
 | `multi-agent-flow.png` | Multi-Agent 工作流图 (Supervisor + 5 Experts) |
-| `graphrag-flow.png` | GraphRAG 三路融合检索流程图 |
-| `cockpit-arch.png` | 座舱控制 + 运营总览架构图 |
+| `RAG-Retrieval-Augmented.png` | GraphRAG 三路融合检索流程图 |
+| `Vehicle-control.png` | 车辆控制系统架构图 |
+| `Voice-Interaction.png` | 语音交互系统架构图 |
 
 ### 📦 `misc/` — 其他截图（可选）
 
 | 文件名 | 说明 |
 |--------|------|
-| `docker-ps.png` | `docker compose ps` 所有服务 running 的截图 |
+| `docker-compose-ps.png` | `docker compose ps` 所有服务 running 的截图 |
 | `swagger-ui.png` | FastAPI Swagger UI 文档页面截图 |
-| `health-check.png` | 健康检查返回截图 |
+
+---
+
+## 📱 前端界面截图（前端服务 `http://localhost:3000`）
+
+| 文件名 | 截图 URL | 说明 |
+|--------|----------|------|
+| `cockpit-main.png` | http://localhost:3000/cockpit | 座舱控制台主界面 |
+| `cockpit-chat.png` | http://localhost:3000/cockpit | 语音对话与车控联动 |
+| `cockpit-multi.png` | http://localhost:3000/cockpit | 座舱控制面板效果 |
+| `chat-page.png` | http://localhost:3000/chat | 聊天对话页面 |
+| `settings.png` | http://localhost:3000/settings | 设置中心 |
+| `admin.png` | http://localhost:3000/admin | 管理后台 |
+
+## 📊 监控看板截图
+
+| 文件名 | 截图 URL | 说明 |
+|--------|----------|------|
+| `dataplatform.png` | http://localhost:3000/dataplatform | 数据中台看板 |
+| `middleware-monitor.png` | http://localhost:3000/middleware | 中间件监控看板 |
+| `grafana.png` | http://localhost:3001 | Grafana 监控面板（实际文件名为 `grafana.png`） |
+
+## 🏗️ 架构设计图
+
+| 文件名 | 获取方式 |
+|--------|----------|
+| `7-layer-arch.png` | 7 层分层架构图（已存在） |
+| `multi-agent-flow.png` | Multi-Agent 工作流图（已存在） |
+| `RAG-Retrieval-Augmented.png` | GraphRAG 三路融合检索流程图（已存在） |
+| `Vehicle-control.png` | 车辆控制系统架构图（已存在） |
+| `Voice-Interaction.png` | 语音交互系统架构图（已存在） |
+
+## 📦 其他截图
+
+| 文件名 | 截图方式 | URL / 命令 |
+|--------|----------|------------|
+| `docker-compose-ps.png` | 终端截图 | 终端运行 `docker compose ps` |
+| `swagger-ui.png` | 浏览器截图 | **http://localhost:8000/docs** （FastAPI 默认 Swagger UI） |
 
 ---
 

@@ -86,6 +86,7 @@ class MockVehicleBus(BaseVehicleAdapter):
             "source": "local",
             "track": self._playlist[0] if self._playlist else None,  # 改为 dict
             "track_index": 0,
+            "play_mode": "sequential",  # 播放模式: sequential(列表循环) / single(单曲循环) / shuffle(随机播放)
             "playlist": list(self._playlist),  # 完整的播放列表（含 url）
         }
         self.navigation: Dict[str, Any] = {
@@ -452,7 +453,26 @@ class MockVehicleBus(BaseVehicleAdapter):
         source: Optional[str] = None,
         track: Optional[str] = None,
         volume: Optional[int] = None,
+        play_mode: Optional[str] = None,
     ) -> VehicleCommandResult:
+        # 设置播放模式 (sequential / single / shuffle)
+        if op in ("set_play_mode", "play_mode"):
+            valid_modes = ("sequential", "single", "shuffle")
+            if play_mode and play_mode in valid_modes:
+                self.media["play_mode"] = play_mode
+                mode_names = {"sequential": "列表循环", "single": "单曲循环", "shuffle": "随机播放"}
+                return VehicleCommandResult(
+                    success=True,
+                    message=f"播放模式已切换为{mode_names.get(play_mode, play_mode)}。",
+                    data={"media": dict(self.media)},
+                )
+            return VehicleCommandResult(
+                success=False,
+                message=f"不支持的播放模式: {play_mode}",
+                error="invalid_play_mode",
+                data={"media": dict(self.media)},
+            )
+
         if op in ("set_volume", "volume"):
             if volume is not None:
                 self.media["volume"] = max(0, min(30, int(volume)))
@@ -493,13 +513,38 @@ class MockVehicleBus(BaseVehicleAdapter):
             self.media["playing"] = False
         elif op in ("next", "next_track"):
             if self._playlist:
-                self._track_index = (self._track_index + 1) % len(self._playlist)
+                mode = self.media.get("play_mode", "sequential")
+                if mode == "shuffle":
+                    import random
+                    if len(self._playlist) > 1:
+                        new_idx = random.randint(0, len(self._playlist) - 1)
+                        while new_idx == self._track_index:
+                            new_idx = random.randint(0, len(self._playlist) - 1)
+                        self._track_index = new_idx
+                    else:
+                        self._track_index = 0
+                else:
+                    # sequential 和 single 都前进到下一首
+                    # single 模式下由前端 audio.loop = true 控制循环
+                    # 手动点下一首时也应该前进
+                    self._track_index = (self._track_index + 1) % len(self._playlist)
                 self.media["track"] = self._playlist[self._track_index]
                 self.media["track_index"] = self._track_index
                 self.media["playing"] = True
         elif op in ("prev", "previous_track"):
             if self._playlist:
-                self._track_index = (self._track_index - 1) % len(self._playlist)
+                mode = self.media.get("play_mode", "sequential")
+                if mode == "shuffle":
+                    import random
+                    if len(self._playlist) > 1:
+                        new_idx = random.randint(0, len(self._playlist) - 1)
+                        while new_idx == self._track_index:
+                            new_idx = random.randint(0, len(self._playlist) - 1)
+                        self._track_index = new_idx
+                    else:
+                        self._track_index = 0
+                else:
+                    self._track_index = (self._track_index - 1) % len(self._playlist)
                 self.media["track"] = self._playlist[self._track_index]
                 self.media["track_index"] = self._track_index
                 self.media["playing"] = True

@@ -423,6 +423,58 @@ class SemanticCache:
             logger.error(f"Cache clear failed: {e}")
             return 0
 
+    async def purge_vehicle_command_cache(self) -> int:
+        """清理旧的车控指令缓存条目。
+
+        在 has_side_effect 安全修复之前，车控指令的响应可能被错误地
+        写入了缓存。这些旧条目的 has_side_effect 字段为 "False" 或缺失，
+        不会被正常的缓存安全检查拦截，导致车控指令命中旧缓存后不执行。
+
+        本方法扫描所有缓存条目，删除：
+        1. has_side_effect 字段为 "True" 的条目（冗余清理）
+        2. query 字段匹配车控关键词的条目（兜底清理）
+
+        Returns:
+            删除的缓存条目数量
+        """
+        if not self._enabled or not self._redis:
+            return 0
+
+        # 车控关键词 — 用于识别旧的车控缓存条目
+        vehicle_keywords = (
+            "车窗", "天窗", "开窗", "关窗", "升窗",
+            "空调", "车内温度", "风量", "制冷", "制热", "除雾",
+            "座椅", "按摩", "加热", "通风",
+            "播放", "暂停", "下一首", "上一首", "音量", "切歌", "听歌",
+            "车况", "胎压", "续航", "油量", "电量", "保养",
+        )
+
+        try:
+            count = 0
+            async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*", count=100):
+                data = await self._redis.hgetall(key)
+                if not data:
+                    continue
+
+                # 条件 1: has_side_effect 为 True（冗余清理）
+                if data.get("has_side_effect", "") in ("True", "true", "1"):
+                    await self._redis.delete(key)
+                    count += 1
+                    continue
+
+                # 条件 2: query 匹配车控关键词（兜底清理旧条目）
+                query = data.get("query", "")
+                if query and any(kw in query for kw in vehicle_keywords):
+                    await self._redis.delete(key)
+                    count += 1
+
+            if count > 0:
+                logger.info(f"Purged {count} stale vehicle command cache entries")
+            return count
+        except Exception as e:
+            logger.error(f"Purge vehicle command cache failed: {e}")
+            return 0
+
     async def close(self) -> None:
         """关闭连接。"""
         if self._redis:

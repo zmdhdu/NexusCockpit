@@ -27,7 +27,7 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 | **LLM 降级** | 云端 DeepSeek-V3 → 本地 Qwen3.5-4B (llama.cpp) 自动降级 |
 | **限流** | Redis 滑动窗口限流 |
 | **车控总线** | Mock / HTTP / MCP stdio 三模式适配 |
-| **可观测性** | Langfuse Tracing + Prometheus Metrics + Grafana |
+| **可观测性** | Langfuse Tracing + Prometheus Metrics + grafana |
 | **API** | FastAPI REST + SSE + WebSocket |
 | **ASR/TTS** | FunASR (SenseVoice) + CosyVoice |
 
@@ -39,17 +39,16 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 
 ### 座舱控制台
 
-座舱控制台是系统的核心交互页面，集成了语音对话、车控操作和 3D 可视化。
+座舱控制台是系统的核心交互页面，集成了语音对话、车控操作等。
 
 | 座舱控制台主界面 | 语音对话与车控联动 |
-|:---:|:---:|
-| ![座舱控制台主界面](images/frontend/cockpit-main.png) | ![语音对话与车控联动](images/frontend/cockpit-chat.png) |
+![座舱控制台主界面](images/frontend/cockpit-main.png) 
 
 ### 座舱控制
 
 座舱控制台提供车控面板与语音助手，支持座舱间切换，每个座舱拥有独立的数据隔离和状态追踪。
 
-![座舱控制](images/frontend/cockpit-multi.png)
+![语音对话与车控联动](images/frontend/cockpit-chat.png) 
 
 ### 聊天对话界面
 
@@ -69,12 +68,11 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 
 ![中间件监控看板](images/dashboard/middleware-monitor.png)
 
-### Grafana 监控面板
+### grafana 监控面板
 
-Prometheus 指标采集 + Grafana 可视化看板，覆盖 API 延迟、Agent 执行耗时、缓存命中率等核心指标。
+Prometheus 指标采集 + grafana 可视化看板，覆盖 API 延迟、Agent 执行耗时、缓存命中率等核心指标。
 
-<!-- 待补充: 请将 Grafana 截图放置到 images/dashboard/grafana.png -->
-![Grafana 监控面板](images/dashboard/grafana.png)
+![grafana 监控面板](images/dashboard/grafana.png)
 
 ### 设置中心
 
@@ -89,7 +87,7 @@ Prometheus 指标采集 + Grafana 可视化看板，覆盖 API 延迟、Agent �
 ![管理后台](images/frontend/admin.png)
 
 
-> 📸 **图片说明**：以上截图文件存放在 `images/` 目录下，请将实际截图文件放入对应路径。详细命名规范见 [images/README.md](images/README.md)。
+> 📸 **图片说明**：以上截图文件存放在 `images/` 目录下，按用途分为 `frontend/`、`dashboard/`、`architecture/`、`misc/` 子目录。详细命名规范见 [images/README.md](images/README.md)。
 
 ---
 
@@ -226,7 +224,7 @@ cp .env.example .env
 
 ```bash
 # === 必填项 ===
-ARK_API_KEY=your_api_key_here      # 硕基流动 LLM API Key
+ARK_API_KEY=your_api_key_here      # 硅基流动 LLM API Key
 ARK_BASE_URL=https://api.siliconflow.cn/v1
 LLM_MODEL=deepseek-ai/DeepSeek-V3
 EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
@@ -314,58 +312,10 @@ make dev-frontend
 | **API 文档** | http://localhost:8000/docs | FastAPI Swagger UI |
 | **健康检查** | http://localhost:8000/health | Python 后端健康状态 |
 | **网关健康** | http://localhost:8080/health | Go 网关健康状态 |
-| **Grafana** | http://localhost:3001 | 监控面板 (admin/admin) |
+| **grafana** | http://localhost:3001 | 监控面板 (admin/admin) |
 | **Prometheus** | http://localhost:9090 | 指标查询 |
 
 ---
-
-## 部署方式
-
-### 方式一：本地开发部署 (推荐新手)
-
-按上述"快速开始"步骤，使用 Docker Compose 启动基础设施 + 本地运行三服务。
-
-### 方式二：双模式部署 (本地 + 云端混合)
-
-在 `.env` 中配置 `*_PROVIDER=cloud`，将部分中间件切换到云端托管：
-
-| 组件 | local (本地) | cloud (云端) |
-|------|-------------|-------------|
-| 向量库 | Milvus (Docker) | Zilliz Cloud |
-| 图谱 | Neo4j (Docker) | Neo4j AuraDB |
-| 语义缓存 | Redis Stack (RediSearch KNN) | 云 Redis (scan 降级) |
-| Reranker | 本地 BGE CrossEncoder | 硅基流动 Rerank API (免费) |
-| LLM/Embedding | — | 硅基流动 / 火山方舟 (OpenAI 兼容) |
-
-> 详见 [双模式部署方案](docs/deployment/dual_云端与本地部署.md)
-
-### 方式三：全 Docker 部署
-
-```bash
-# 启动基础设施 + 应用服务 (Go 网关 + Python AI + Next.js 前端)
-docker compose --profile app up -d --build
-
-# 查看服务状态
-docker compose --profile app ps
-```
-
----
-
-## 运行方式
-
-### Makefile 常用命令
-
-```bash
-make install          # 安装后端依赖
-make dev              # 启动后端 (热重载)
-make install-frontend # 安装前端依赖
-make dev-frontend     # 启动前端 (热重载)
-make up               # 启动 Docker 基础设施
-make down             # 停止 Docker 基础设施
-make test             # 运行测试
-make lint             # 代码检查
-make monitor          # 打开 Grafana
-```
 
 ### API 使用示例
 
@@ -419,7 +369,7 @@ ws.onmessage = (event) => console.log(JSON.parse(event.data));
 ### 7 层分层架构
 
 ```
-L7  可观测层    →  Langfuse / Prometheus / Grafana
+L7  可观测层    →  Langfuse / Prometheus / grafana
 L6  API 层      →  FastAPI REST / SSE / WebSocket / JWT
 L5  中间件层    →  Redis 语义缓存 / 限流 / 进程内异步任务 / 熔断器
 L4  Agent 层    →  Supervisor → 5 Expert Agents (并行) → Responder → Reflection → Reviewer
@@ -428,6 +378,14 @@ L2  数据层      →  GraphRAG / Memory / Vector Store / Graph Store
 L1  核心层      →  Config / Logger / Exceptions / Circuit Breaker
 L0  基础设施层  →  Docker Compose / Milvus / Neo4j / Redis / MySQL
 ```
+
+| 7 层分层架构图 |
+|:---:|
+![7 层分层架构图](images/architecture/7-layer-arch.png) 
+
+| 车辆控制系统 |
+|:---:|
+![Multi-Agent 工作流图](images/architecture/multi-agent-flow.png) 
 
 > 详见 [架构总览](docs/architecture/overview.md)
 
@@ -442,6 +400,7 @@ User Input → Supervisor (意图+分派)
                └── Chat Expert     (闲聊专家)
                       ↓ (并行)
             Responder (汇总+LLM流式)
+               → Reflection (事实性/无幻觉检查)
                → Reviewer (质量检查+记忆存储)
                → Response
 ```
@@ -456,6 +415,18 @@ Query
   └── RRF Fusion → Rerank (bge-reranker-v2-m3) → Top-5
 ```
 
+| GraphRAG 检索增强 |
+|:---:|
+| ![GraphRAG 检索增强](images/architecture/RAG-Retrieval-Augmented.png) 
+
+| 车辆控制系统 |
+|:---:|
+![车辆控制系统](images/architecture/Vehicle-control.png) 
+
+| 语音交互系统 |
+|:---:|
+| ![语音交互系统](images/architecture/Voice-Interaction.png) |
+
 ### 座舱控制 + 运营总览
 
 ```
@@ -463,8 +434,6 @@ Query
 语音助手 ──┼── Go网关 ──→ Python AI服务
 运营总览 ──┘                    Supervisor+5专家
 ```
-
-> 📌 **架构图**：如需查看更详细的架构设计图，请将架构图放置到 `images/architecture/` 目录。
 
 ---
 
@@ -482,7 +451,7 @@ Query
 | ASR | FunASR (SenseVoice) | 多语言、端侧 |
 | TTS | CosyVoice | 高质量、可克隆 |
 | 追踪 | Langfuse | LLM 专用 |
-| 指标 | Prometheus + Grafana | 云原生标准 |
+| 指标 | Prometheus + grafana | 云原生标准 |
 | Go 网关 | Gin + gorilla/websocket | 高并发、低内存 |
 | 前端框架 | Next.js 14 (App Router) | SSR/SSG、文件路由 |
 | 状态管理 | Zustand | 轻量级、持久化 |

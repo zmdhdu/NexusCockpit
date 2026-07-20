@@ -48,13 +48,18 @@ import {
   X,
   WifiOff,
   Loader2,
+  Repeat,
+  Repeat1,
+  Shuffle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { getVehicleStatus, sendVehicleCommand, updateVehicleLocation } from "@/lib/api";
 import { onVehicleRefresh } from "@/lib/vehicle-events";
 import { useAuth } from "@/stores/auth-store";
+import { syncAudioFromMedia, setOnTrackEnded, resetAudioSyncKey } from "@/stores/audio-store";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { VehicleStatus } from "@/types";
@@ -105,45 +110,50 @@ export function VehiclePanel() {
   /** 正在执行的命令集合（支持多命令并行，不阻塞其他按钮） */
   const [executingCmds, setExecutingCmds] = useState<Set<string>>(new Set());
   const mountedRef = useRef(true);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  /**
+   * handleCommandRef — 让全局 audio-store 的 ended 回调能调用最新的 handleCommand
+   *
+   * VehiclePanel 卸载后，全局 Audio 元素仍然存在（音乐继续播放），
+   * 但自动播放下一首需要 VehiclePanel 存在才能发送 vehicle_media next 命令。
+   * 用户切到其他页面时不会自动切歌，这是合理行为。
+   */
+  const handleCommandRef = useRef<(cmd: string, args: Record<string, any>) => void>(() => {});
 
-  // 初始化音频元素
+  // 注册音频结束回调 — 用于自动播放下一首
+  // 注意: 不在此处创建/销毁 Audio 元素，Audio 由全局 audio-store 管理
   useEffect(() => {
-    audioRef.current = new Audio();
-    audioRef.current.loop = false;
-    audioRef.current.addEventListener("ended", () => {
-      // 自动播放下一首
-      if (status?.media) {
-        handleCommand("vehicle_media", { op: "next" });
-      }
+    setOnTrackEnded(() => {
+      handleCommandRef.current("vehicle_media", { op: "next" });
     });
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
+    // 卸载时清除回调，但不暂停音频（音频由全局 store 管理）
+    return () => setOnTrackEnded(null);
   }, []);
 
-  // 根据媒体状态控制音频播放
+  // 保持 handleCommandRef 始终指向最新的 handleCommand
   useEffect(() => {
-    if (!audioRef.current || !status?.media) return;
-    const media = status.media as any;
-    // 优先使用后端返回的 track.url，避免硬编码 track_01.wav
-    const trackUrl = media.track?.url
-      ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${media.track.url}`
-      : `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/audio/music/track_${String((media.track_index ?? 0) + 1).padStart(2, "0")}.wav`;
+    handleCommandRef.current = handleCommand;
+  });
 
-    if (media.playing) {
-      if (audioRef.current.src !== trackUrl) {
-        audioRef.current.src = trackUrl;
-      }
-      audioRef.current.volume = Math.min(1, (media.volume || 18) / 30);
-      audioRef.current.play().catch(() => {});
-    } else {
-      audioRef.current.pause();
-    }
-  }, [status?.media?.playing, (status?.media as any)?.track, (status?.media as any)?.track_index, (status?.media as any)?.volume]);
+  // 根据媒体状态控制音频播放（同步到全局 audio-store）
+  // 使用 JSON.stringify 做深度比较，避免对象引用变化导致不必要的音频重启
+  // 场景: 用户正在播放音乐时执行车控操作（如开窗），fetchStatus 返回新的 status 对象，
+  // 但 media 状态未变，不应中断音频播放
+  const mediaKey = JSON.stringify({
+    playing: status?.media?.playing,
+    track: (status?.media as any)?.track,
+    track_index: (status?.media as any)?.track_index,
+    volume: (status?.media as any)?.volume,
+    play_mode: (status?.media as any)?.play_mode,
+  });
+  const mediaKeyRef = useRef(mediaKey);
+
+  useEffect(() => {
+    // 如果媒体关键状态没有变化，跳过音频操作（避免中断正在播放的音乐）
+    if (mediaKey === mediaKeyRef.current) return;
+    mediaKeyRef.current = mediaKey;
+    // 同步到全局音频管理器（跨路由持久化）
+    syncAudioFromMedia(status?.media as any);
+  }, [mediaKey]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -177,7 +187,9 @@ fetchStatus();
 
 // 座舱切换时重新拉取车辆状态（每个座舱数据独立）
 useEffect(() => {
-fetchStatus();
+  // 重置音频同步缓存，确保新座舱的媒体状态被强制同步到全局 Audio
+  resetAudioSyncKey();
+  fetchStatus();
 }, [cockpitId]);
 
   // GPS 定位已提取到全局 hook (use-gps-location.ts)，在根布局中统一管理
@@ -277,12 +289,31 @@ fetchStatus();
       if (args.op === "pause") return "已暂停";
       if (args.op === "next") return "下一曲";
       if (args.op === "prev") return "上一曲";
+      if (args.op === "set_play_mode") {
+        const names: Record<string, string> = { sequential: "列表循环", single: "单曲循环", shuffle: "随机播放" };
+        return `播放模式: ${names[args.play_mode] || args.play_mode}`;
+      }
     }
     if (command === "vehicle_navigation") {
       if (args.destination) return `导航至: ${args.destination}`;
       return "已取消导航";
     }
     return "操作已完成";
+  };
+
+  /** 播放模式定义 — 用于切换按钮的图标和文案 */
+  const PLAY_MODES = [
+    { key: "sequential", label: "列表循环", icon: Repeat },
+    { key: "single", label: "单曲循环", icon: Repeat1 },
+    { key: "shuffle", label: "随机播放", icon: Shuffle },
+  ] as const;
+
+  /** 循环切换播放模式: sequential → single → shuffle → sequential */
+  const cyclePlayMode = () => {
+    const currentMode = (status?.media as any)?.play_mode || "sequential";
+    const currentIdx = PLAY_MODES.findIndex(m => m.key === currentMode);
+    const nextMode = PLAY_MODES[(currentIdx + 1) % PLAY_MODES.length];
+    handleCommand("vehicle_media", { op: "set_play_mode", play_mode: nextMode.key });
   };
 
   if (!status) {
@@ -321,30 +352,34 @@ fetchStatus();
           <CardContent className="space-y-4">
             {/* 大号温度显示 */}
             <div className="flex items-center justify-center gap-4 py-2">
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_climate", { op: "temp_down" })}
-                disabled={isCmdLoading("vehicle_climate", { op: "temp_down" })}
-                className="h-10 w-10 rounded-full"
-              >
-                <Minus className="h-5 w-5" />
-              </Button>
+              <Tooltip content="温度减" side="left">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_climate", { op: "temp_down" })}
+                  disabled={isCmdLoading("vehicle_climate", { op: "temp_down" })}
+                  className="h-10 w-10 rounded-full"
+                >
+                  <Minus className="h-5 w-5" />
+                </Button>
+              </Tooltip>
               <div className="text-center">
                 <span className="text-4xl font-bold text-primary">
                   {status.climate.temperature}
                 </span>
                 <span className="text-xl text-muted-foreground">°C</span>
               </div>
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_climate", { op: "temp_up" })}
-                disabled={isCmdLoading("vehicle_climate", { op: "temp_up" })}
-                className="h-10 w-10 rounded-full"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
+              <Tooltip content="温度加" side="right">
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_climate", { op: "temp_up" })}
+                  disabled={isCmdLoading("vehicle_climate", { op: "temp_up" })}
+                  className="h-10 w-10 rounded-full"
+                >
+                  <Plus className="h-5 w-5" />
+                </Button>
+              </Tooltip>
             </div>
 
             {/* 模式选择 */}
@@ -352,35 +387,38 @@ fetchStatus();
               {CLIMATE_MODES.map((m) => {
                 const Icon = m.icon;
                 return (
-                  <button
-                    key={m.key}
-                    onClick={() => handleCommand("vehicle_climate", { op: "set_mode", mode: m.key })}
-                    disabled={isCmdLoading("vehicle_climate", { op: "set_mode", mode: m.key })}
-                    className={cn(
-                      "flex flex-col items-center gap-1 rounded-lg py-2 text-xs transition-all",
-                      status.climate.mode === m.key
-                        ? "bg-primary/20 text-primary font-medium"
-                        : "bg-accent/30 text-muted-foreground hover:bg-accent/60"
-                    )}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {m.label}
-                  </button>
+                  <Tooltip key={m.key} content={`切换至${m.label}模式`} side="bottom">
+                    <button
+                      onClick={() => handleCommand("vehicle_climate", { op: "set_mode", mode: m.key })}
+                      disabled={isCmdLoading("vehicle_climate", { op: "set_mode", mode: m.key })}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-lg py-2 text-xs transition-all",
+                        status.climate.mode === m.key
+                          ? "bg-primary/20 text-primary font-medium"
+                          : "bg-accent/30 text-muted-foreground hover:bg-accent/60"
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {m.label}
+                    </button>
+                  </Tooltip>
                 );
               })}
             </div>
 
             {/* 风量调节 */}
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_climate", { op: "set_fan", fan_speed: Math.max(1, status.climate.fan_speed - 1) })}
-                disabled={isCmdLoading("vehicle_climate", { op: "set_fan", fan_speed: Math.max(1, status.climate.fan_speed - 1) }) || status.climate.fan_speed <= 1}
-                className="h-8 w-8 p-0"
-              >
-                <Minus className="h-3 w-3" />
-              </Button>
+              <Tooltip content="风量减" side="top">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_climate", { op: "set_fan", fan_speed: Math.max(1, status.climate.fan_speed - 1) })}
+                  disabled={isCmdLoading("vehicle_climate", { op: "set_fan", fan_speed: Math.max(1, status.climate.fan_speed - 1) }) || status.climate.fan_speed <= 1}
+                  className="h-8 w-8 p-0"
+                >
+                  <Minus className="h-3 w-3" />
+                </Button>
+              </Tooltip>
               <div className="flex-1 flex items-center gap-1">
                 {Array.from({ length: 7 }, (_, i) => (
                   <div
@@ -394,15 +432,17 @@ fetchStatus();
                   />
                 ))}
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_climate", { op: "set_fan", fan_speed: Math.min(7, status.climate.fan_speed + 1) })}
-                disabled={isCmdLoading("vehicle_climate", { op: "set_fan", fan_speed: Math.min(7, status.climate.fan_speed + 1) }) || status.climate.fan_speed >= 7}
-                className="h-8 w-8 p-0"
-              >
-                <Plus className="h-3 w-3" />
-              </Button>
+              <Tooltip content="风量加" side="top">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_climate", { op: "set_fan", fan_speed: Math.min(7, status.climate.fan_speed + 1) })}
+                  disabled={isCmdLoading("vehicle_climate", { op: "set_fan", fan_speed: Math.min(7, status.climate.fan_speed + 1) }) || status.climate.fan_speed >= 7}
+                  className="h-8 w-8 p-0"
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </Tooltip>
             </div>
             <div className="text-center text-xs text-muted-foreground">
               风量 {status.climate.fan_speed} 档
@@ -416,10 +456,10 @@ fetchStatus();
             <CardTitle className="text-base">座椅</CardTitle>
             <Hand className="h-5 w-5 text-primary" />
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             {/* 加热 */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-center gap-2 text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Flame className="h-4 w-4 text-orange-400" />
                   主驾加热
@@ -429,30 +469,34 @@ fetchStatus();
                 </span>
               </div>
               <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={status.seats.driver.heat > 0 ? "default" : "outline"}
-                  onClick={() => handleCommand("vehicle_seat", { op: "heat_on", position: "driver", level: 1 })}
-                  disabled={isCmdLoading("vehicle_seat", { op: "heat_on", position: "driver", level: 1 }) || status.seats.driver.heat > 0}
-                  className="flex-1"
-                >
-                  开启
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleCommand("vehicle_seat", { op: "heat_off", position: "driver" })}
-                  disabled={isCmdLoading("vehicle_seat", { op: "heat_off", position: "driver" }) || status.seats.driver.heat === 0}
-                  className="flex-1"
-                >
-                  关闭
-                </Button>
+                <Tooltip content="开启主驾加热" side="top" className="flex-1">
+                  <Button
+                    size="sm"
+                    variant={status.seats.driver.heat > 0 ? "default" : "outline"}
+                    onClick={() => handleCommand("vehicle_seat", { op: "heat_on", position: "driver", level: 1 })}
+                    disabled={isCmdLoading("vehicle_seat", { op: "heat_on", position: "driver", level: 1 }) || status.seats.driver.heat > 0}
+                    className="w-full"
+                  >
+                    开启
+                  </Button>
+                </Tooltip>
+                <Tooltip content="关闭主驾加热" side="top" className="flex-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCommand("vehicle_seat", { op: "heat_off", position: "driver" })}
+                    disabled={isCmdLoading("vehicle_seat", { op: "heat_off", position: "driver" }) || status.seats.driver.heat === 0}
+                    className="w-full"
+                  >
+                    关闭
+                  </Button>
+                </Tooltip>
               </div>
             </div>
 
             {/* 按摩 */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center justify-center gap-2 text-sm">
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Hand className="h-4 w-4 text-violet-400" />
                   主驾按摩
@@ -462,24 +506,28 @@ fetchStatus();
                 </span>
               </div>
               <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={status.seats.driver.massage ? "default" : "outline"}
-                  onClick={() => handleCommand("vehicle_seat", { op: "massage_on", position: "driver", level: 1 })}
-                  disabled={isCmdLoading("vehicle_seat", { op: "massage_on", position: "driver", level: 1 }) || status.seats.driver.massage}
-                  className="flex-1"
-                >
-                  开启
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleCommand("vehicle_seat", { op: "massage_off", position: "driver" })}
-                  disabled={isCmdLoading("vehicle_seat", { op: "massage_off", position: "driver" }) || !status.seats.driver.massage}
-                  className="flex-1"
-                >
-                  关闭
-                </Button>
+                <Tooltip content="开启主驾按摩" side="top" className="flex-1">
+                  <Button
+                    size="sm"
+                    variant={status.seats.driver.massage ? "default" : "outline"}
+                    onClick={() => handleCommand("vehicle_seat", { op: "massage_on", position: "driver", level: 1 })}
+                    disabled={isCmdLoading("vehicle_seat", { op: "massage_on", position: "driver", level: 1 }) || status.seats.driver.massage}
+                    className="w-full"
+                  >
+                    开启
+                  </Button>
+                </Tooltip>
+                <Tooltip content="关闭主驾按摩" side="top" className="flex-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCommand("vehicle_seat", { op: "massage_off", position: "driver" })}
+                    disabled={isCmdLoading("vehicle_seat", { op: "massage_off", position: "driver" }) || !status.seats.driver.massage}
+                    className="w-full"
+                  >
+                    关闭
+                  </Button>
+                </Tooltip>
               </div>
             </div>
           </CardContent>
@@ -510,62 +558,88 @@ fetchStatus();
 
             {/* 播放控制 */}
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_media", { op: "prev" })}
-                disabled={isCmdLoading("vehicle_media", { op: "prev" })}
-                className="h-9 w-9 p-0"
-              >
-                <SkipBack className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant={status.media.playing ? "default" : "outline"}
-                onClick={() => handleCommand("vehicle_media", { op: status.media.playing ? "pause" : "play" })}
-                disabled={isCmdLoading("vehicle_media", { op: status.media.playing ? "pause" : "play" })}
-                className="flex-1 h-9"
-              >
-                {status.media.playing ? <Pause className="h-4 w-4 mr-1" /> : <Play className="h-4 w-4 mr-1" />}
-                {status.media.playing ? "暂停" : "播放"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_media", { op: "next" })}
-                disabled={isCmdLoading("vehicle_media", { op: "next" })}
-                className="h-9 w-9 p-0"
-              >
-                <SkipForward className="h-4 w-4" />
-              </Button>
+              {/* 播放模式切换按钮 */}
+              <Tooltip content={PLAY_MODES.find(m => m.key === ((status.media as any).play_mode || "sequential"))?.label || "列表循环"}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={cyclePlayMode}
+                  disabled={isCmdLoading("vehicle_media", { op: "set_play_mode" })}
+                  className="h-9 w-9 p-0 shrink-0"
+                >
+                  {(() => {
+                    const mode = (status.media as any).play_mode || "sequential";
+                    const ModeIcon = PLAY_MODES.find(m => m.key === mode)?.icon || Repeat;
+                    return <ModeIcon className="h-4 w-4" />;
+                  })()}
+                </Button>
+              </Tooltip>
+              <Tooltip content="上一首">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_media", { op: "prev" })}
+                  disabled={isCmdLoading("vehicle_media", { op: "prev" })}
+                  className="h-9 w-9 p-0"
+                >
+                  <SkipBack className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+              <Tooltip content={status.media.playing ? "暂停" : "播放"} className="flex-1">
+                <Button
+                  size="sm"
+                  variant={status.media.playing ? "default" : "outline"}
+                  onClick={() => handleCommand("vehicle_media", { op: status.media.playing ? "pause" : "play" })}
+                  disabled={isCmdLoading("vehicle_media", { op: status.media.playing ? "pause" : "play" })}
+                  className="w-full h-9"
+                >
+                  {status.media.playing ? <Pause className="h-4 w-4 mr-1" /> : <Play className="h-4 w-4 mr-1" />}
+                  {status.media.playing ? "暂停" : "播放"}
+                </Button>
+              </Tooltip>
+              <Tooltip content="下一首">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_media", { op: "next" })}
+                  disabled={isCmdLoading("vehicle_media", { op: "next" })}
+                  className="h-9 w-9 p-0"
+                >
+                  <SkipForward className="h-4 w-4" />
+                </Button>
+              </Tooltip>
             </div>
 
             {/* 音量条 */}
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_media", { op: "set_volume", volume: Math.max(0, status.media.volume - 2) })}
-                disabled={isCmdLoading("vehicle_media", { op: "set_volume", volume: Math.max(0, status.media.volume - 2) })}
-                className="h-7 w-7 p-0"
-              >
-                <Minus className="h-3 w-3" />
-              </Button>
+              <Tooltip content="音量减" side="top">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_media", { op: "set_volume", volume: Math.max(0, status.media.volume - 2) })}
+                  disabled={isCmdLoading("vehicle_media", { op: "set_volume", volume: Math.max(0, status.media.volume - 2) })}
+                  className="h-7 w-7 p-0"
+                >
+                  <Minus className="h-3 w-3" />
+                </Button>
+              </Tooltip>
               <div className="flex-1 h-2 bg-accent rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary transition-all"
                   style={{ width: `${(status.media.volume / 30) * 100}%` }}
                 />
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_media", { op: "set_volume", volume: Math.min(30, status.media.volume + 2) })}
-                disabled={isCmdLoading("vehicle_media", { op: "set_volume", volume: Math.min(30, status.media.volume + 2) })}
-                className="h-7 w-7 p-0"
-              >
-                <Plus className="h-3 w-3" />
-              </Button>
+              <Tooltip content="音量加" side="top">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_media", { op: "set_volume", volume: Math.min(30, status.media.volume + 2) })}
+                  disabled={isCmdLoading("vehicle_media", { op: "set_volume", volume: Math.min(30, status.media.volume + 2) })}
+                  className="h-7 w-7 p-0"
+                >
+                  <Plus className="h-3 w-3" />
+                </Button>
+              </Tooltip>
             </div>
 
             {/* 播放列表 */}
@@ -576,24 +650,25 @@ fetchStatus();
                   // 兼容 dict 格式（含 title/url）和旧版字符串格式
                   const trackTitle = typeof track === 'object' ? track.title : track;
                   return (
-                  <button
-                    key={idx}
-                    onClick={() => handleCommand("vehicle_media", { op: "play_track", track: idx })}
-                    disabled={isCmdLoading("vehicle_media", { op: "play_track", track: idx })}
-                    className={cn(
-                      "w-full text-left text-xs px-2 py-1.5 rounded truncate transition-colors flex items-center gap-2",
-                      (status.media as any).track_index === idx
-                        ? "bg-primary/20 text-primary font-medium"
-                        : "hover:bg-accent/50 text-muted-foreground"
-                    )}
-                  >
-                    {(status.media as any).track_index === idx && (
-                      <span className="flex items-center">
-                        {status.media.playing ? <Volume2 className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-                      </span>
-                    )}
-                    <span>{idx + 1}. {trackTitle}</span>
-                  </button>
+                  <Tooltip key={idx} content={`播放: ${trackTitle}`} side="right" className="w-full">
+                    <button
+                      onClick={() => handleCommand("vehicle_media", { op: "play_track", track: idx })}
+                      disabled={isCmdLoading("vehicle_media", { op: "play_track", track: idx })}
+                      className={cn(
+                        "w-full text-left text-xs px-2 py-1.5 rounded truncate transition-colors flex items-center gap-2",
+                        (status.media as any).track_index === idx
+                          ? "bg-primary/20 text-primary font-medium"
+                          : "hover:bg-accent/50 text-muted-foreground"
+                      )}
+                    >
+                      {(status.media as any).track_index === idx && (
+                        <span className="flex items-center">
+                          {status.media.playing ? <Volume2 className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+                        </span>
+                      )}
+                      <span>{idx + 1}. {trackTitle}</span>
+                    </button>
+                  </Tooltip>
                   );
                 })}
               </div>
@@ -629,34 +704,38 @@ fetchStatus();
                 }}
                 className="flex-1"
               />
-              <Button
-                size="sm"
-                onClick={() => {
-                  if (navInput.trim()) {
-                    handleCommand("vehicle_navigation", { destination: navInput.trim(), mode: "drive" });
-                  }
-                }}
-                disabled={isCmdLoading("vehicle_navigation", { destination: navInput.trim(), mode: "drive" }) || !navInput.trim()}
-              >
-                开始
-              </Button>
+              <Tooltip content="开始导航" side="top">
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (navInput.trim()) {
+                      handleCommand("vehicle_navigation", { destination: navInput.trim(), mode: "drive" });
+                    }
+                  }}
+                  disabled={isCmdLoading("vehicle_navigation", { destination: navInput.trim(), mode: "drive" }) || !navInput.trim()}
+                >
+                  开始
+                </Button>
+              </Tooltip>
             </div>
 
             {/* 取消导航 */}
             {status.navigation.destination && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setNavInput("");
-                  handleCommand("vehicle_navigation", { destination: "", mode: "drive" });
-                }}
-                disabled={isCmdLoading("vehicle_navigation", { destination: "", mode: "drive" })}
-                className="w-full"
-              >
-                <X className="h-4 w-4 mr-1" />
-                取消导航
-              </Button>
+              <Tooltip content="取消导航" side="top" className="w-full">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setNavInput("");
+                    handleCommand("vehicle_navigation", { destination: "", mode: "drive" });
+                  }}
+                  disabled={isCmdLoading("vehicle_navigation", { destination: "", mode: "drive" })}
+                  className="w-full"
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  取消导航
+                </Button>
+              </Tooltip>
             )}
           </CardContent>
         </Card>
@@ -668,7 +747,7 @@ fetchStatus();
             <Wind className="h-5 w-5 text-primary" />
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid grid-cols-3 gap-2 text-sm">
+            <div className="flex flex-wrap justify-center gap-2 text-sm">
               {[
                 { key: "front_left", label: "左前" },
                 { key: "front_right", label: "右前" },
@@ -676,31 +755,35 @@ fetchStatus();
                 { key: "rear_right", label: "右后" },
                 { key: "sunroof", label: "天窗" },
               ].map((w) => (
-                <div key={w.key} className="flex flex-col items-center gap-1 rounded-lg bg-accent/30 py-2">
+                <div key={w.key} className="flex flex-col items-center gap-1 rounded-lg bg-accent/30 py-2 w-[calc(33.333%-0.5rem)]">
                   <span className="text-xs text-muted-foreground">{w.label}</span>
                   <span className="font-medium text-sm">{status.windows[w.key] ?? 0}%</span>
                 </div>
               ))}
             </div>
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_window", { op: "open", position: "all" })}
-                disabled={isCmdLoading("vehicle_window", { op: "open", position: "all" })}
-                className="flex-1"
-              >
-                全开
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => handleCommand("vehicle_window", { op: "close", position: "all" })}
-                disabled={isCmdLoading("vehicle_window", { op: "close", position: "all" })}
-                className="flex-1"
-              >
-                全关
-              </Button>
+              <Tooltip content="全部车窗打开" side="top" className="flex-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_window", { op: "open", position: "all" })}
+                  disabled={isCmdLoading("vehicle_window", { op: "open", position: "all" })}
+                  className="w-full"
+                >
+                  全开
+                </Button>
+              </Tooltip>
+              <Tooltip content="全部车窗关闭" side="top" className="flex-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleCommand("vehicle_window", { op: "close", position: "all" })}
+                  disabled={isCmdLoading("vehicle_window", { op: "close", position: "all" })}
+                  className="w-full"
+                >
+                  全关
+                </Button>
+              </Tooltip>
             </div>
           </CardContent>
         </Card>
