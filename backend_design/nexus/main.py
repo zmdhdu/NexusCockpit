@@ -49,7 +49,7 @@ from nexus.middleware.redis_cache import SemanticCache
 from nexus.middleware.session_store import SessionStore
 from nexus.observability.cockpit_metrics import CockpitMetrics
 from nexus.observability.langfuse import LangfuseMonitor
-from nexus.observability.metrics import init_metrics
+from nexus.observability.metrics import init_metrics, REQUEST_COUNT, REQUEST_LATENCY
 from nexus.rag.embedding import EmbeddingService
 from nexus.rag.graph_factory import build_graph_store
 from nexus.rag.vector_factory import build_vector_store
@@ -122,6 +122,15 @@ async def lifespan(app: FastAPI):
     semantic_cache = SemanticCache(embedding_service)
     await semantic_cache.connect()
     app.state.semantic_cache = semantic_cache
+
+    # 清理旧的车控指令缓存条目（has_side_effect 修复前可能错误写入）
+    # 这确保旧缓存不会导致车控指令（如"打开车窗"）命中缓存后不执行
+    try:
+        purged = await semantic_cache.purge_vehicle_command_cache()
+        if purged > 0:
+            logger.info(f"Startup cleanup: purged {purged} stale vehicle command cache entries")
+    except Exception as e:
+        logger.warning(f"Startup cache cleanup failed (non-fatal): {e}")
 
     # --- 7. 初始化限流器 ---
     rate_limiter = RateLimiter()
@@ -406,7 +415,12 @@ def create_app() -> FastAPI:
     from nexus.core.tenant_context import set_cockpit_id
 
     class CockpitContextMiddleware:
-        """纯 ASGI 中间件 — 提取 X-Cockpit-Id 并设置到 contextvars。"""
+        """纯 ASGI 中间件 — 提取 X-Cockpit-Id 并设置到 contextvars。
+
+        同时记录 Prometheus 指标（请求计数 + 延迟），
+        覆盖所有 HTTP 请求（包括 /health, /vehicle, /chat 等），
+        确保 Grafana 面板有数据可展示。
+        """
 
         def __init__(self, app):
             self.app = app
@@ -421,14 +435,29 @@ def create_app() -> FastAPI:
 
             # 计时
             start = time.perf_counter()
+            status_code = 200  # 默认状态码
 
-            # 包装 send 以注入 X-Response-Time-ms
+            # 包装 send 以注入 X-Response-Time-ms + 记录指标
             async def send_wrapper(message):
+                nonlocal status_code
                 if message["type"] == "http.response.start":
                     duration = round((time.perf_counter() - start) * 1000, 2)
+                    status_code = message.get("status", 200)
                     raw_headers = message.get("headers", [])
                     raw_headers.append((b"x-response-time-ms", str(duration).encode()))
                     message["headers"] = raw_headers
+                    # 记录 Prometheus 指标（排除 /metrics 端点自身，避免自引用）
+                    path = scope.get("path", "")
+                    if not path.startswith("/metrics"):
+                        method = scope.get("method", "GET")
+                        REQUEST_COUNT.labels(
+                            endpoint=path,
+                            method=method,
+                            status=str(status_code),
+                        ).inc()
+                        REQUEST_LATENCY.labels(endpoint=path).observe(
+                            (time.perf_counter() - start)
+                        )
                 await send(message)
 
             await self.app(scope, receive, send_wrapper)

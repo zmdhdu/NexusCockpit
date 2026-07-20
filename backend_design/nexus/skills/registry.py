@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from nexus.core.logger import get_logger
+from nexus.observability.metrics import SKILL_EXECUTIONS
 from nexus.skills.base import (
     BaseSkill,
     SkillGroup,
@@ -183,9 +184,14 @@ class SkillRegistry:
         try:
             cleaned = {k: v for k, v in arguments.items() if v is not None}
             result = await skill.execute(**cleaned)
+            SKILL_EXECUTIONS.labels(
+                skill_name=tool_name,
+                status="ok" if result.status == "ok" else "error",
+            ).inc()
             return result
         except Exception as e:
             logger.error(f"Skill execution failed: {tool_name} -> {e}")
+            SKILL_EXECUTIONS.labels(skill_name=tool_name, status="error").inc()
             return SkillResult(
                 status="error",
                 message=f"技能执行失败: {e}",

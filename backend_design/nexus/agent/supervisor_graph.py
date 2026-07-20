@@ -59,6 +59,14 @@ from nexus.intent.router import IntentRouterService
 from nexus.memory.compressor import ContextCompressor
 from nexus.memory.manager import MemoryManager
 from nexus.models.state import SupervisorState, create_initial_state
+from nexus.observability.metrics import (
+    AGENT_INVOCATIONS,
+    AGENT_LATENCY,
+    LLM_CALLS,
+    LLM_LATENCY,
+    RAG_LATENCY,
+    RAG_RETRIEVALS,
+)
 from nexus.prompts import PromptManager
 from nexus.skills.registry import SkillRegistry
 
@@ -270,47 +278,65 @@ class SupervisorGraph:
             logger.error(f"Threshold compression failed, using original history: {e}")
 
         # 记忆召回 + 用户画像 + 意图路由 并行执行
-        async def _recall_memory():
-            """记忆召回：使用查询增强提升长期记忆召回质量。
-
-            通过 extract_key_context + augment_recall_query 增强召回查询，
-            核心场景: 用户说"我在杭州"后，问"明天天气如何"时能召回位置记忆。
-            """
-            try:
-                # 查询增强 — 当用户查询模糊时，从短期记忆补充关键词
-                augmented_query = self.responder.compressor.augment_recall_query(
-                    user_input, key_context
-                )
-
-                # 长期记忆检索（使用增强后的查询）
-                memories = await self.memory_manager.recall(augmented_query, user_id, top_k=3)
-                return memories
-            except Exception as e:
-                logger.error(f"Memory recall failed: {e}")
-                return []
-
-        def _load_profile():
-            """加载用户画像"""
-            try:
-                return self.memory_manager.get_user_profile(user_id) or {}
-            except Exception as e:
-                logger.error(f"User profile loading failed: {e}")
-                return {}
-
-        async def _route_intent():
-            """意图路由"""
-            try:
-                return await self.intent_router.route(user_input)
-            except Exception as e:
-                logger.error(f"Intent routing failed: {e}")
-                return {"Route_Source": "error"}
-
-        # 三个任务并行执行
-        memories, profile, intent = await asyncio.gather(
-            _recall_memory(),
-            asyncio.to_thread(_load_profile),
-            _route_intent(),
+        # 快速路径: 启发式路由命中的车控指令跳过记忆召回和 RAG，
+        # 将 supervisor 延迟从 ~7.5s 降至 <100ms
+        quick_intent = self.intent_router.heuristic.route(user_input)
+        _is_fast_vehicle = (
+            quick_intent
+            and any(k in quick_intent for k in (
+                "Climate_Action", "Window_Action", "Seat_Action",
+                "Media_Action", "Vehicle_Status_Action",
+            ))
         )
+
+        if _is_fast_vehicle:
+            # 快速路径: 跳过记忆召回和用户画像加载
+            intent = {**self.intent_router._build_default_intent(), **quick_intent, "Route_Source": "heuristic"}
+            memories: list[str] = []
+            profile: dict[str, Any] = {}
+            logger.info(f"Fast-path: heuristic vehicle command, skipping memory recall")
+        else:
+            async def _recall_memory():
+                """记忆召回：使用查询增强提升长期记忆召回质量。
+
+                通过 extract_key_context + augment_recall_query 增强召回查询，
+                核心场景: 用户说"我在杭州"后，问"明天天气如何"时能召回位置记忆。
+                """
+                try:
+                    # 查询增强 — 当用户查询模糊时，从短期记忆补充关键词
+                    augmented_query = self.responder.compressor.augment_recall_query(
+                        user_input, key_context
+                    )
+
+                    # 长期记忆检索（使用增强后的查询）
+                    memories = await self.memory_manager.recall(augmented_query, user_id, top_k=3)
+                    return memories
+                except Exception as e:
+                    logger.error(f"Memory recall failed: {e}")
+                    return []
+
+            def _load_profile():
+                """加载用户画像"""
+                try:
+                    return self.memory_manager.get_user_profile(user_id) or {}
+                except Exception as e:
+                    logger.error(f"User profile loading failed: {e}")
+                    return {}
+
+            async def _route_intent():
+                """意图路由"""
+                try:
+                    return await self.intent_router.route(user_input)
+                except Exception as e:
+                    logger.error(f"Intent routing failed: {e}")
+                    return {"Route_Source": "error"}
+
+            # 三个任务并行执行
+            memories, profile, intent = await asyncio.gather(
+                _recall_memory(),
+                asyncio.to_thread(_load_profile),
+                _route_intent(),
+            )
 
         # 处理记忆结果
         update["recalled_memories"] = memories
@@ -340,6 +366,14 @@ class SupervisorGraph:
 
         latency_ms = round((perf_counter() - t0) * 1000, 2)
         update["metadata"] = {"supervisor_latency_ms": latency_ms}
+
+        # 记录 Prometheus 指标
+        AGENT_LATENCY.labels(agent_name="supervisor").observe(latency_ms / 1000)
+        AGENT_INVOCATIONS.labels(agent_name="supervisor", status="success").inc()
+        # 记忆召回指标
+        if memories:
+            RAG_RETRIEVALS.labels(source="fusion").inc()
+            RAG_LATENCY.observe(latency_ms / 1000)
 
         logger.info(
             f"Supervisor done: source={update['intent_source']}, "
@@ -446,6 +480,9 @@ class SupervisorGraph:
                             merged[key] = result[key]
                         elif key == "skill_action" and result[key]:
                             merged[key] = result[key]
+                # 传递 has_side_effect 标记（车控指令禁止缓存）
+                if result.get("has_side_effect"):
+                    merged["has_side_effect"] = True
                 # 传递 tool_result 到顶层 state
                 if result.get("tool_result"):
                     merged["tool_result"] = result["tool_result"]
@@ -619,19 +656,25 @@ class SupervisorGraph:
             state["running_summary"] = new_summary
 
         try:
+            _llm_t0 = perf_counter()
             response = await self.llm_client.chat.completions.create(
                 model=get_config().llm.llm_model,
                 messages=msgs,
                 temperature=0.3,  # 低温度确保事实准确性
                 max_tokens=get_config().llm.max_tokens,
             )
+            _llm_latency = (perf_counter() - _llm_t0) * 1000
+            LLM_CALLS.labels(model=get_config().llm.llm_model, status="success").inc()
+            LLM_LATENCY.observe(_llm_latency / 1000)
             synthesized = response.choices[0].message.content.strip()
             logger.info(
                 f"Tool synthesis done: tool={tool_name}, "
-                f"raw_len={len(tool_message)}, synth_len={len(synthesized)}"
+                f"raw_len={len(tool_message)}, synth_len={len(synthesized)}, "
+                f"llm_latency={_llm_latency:.0f}ms"
             )
             return synthesized
         except Exception as e:
+            LLM_CALLS.labels(model=get_config().llm.llm_model, status="error").inc()
             logger.error(f"Tool response synthesis failed: {e}, falling back to raw message")
             return tool_message  # 降级：返回原始工具消息
 
@@ -1462,12 +1505,16 @@ class SupervisorGraph:
             state["running_summary"] = new_summary
 
         try:
+            _llm_t0 = perf_counter()
             response = await self.llm_client.chat.completions.create(
                 model=get_config().llm.llm_model,
                 messages=msgs,
                 temperature=0.7,
                 max_tokens=get_config().llm.max_tokens,
             )
+            _llm_latency = (perf_counter() - _llm_t0) * 1000
+            LLM_CALLS.labels(model=get_config().llm.llm_model, status="success").inc()
+            LLM_LATENCY.observe(_llm_latency / 1000)
             result = response.choices[0].message.content.strip()
 
             # 后校验 — 检测 LLM 是否编造了对话历史
@@ -1477,6 +1524,7 @@ class SupervisorGraph:
 
             return result
         except Exception as e:
+            LLM_CALLS.labels(model=get_config().llm.llm_model, status="error").inc()
             logger.error(f"LLM response failed: {e}")
             return f"抱歉，我遇到了一些问题: {e}"
 

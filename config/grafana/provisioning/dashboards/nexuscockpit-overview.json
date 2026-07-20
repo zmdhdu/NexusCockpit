@@ -1,6 +1,19 @@
 {
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
   },
   "editable": true,
   "fiscalYearStartMonth": 0,
@@ -14,12 +27,14 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "最近 5 分钟内所有 API 端点的请求总数。包含 /chat、/vehicle、/health 等所有路由。\n\n参考阈值：\n- 正常：< 1000 (5min)\n- 偏高：1000-5000\n- 异常：> 5000",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -28,8 +43,12 @@
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
                 "color": "red",
-                "value": 80
+                "value": 5000
               }
             ]
           },
@@ -71,12 +90,14 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "所有 API 请求的 P95 延迟（毫秒）。\n\n参考阈值（车载语音助手场景）：\n- 优秀：< 500ms\n- 正常：500-1000ms\n- 偏高：1000-3000ms\n- 异常：> 3000ms",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "—",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -90,11 +111,12 @@
               },
               {
                 "color": "red",
-                "value": 5000
+                "value": 3000
               }
             ]
           },
-          "unit": "ms"
+          "unit": "ms",
+          "decimals": 0
         },
         "overrides": []
       },
@@ -132,12 +154,14 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "语义缓存命中率（最近 1 小时）。\n\n缓存命中可跳过 Agent 流水线，直接返回缓存的回复。\n车控指令不经过缓存（强制每次执行）。\n\n参考阈值：\n- 正常：> 30%\n- 偏低：10-30%\n- 异常：< 10%",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0%",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -147,17 +171,17 @@
               },
               {
                 "color": "yellow",
-                "value": 50
+                "value": 10
               },
               {
                 "color": "green",
-                "value": 80
+                "value": 30
               }
             ]
           },
           "unit": "percent",
           "max": 100,
-          "min": 0
+                    "decimals": 1
         },
         "overrides": []
       },
@@ -183,11 +207,11 @@
       "pluginVersion": "10.4.0",
       "targets": [
         {
-          "expr": "sum(increase(nexus_cache_hits_total[5m])) / (sum(increase(nexus_cache_hits_total[5m])) + sum(increase(nexus_cache_misses_total[5m]))) * 100",
+          "expr": "sum(increase(nexus_cache_hits_total[1h])) / clamp_min(sum(increase(nexus_cache_hits_total[1h])) + sum(increase(nexus_cache_misses_total[1h])), 1) * 100",
           "refId": "A"
         }
       ],
-      "title": "缓存命中率 (5min)",
+      "title": "缓存命中率 (1h)",
       "type": "stat"
     },
     {
@@ -195,18 +219,28 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "当前活跃的 WebSocket 连接数。\n每个座舱前端维护一个长连接用于实时通信。\n\n参考阈值（多座舱场景）：\n- 正常：1-10\n- 偏高：10-50\n- 异常：> 50",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 50
               }
             ]
           },
@@ -248,6 +282,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "按 HTTP 方法分组的 API 请求速率（req/s）。\n包含 GET（健康检查/车辆状态）、POST（聊天/车控）、OPTIONS（CORS 预检）等。",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -262,7 +297,7 @@
             "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 20,
-            "gradientMode": "scheme",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -286,6 +321,7 @@
             }
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -334,6 +370,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "API 请求延迟分位数分布（秒）。\n\nP50 = 中位数延迟\nP95 = 95% 的请求在此延迟以下\nP99 = 99% 的请求在此延迟以下\n\n参考阈值：\n- P95 < 1s 为正常\n- P95 > 3s 需关注",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -348,7 +385,7 @@
             "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 20,
-            "gradientMode": "scheme",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -368,20 +405,30 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
               }
             ]
           },
-          "unit": "s"
+          "unit": "s",
+                    "decimals": 2
         },
         "overrides": []
       },
@@ -430,6 +477,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Agent 流水线调用速率（次/秒），按 agent_name 分组。\n\n包含：\n- supervisor: 意图路由 + 记忆召回 + 专家调度\n- supervisor_pipeline: 完整流水线入口\n\n窗口为 1 小时以覆盖低频调用场景。",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -444,7 +492,7 @@
             "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 20,
-            "gradientMode": "scheme",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -468,6 +516,7 @@
             }
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -503,12 +552,12 @@
       "pluginVersion": "10.4.0",
       "targets": [
         {
-          "expr": "sum(rate(nexus_agent_invocations_total[5m])) by (agent)",
-          "legendFormat": "{{agent}}",
+          "expr": "sum(rate(nexus_agent_invocations_total[1h])) by (agent_name)",
+          "legendFormat": "{{agent_name}}",
           "refId": "A"
         }
       ],
-      "title": "Agent 调用速率",
+      "title": "Agent 调用速率 (1h)",
       "type": "timeseries"
     },
     {
@@ -516,6 +565,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "语义缓存命中 vs 未命中趋势（次/秒）。\n\n缓存命中 → 直接返回缓存回复，跳过 Agent 流水线\n缓存未命中 → 进入 Agent 流水线处理\n车控指令强制跳过缓存（确保每次执行）",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -530,7 +580,7 @@
             "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 30,
-            "gradientMode": "scheme",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -554,6 +604,7 @@
             }
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -563,7 +614,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "ops"
         },
         "overrides": []
       },
@@ -589,17 +640,17 @@
       "pluginVersion": "10.4.0",
       "targets": [
         {
-          "expr": "sum(rate(nexus_cache_hits_total[5m]))",
+          "expr": "sum(rate(nexus_cache_hits_total[1h]))",
           "legendFormat": "命中",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(nexus_cache_misses_total[5m]))",
+          "expr": "sum(rate(nexus_cache_misses_total[1h]))",
           "legendFormat": "未命中",
           "refId": "B"
         }
       ],
-      "title": "缓存命中/未命中趋势",
+      "title": "缓存命中/未命中趋势 (1h)",
       "type": "timeseries"
     },
     {
@@ -607,6 +658,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Supervisor Agent 节点执行延迟 P95（秒）。\n\nSupervisor 负责意图路由 + 记忆召回 + 专家调度，\n是 Agent 流水线的入口节点。\n\n参考阈值（车载语音助手）：\n- 优秀：< 1s\n- 正常：1-3s\n- 偏高：3-5s\n- 异常：> 5s\n\n注：无活动期间曲线可能中断，属正常现象。",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -621,7 +673,7 @@
             "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 20,
-            "gradientMode": "scheme",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -641,20 +693,30 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
+          "noValue": "—",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
               }
             ]
           },
-          "unit": "s"
+          "unit": "s",
+                    "decimals": 2
         },
         "overrides": []
       },
@@ -680,12 +742,12 @@
       "pluginVersion": "10.4.0",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(nexus_agent_latency_seconds_bucket[5m])) by (le, agent))",
-          "legendFormat": "{{agent}} P95",
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_agent_latency_seconds_bucket[1h])) by (le, agent_name))",
+          "legendFormat": "{{agent_name}} P95",
           "refId": "A"
         }
       ],
-      "title": "Agent 执行延迟 (P95)",
+      "title": "Agent 执行延迟 (P95, 1h)",
       "type": "timeseries"
     },
     {
@@ -693,6 +755,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "RAG 检索 & LLM 调用延迟 P95（秒）。\n\nRAG: Milvus 向量检索 + 记忆召回\nLLM: DeepSeek-V3 API 调用（含网络往返）\n\n参考阈值：\n- RAG P95: < 1s 优秀, 1-2s 正常, > 2s 异常\n- LLM P95: < 3s 优秀, 3-10s 正常, > 10s 异常\n\n注：无活动期间曲线可能中断，属正常现象。",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -707,7 +770,7 @@
             "barAlignment": 0,
             "drawStyle": "line",
             "fillOpacity": 20,
-            "gradientMode": "scheme",
+            "gradientMode": "none",
             "hideFrom": {
               "legend": false,
               "tooltip": false,
@@ -727,20 +790,30 @@
               "mode": "none"
             },
             "thresholdsStyle": {
-              "mode": "off"
+              "mode": "line"
             }
           },
           "mappings": [],
+          "noValue": "—",
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
               }
             ]
           },
-          "unit": "s"
+          "unit": "s",
+                    "decimals": 2
         },
         "overrides": []
       },
@@ -766,17 +839,17 @@
       "pluginVersion": "10.4.0",
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(nexus_rag_latency_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_rag_latency_seconds_bucket[1h])) by (le))",
           "legendFormat": "RAG P95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(nexus_llm_latency_seconds_bucket[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_llm_latency_seconds_bucket[1h])) by (le))",
           "legendFormat": "LLM P95",
           "refId": "B"
         }
       ],
-      "title": "RAG 检索 & LLM 调用延迟 (P95)",
+      "title": "RAG 检索 & LLM 调用延迟 (P95, 1h)",
       "type": "timeseries"
     },
     {
@@ -784,6 +857,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "各技能在最近 1 小时的执行次数统计。\n\n包含车控技能和通用技能：\n- vehicle_climate: 空调控制\n- vehicle_media: 媒体播放\n- vehicle_seat: 座椅调节\n- vehicle_window: 车窗控制\n- vehicle_navigation: 导航\n- web_search: 联网搜索",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -822,6 +896,7 @@
             }
           },
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -831,7 +906,8 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "short",
+                    "decimals": 0
         },
         "overrides": []
       },
@@ -857,12 +933,175 @@
       "pluginVersion": "10.4.0",
       "targets": [
         {
-          "expr": "sum(increase(nexus_skill_executions_total[1h])) by (skill)",
-          "legendFormat": "{{skill}}",
+          "expr": "sum(increase(nexus_skill_executions_total[1h])) by (skill_name)",
+          "legendFormat": "{{skill_name}}",
           "refId": "A"
         }
       ],
       "title": "技能执行统计 (近 1 小时)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "各技能执行成功率（%），按 skill_name 分组。\n\n成功率 = status=ok 次数 / 总执行次数 × 100\n使用 clamp_min 防止除零，1h 窗口覆盖低频技能。\n\n参考阈值：\n- 正常：> 95%\n- 需关注：80-95%\n- 异常：< 80%",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "—",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent",
+          "max": 100,
+                    "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "expr": "sum(rate(nexus_skill_executions_total{status=\"ok\"}[1h])) by (skill_name) / clamp_min(sum(rate(nexus_skill_executions_total[1h])) by (skill_name), 0.001) * 100",
+          "legendFormat": "{{skill_name}} 成功率",
+          "refId": "A"
+        }
+      ],
+      "title": "车控/技能执行成功率 (1h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "LLM API 调用延迟 P95（秒）。\n\n当前模型: DeepSeek-V3 (通过硅基流动/火山方舟平台)\n延迟包含：网络往返 + 模型推理 + 流式首 token。\n\n参考阈值：\n- 优秀：< 3s\n- 正常：3-10s\n- 偏高：10-30s\n- 异常：> 30s\n\n注：无活动期间曲线可能中断，属正常现象。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "mappings": [],
+          "noValue": "—",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "s",
+                    "decimals": 2
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(nexus_llm_latency_seconds_bucket[1h])) by (le))",
+          "legendFormat": "LLM P95",
+          "refId": "A"
+        }
+      ],
+      "title": "LLM 调用延迟 (P95, 1h)",
       "type": "timeseries"
     }
   ],
@@ -880,6 +1119,6 @@
   "timezone": "browser",
   "title": "NexusCockpit Overview",
   "uid": "nexuscockpit-overview",
-  "version": 1,
+  "version": 3,
   "weekStart": ""
 }

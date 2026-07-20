@@ -46,13 +46,21 @@ class VehicleExpert(BaseExpertAgent):
                 cleaned = {k: v for k, v in action_data.items() if v is not None}
                 result = await self.registry.execute(tool_name, cleaned)
 
-                return self._build_expert_result(
+                # 车控指令执行后验证结果
+                # 确保命令确实改变了车辆状态，而非空返回 success
+                verified = self._verify_result(tool_name, result, cleaned)
+
+                expert_result = self._build_expert_result(
                     action=tool_name,
-                    reply=result.message,
-                    handled=result.handled,
-                    skill_status=result.status,
-                    skill_data=result.data,
+                    reply=verified.message,
+                    handled=verified.handled,
+                    skill_status=verified.status,
+                    skill_data=verified.data,
+                    skip_synthesis=True,  # 车控指令直接使用工具返回的自然语言消息，跳过 LLM 合成
                 )
+                # 标记有副作用（车控指令修改了车辆状态），禁止缓存
+                expert_result["has_side_effect"] = True
+                return expert_result
 
         # 无匹配车控动作
         return self._build_expert_result(
@@ -60,3 +68,107 @@ class VehicleExpert(BaseExpertAgent):
             reply="",
             handled=False,
         )
+
+    def _verify_result(self, tool_name: str, result: Any, args: Dict[str, Any]) -> Any:
+        """验证车控命令执行结果。
+
+        检查工具返回的 data 是否反映了预期的状态变更，
+        避免返回成功但实际未变动的问题。
+
+        Args:
+            tool_name: 技能名称（如 vehicle_climate）
+            result: SkillResult 执行结果
+            args: 原始命令参数
+
+        Returns:
+            验证后的 SkillResult（可能修正 message 和 status）
+        """
+        from nexus.skills.base import SkillResult
+
+        if not result.handled:
+            return result
+
+        data = result.data or {}
+
+        # 空调温度验证
+        if tool_name == "vehicle_climate" and "climate" in data:
+            climate = data["climate"]
+            target_temp = args.get("target_temp")
+            if target_temp is not None:
+                actual_temp = climate.get("temperature")
+                if actual_temp is not None and int(actual_temp) != int(target_temp):
+                    logger.warning(
+                        f"Climate verification FAILED: target={target_temp}, actual={actual_temp}"
+                    )
+                    return SkillResult(
+                        status="error",
+                        message=f"空调温度设置失败，目标 {target_temp} 度，当前 {actual_temp} 度，请重试。",
+                        data=data,
+                        error="temp_mismatch",
+                        action=tool_name,
+                        handled=True,
+                    )
+
+        # 车窗位置验证
+        if tool_name == "vehicle_window" and "windows" in data:
+            windows = data["windows"]
+            position = args.get("position", "all")
+            target_percent = args.get("percent")
+            op = args.get("op", "")
+            if target_percent is not None:
+                actual = windows.get(position, windows.get("all"))
+                if actual is not None and int(actual) != int(target_percent):
+                    logger.warning(
+                        f"Window verification FAILED: pos={position}, target={target_percent}%, actual={actual}%"
+                    )
+                    return SkillResult(
+                        status="error",
+                        message=f"车窗设置失败，目标 {target_percent}%，当前 {actual}%，请重试。",
+                        data=data,
+                        error="position_mismatch",
+                        action=tool_name,
+                        handled=True,
+                    )
+            elif op in ("open", "close"):
+                expected = 100 if op == "open" else 0
+                actual = windows.get(position, windows.get("all"))
+                if actual is not None and int(actual) != expected:
+                    logger.warning(
+                        f"Window verification FAILED: op={op}, pos={position}, expected={expected}%, actual={actual}%"
+                    )
+                    return SkillResult(
+                        status="error",
+                        message=f"车窗{op}失败，当前 {actual}%，请重试。",
+                        data=data,
+                        error="position_mismatch",
+                        action=tool_name,
+                        handled=True,
+                    )
+
+        # 媒体播放验证
+        if tool_name == "vehicle_media" and "media" in data:
+            media = data["media"]
+            op = args.get("op", "")
+            if op == "play" and not media.get("playing"):
+                logger.warning("Media verification FAILED: play requested but not playing")
+                return SkillResult(
+                    status="error",
+                    message="播放失败，请重试。",
+                    data=data,
+                    error="play_failed",
+                    action=tool_name,
+                    handled=True,
+                )
+            elif op == "pause" and media.get("playing"):
+                logger.warning("Media verification FAILED: pause requested but still playing")
+                return SkillResult(
+                    status="error",
+                    message="暂停失败，请重试。",
+                    data=data,
+                    error="pause_failed",
+                    action=tool_name,
+                    handled=True,
+                )
+
+        logger.info(f"Vehicle command verified OK: {tool_name}")
+        return result

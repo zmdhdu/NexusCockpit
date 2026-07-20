@@ -92,6 +92,7 @@ class BaseExpertAgent(ABC):
         reply: str = "",
         search_context: str = "",
         handled: bool = True,
+        skip_synthesis: bool = False,
         **extra: Any,
     ) -> Dict[str, Any]:
         """构建专家返回的 partial state update。
@@ -99,8 +100,13 @@ class BaseExpertAgent(ABC):
         同时写入 expert_results 列表（通过 reducer 累加）和
         兼容旧版的 skill_result / skill_action 字段。
 
-        如果提供了 skill_data，额外输出顶层 tool_result 字段，
-        供 Responder 做 Tool→LLM 合成和反思校验。
+        如果提供了 skill_data 且未设置 skip_synthesis，额外输出顶层
+        tool_result 字段，供 Responder 做 Tool→LLM 合成和反思校验。
+
+        Args:
+            skip_synthesis: 如果为 True，不设置 tool_result，
+                直接使用 reply 作为回复（跳过 LLM 合成和反思）。
+                适用于车控等返回自然语言消息的技能。
         """
         result_entry = {
             "expert": self.expert_name,
@@ -121,7 +127,8 @@ class BaseExpertAgent(ABC):
             },
         }
         # 将工具结果提升到顶层 state，供 Responder 合成和反思使用
-        if handled and (extra.get("skill_data") or reply):
+        # skip_synthesis=True 时跳过（车控指令直接使用工具返回的自然语言消息）
+        if not skip_synthesis and handled and (extra.get("skill_data") or reply):
             update["tool_result"] = {
                 "tool_name": action,
                 "message": reply,
