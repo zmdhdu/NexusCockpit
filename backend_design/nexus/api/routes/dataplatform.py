@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import APIRouter, Query
 
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/dataplatform", tags=["dataplatform"])
 
 
 @router.get("/overview")
-async def get_overview() -> Dict[str, Any]:
+async def get_overview() -> dict[str, Any]:
     """数据中台全局概览。"""
     manager = get_cockpit_manager()
     cockpits = manager.list_cockpits()
@@ -68,7 +68,7 @@ async def get_overview() -> Dict[str, Any]:
 
 
 @router.get("/cockpit/{cockpit_id}")
-async def get_cockpit_detail(cockpit_id: str) -> Dict[str, Any]:
+async def get_cockpit_detail(cockpit_id: str) -> dict[str, Any]:
     """单座舱详情。"""
     manager = get_cockpit_manager()
     config = manager.get_cockpit(cockpit_id)
@@ -85,7 +85,7 @@ async def get_cockpit_detail(cockpit_id: str) -> Dict[str, Any]:
 
 
 @router.get("/concurrency")
-async def get_concurrency() -> Dict[str, Any]:
+async def get_concurrency() -> dict[str, Any]:
     """并发能力统计。"""
     return {
         "current_concurrency": await _get_current_concurrency(),
@@ -100,7 +100,7 @@ async def get_concurrency() -> Dict[str, Any]:
 async def get_alerts(
     hours: int = Query(default=24, description="查询最近 N 小时的告警"),
     cockpit_id: str = Query(default="", description="过滤座舱 ID"),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """告警历史（从 MySQL mainagent_logs 查询）。"""
     import json
 
@@ -124,7 +124,7 @@ async def get_alerts(
         )
 
     # 后处理：格式化时间和 JSON 字段
-    result: List[Dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
         # 格式化 alert_time
@@ -151,7 +151,7 @@ async def get_alerts(
 async def get_agent_activity(
     hours: int = Query(default=24, description="查询最近 N 小时的活动"),
     cockpit_id: str = Query(default="", description="过滤座舱 ID"),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Agent 活动时间线（从 MySQL subagent_logs 查询）。
 
     返回的 check_items / llm_judgment / decision_trace 字段已从 JSON 字符串解析为 dict。
@@ -178,7 +178,7 @@ async def get_agent_activity(
         )
 
     # 后处理：解析 JSON 字段、格式化时间
-    result: List[Dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
         # 格式化 check_time (datetime → ISO 字符串)
@@ -219,7 +219,7 @@ async def get_agent_activity(
 
 
 @router.get("/comparison")
-async def get_cockpit_comparison() -> List[Dict[str, Any]]:
+async def get_cockpit_comparison() -> list[dict[str, Any]]:
     """座舱对比数据。"""
     manager = get_cockpit_manager()
     cockpits = manager.list_cockpits()
@@ -244,7 +244,7 @@ async def get_cockpit_comparison() -> List[Dict[str, Any]]:
 
 
 @router.get("/cache-trend")
-async def get_cache_trend() -> List[Dict[str, Any]]:
+async def get_cache_trend() -> list[dict[str, Any]]:
     """缓存趋势数据 — 按小时聚合最近 24 小时的缓存命中/未命中数据。
 
     从 MySQL chat_logs 表查询真实数据，按小时分组统计 cache_hit=True/False 的数量。
@@ -322,6 +322,7 @@ async def _get_current_concurrency() -> int:
     """从 Redis 查询当前并发连接数。"""
     try:
         import redis.asyncio as aioredis
+
         from nexus.config import get_config
         config = get_config().redis
         client = aioredis.Redis(
@@ -335,7 +336,7 @@ async def _get_current_concurrency() -> int:
         return 0
 
 
-async def _get_llm_cost_summary() -> Dict[str, Any]:
+async def _get_llm_cost_summary() -> dict[str, Any]:
     """从 MySQL 查询 LLM 成本汇总。"""
     db = get_db_manager()
     if not db.is_connected:
@@ -343,7 +344,7 @@ async def _get_llm_cost_summary() -> Dict[str, Any]:
     return await db.get_llm_cost_summary(hours=24)
 
 
-async def _get_resource_usage() -> Dict[str, Any]:
+async def _get_resource_usage() -> dict[str, Any]:
     """获取系统资源使用情况。"""
     try:
         import psutil
@@ -359,7 +360,7 @@ async def _get_resource_usage() -> Dict[str, Any]:
         return {"cpu_percent": 0, "memory_mb": 0, "disk_percent": 0}
 
 
-def _calculate_health_score(stats: Dict[str, Any]) -> int:
+def _calculate_health_score(stats: dict[str, Any]) -> int:
     """根据座舱指标计算健康评分（0-100）。"""
     score = 100
     # 缓存命中率低扣分

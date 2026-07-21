@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: data_assets
+title: 数据、静态资源与模型权重
+scope:
+    - data/
+    - assets/
+    - models/
+source_files: []
+depends_on: []
+related_to: []

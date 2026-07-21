@@ -52,8 +52,8 @@ let _onTrackEnded: TrackEndedCallback | null = null;
 /** 上次同步的媒体状态指纹（避免重复同步） */
 let _lastMediaKey: string = "";
 
-/** API 基础地址 */
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/** API 基础地址（与 lib/api.ts 保持一致，默认 Go 网关 8080） */
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 /**
  * 获取或创建全局 Audio 元素

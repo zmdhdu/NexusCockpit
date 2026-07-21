@@ -11,16 +11,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
 from nexus.core.cockpit_manager import get_cockpit_manager
 from nexus.core.logger import get_logger
-from nexus.core.tenant_context import CockpitContext, set_cockpit_id, set_user_id
+from nexus.core.tenant_context import CockpitContext
 from nexus.models.cockpit import (
-    CockpitResponse,
     CockpitStatusResponse,
 )
 from nexus.observability.cockpit_metrics import get_cockpit_metrics
@@ -44,7 +43,7 @@ class ChatRequestBody(BaseModel):
 class VehicleCommandBody(BaseModel):
     """车控指令请求。"""
     command: str = Field(..., description="命令名称")
-    arguments: Dict[str, Any] = Field(default_factory=dict, description="命令参数")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="命令参数")
     user_id: str = Field(default="default", description="用户 ID")
 
 
@@ -79,7 +78,7 @@ async def cockpit_chat(
     request: Request,
     cockpit_id: str = Path(..., description="座舱 ID"),
     body: ChatRequestBody = ...,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """座舱对话（转发到 Agent 工作流）。
 
     设置 TenantContext 后调用 SupervisorGraph。
@@ -203,7 +202,7 @@ async def cockpit_vehicle_cmd(
     request: Request,
     cockpit_id: str = Path(..., description="座舱 ID"),
     body: VehicleCommandBody = ...,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """座舱车控指令执行。"""
     manager = get_cockpit_manager()
     config = manager.get_cockpit(cockpit_id)
@@ -237,7 +236,7 @@ async def cockpit_vehicle_cmd(
 async def cockpit_vehicle_status(
     request: Request,
     cockpit_id: str = Path(..., description="座舱 ID"),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """获取座舱的车辆状态。"""
     manager = get_cockpit_manager()
     config = manager.get_cockpit(cockpit_id)

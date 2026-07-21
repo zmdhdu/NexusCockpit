@@ -4,14 +4,13 @@ name: LangGraph Agent 编排框架
 slug: langgraph
 category: external_dependency
 category_hints:
-    - framework_behavior
+    - vendor_identity
 scope:
     - '**'
 ---
 
 ### LangGraph Agent 编排框架
-- **角色**: Multi-Agent 工作流编排核心，实现 Supervisor + 5 Expert Agents 架构
-- **集成点**: `backend_design/nexus/agent/supervisor_graph.py` 中的 SupervisorGraph 类
-- **使用模式**: 有状态图执行、条件路由、并行专家 Agent 调用、反思校验流程
-- **关键特性**: 检查点持久化（AsyncSqliteSaver）、工具调用、记忆系统集成
-- **降级策略**: 云端 DeepSeek-V3 → 本地 Qwen3.5-4B (llama.cpp) 自动降级
+- **角色**：Multi-Agent 工作流编排核心，实现 Supervisor + 5 Expert Agents 的并行协作架构
+- **集成点**：`backend_design/nexus/agent/supervisor_graph.py` 作为编排核心，管理专家 Agent 的调度与结果聚合
+- **使用模式**：有状态图执行、条件路由、并行节点执行，支持 Reflection 和 Reviewer 质量检查流程
+- **关键特性**：与 LangChain 生态兼容，支持 Checkpoint 持久化，适合复杂 AI 应用的工作流编排

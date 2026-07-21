@@ -11,7 +11,7 @@ Graph Store Base — 知识图谱存储抽象基类
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class BaseGraphStore(ABC):
@@ -40,15 +40,15 @@ class BaseGraphStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def search_user_graph(self, user_id: str, depth: int = 1) -> List[str]:
+    def search_user_graph(self, user_id: str, depth: int = 1) -> list[str]:
         raise NotImplementedError
 
     @abstractmethod
-    def search_food(self, food_name: str) -> Optional[str]:
+    def search_food(self, food_name: str) -> str | None:
         raise NotImplementedError
 
     @abstractmethod
-    def get_user_profile(self, user_id: str) -> Dict[str, Any]:
+    def get_user_profile(self, user_id: str) -> dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod

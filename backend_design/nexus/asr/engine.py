@@ -14,8 +14,8 @@ import logging
 import os
 import re
 import warnings
+from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stdout
-from typing import Iterator, Optional
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -101,7 +101,7 @@ class ASREngine:
         # 临时抑制：funasr 内部 logging.info() + print() 噪音
         # 注意: structlog 不受 logging.disable 影响，但 logger.warning/error
         # 需在 with 块外调用以确保不受 redirect_stdout 影响
-        load_error: Optional[str] = None
+        load_error: str | None = None
         model_path = ""
         with _silence_during_load():
             try:

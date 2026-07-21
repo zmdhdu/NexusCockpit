@@ -7,7 +7,8 @@
 导入技能模块以触发 @register_skill 装饰器注册。
 
 技能清单:
-  基础技能 (10个): vehicle_climate/window/seat/navigation/media/status + web_search + order_food + amap_poi_search + register_voice
+  基础技能 (10个): vehicle_climate/window/seat/navigation/media/status
+              + web_search + order_food + amap_poi_search + register_voice
   扩展技能 (9个): habit_record/recommend/adjust + set/query/cancel_reminder
               + diagnose_vehicle/decode_dtc/maintenance_advice
 
@@ -16,6 +17,8 @@
 """
 
 # 技能模块导入（触发 @register_skill 装饰器注册）
-from nexus.skills import habit  # noqa: F401
-from nexus.skills import health  # noqa: F401
-from nexus.skills import reminder  # noqa: F401
+from nexus.skills import (
+    habit,  # noqa: F401
+    health,  # noqa: F401
+    reminder,  # noqa: F401
+)

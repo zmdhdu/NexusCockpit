@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: config_and_infra
+title: 可观测性配置与 CI/脚本基础设施
+scope:
+    - config/
+    - scripts/
+    - .github/workflows/ci.yml
+source_files: []
+depends_on: []
+related_to: []

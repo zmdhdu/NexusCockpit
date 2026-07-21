@@ -69,6 +69,22 @@
 | `/audio/{path}` | GET | 静态音频文件 |
 | `/docs` | GET | Swagger 文档 |
 
+## MCP 服务层接口
+
+MCP (Model Context Protocol) 网关 (`nexus/mcp/gateway.py`) 提供统一工具调用入口，封装车控适配器，支持工具发现与调用：
+
+```python
+from nexus.mcp.gateway import MCPGateway
+
+gateway = MCPGateway(adapter=vehicle_adapter)
+gateway.list_tools()   # → [{"name": "vehicle_climate", "description": "..."}, ...]
+gateway.invoke("vehicle_climate", {"op": "set_temp", "target_temp": 24})
+```
+
+> **注意**: MCP 网关当前仅作为内部服务层组件被 Agent 层调用，尚未暴露独立的 HTTP 端点。
+> 可用工具包括: vehicle_climate / vehicle_window / vehicle_seat / vehicle_navigation / vehicle_media / vehicle_status。
+> 详见 [L3-service.md](./L3-service.md) 中的 MCP 网关章节。
+
 ## 模块清单
 
 ### main.py — FastAPI 应用

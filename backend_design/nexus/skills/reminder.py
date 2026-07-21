@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.skills.base import BaseSkill, SkillGroup, SkillResult, register_skill
@@ -32,8 +32,9 @@ _REMINDER_KEY = "nexus:reminders:{user_id}"
 def _get_redis():
     """延迟获取 Redis 连接。"""
     try:
-        from nexus.config import get_config
         import redis
+
+        from nexus.config import get_config
         config = get_config()
         return redis.Redis(
             host=config.redis.host,

@@ -23,7 +23,7 @@ Prompt Manager — Prompt 模板管理
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 
@@ -44,7 +44,7 @@ class PromptManager:
 
     def __init__(self, prompts_dir: str = ""):
         self.prompts_dir = prompts_dir or _PROMPTS_DIR
-        self._cache: Dict[str, str] = {}
+        self._cache: dict[str, str] = {}
 
     def load(self, name: str) -> str:
         """加载模板文件内容。
@@ -64,7 +64,7 @@ class PromptManager:
             return ""
 
         try:
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 content = f.read()
             self._cache[name] = content
             return content

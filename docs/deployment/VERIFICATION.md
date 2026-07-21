@@ -161,48 +161,25 @@ curl http://localhost:9091/healthz
 - [ ] Prometheus targets 正常
 - [ ] Grafana 可登录
 
-### 2.3 OSS 连接验证
+### 2.3 数据库连接验证
 
 ```bash
-# 在项目目录下运行
-python -c "
-from nexus.config import get_config
-from nexus.core.oss import OSSStorage
+# 验证 Redis 连接
+docker exec nexuscockpit-redis-1 redis-cli ping
+# 预期: PONG
 
-config = get_config()
-print(f'OSS enabled: {config.oss.enabled}')
-print(f'Bucket: {config.oss.bucket_name}')
-print(f'Endpoint: {config.oss.endpoint}')
-print(f'Public URL: {config.oss.public_base_url}')
+# 验证 Milvus 健康 (等待 30 秒后)
+curl http://localhost:9091/healthz
+# 预期: OK
 
-storage = OSSStorage()
-storage.connect()
-print(f'OSS available: {storage.is_available}')
-
-# 测试上传
-import tempfile, os
-with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-    f.write('NexusCockpit OSS test')
-    temp_path = f.name
-
-url = storage.upload_file(temp_path, 'test/nexus_test.txt')
-print(f'Upload URL: {url}')
-
-# 测试公开访问
-import requests
-if url:
-    resp = requests.get(url)
-    print(f'Public read: {resp.status_code} - {resp.text}')
-
-os.unlink(temp_path)
-"
+# 验证 Neo4j 浏览器
+# 打开 http://localhost:7474 (neo4j/nexuscockpit)
 ```
 
 **验证清单**:
-- [ ] OSS 配置正确加载
-- [ ] OSS 连接成功
-- [ ] 文件上传成功
-- [ ] 公开读取可访问
+- [ ] Redis 返回 PONG
+- [ ] Milvus 健康检查返回 OK
+- [ ] Neo4j Browser 可访问
 
 ---
 
@@ -227,16 +204,13 @@ print(f'Redis URL: {c.redis.url}')
 print(f'ASR Path: {c.asr.resolved_funasr_path()}')
 print(f'TTS Path: {c.asr.resolved_cosyvoice_path()}')
 print(f'SV Path: {c.asr.resolved_cam_path()}')
-print(f'OSS Enabled: {c.oss.enabled}')
 print(f'Vehicle Adapter: {c.vehicle.adapter}')
-"
-```
+"```
 
 **验证清单**:
 - [ ] ARK_API_KEY 已填入
 - [ ] TAVILY_API_KEY 已填入
 - [ ] 所有路径为相对路径
-- [ ] OSS 已启用
 - [ ] Vehicle Adapter 为 mock
 
 ### 3.2 数据库初始化验证
@@ -271,7 +245,6 @@ cd backend_design && uvicorn nexus.main:app --host 0.0.0.0 --port 8000 --reload
 - [ ] Milvus 连接成功
 - [ ] Neo4j 连接成功
 - [ ] Redis 连接成功
-- [ ] OSS 连接成功
 - [ ] Agent graph 初始化成功
 
 ### 3.4 API 接口验证
@@ -528,19 +501,7 @@ curl http://localhost:8000/admin/cache/stats
 
 ## 阶段 7: 全链路集成测试
 
-### 7.1 OSS 存储验证
-
-```bash
-# 通过 API 上传文件
-curl -X POST http://localhost:8000/admin/upload \
-  -F "file=@test.wav" \
-  -F "path=audio/test"
-
-# 验证 OSS 公开访问
-# 打开返回的 URL
-```
-
-### 7.2 可观测性验证
+### 7.1 可观测性验证
 
 1. **Langfuse** (如已配置):
    - [ ] 打开 Langfuse Dashboard
@@ -557,7 +518,7 @@ curl -X POST http://localhost:8000/admin/upload \
    - [ ] 后端控制台输出 JSON 格式日志
    - [ ] 包含 trace_id、user_id 等字段
 
-### 7.3 WebSocket 验证
+### 7.2 WebSocket 验证
 
 ```javascript
 // 在浏览器控制台执行
@@ -571,7 +532,6 @@ ws.onmessage = (event) => {
 ```
 
 **验证清单**:
-- [ ] OSS 上传/下载正常
 - [ ] Langfuse 追踪可见 (如配置)
 - [ ] Grafana 面板数据正常
 - [ ] Prometheus 指标采集正常
@@ -670,22 +630,6 @@ docker compose logs milvus | tail -20
 
 # Milvus 首次启动可能需要 30-60 秒
 # 等待后重试
-```
-
-### Q: OSS 上传失败
-
-```bash
-# 检查 OSS 配置
-python -c "
-from nexus.config import get_config
-c = get_config()
-print(f'Access Key: {c.oss.access_key[:10]}...')
-print(f'Bucket: {c.oss.bucket_name}')
-print(f'Endpoint: {c.oss.endpoint}')
-"
-
-# 检查网络连通性
-ping oss-cn-beijing.aliyuncs.com
 ```
 
 ### Q: LLM 返回空响应

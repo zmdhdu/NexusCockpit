@@ -5,7 +5,9 @@
 """Navigation Skill"""
 
 from __future__ import annotations
+
 from typing import Any
+
 from nexus.skills.base import SkillResult
 from nexus.skills.vehicle import VehicleBaseSkill
 
@@ -20,7 +22,10 @@ class NavigationSkill(VehicleBaseSkill):
         {"input": "导航到上海虹桥火车站", "arguments": {"destination": "上海虹桥火车站", "mode": "drive"}},
         {"input": "带我去公司", "arguments": {"destination": "公司", "mode": "drive"}},
         {"input": "我在哪里", "arguments": {"op": "location"}},
-        {"input": "导航到机场，途经充电站", "arguments": {"destination": "机场", "waypoint": "充电站", "mode": "drive"}},
+        {
+            "input": "导航到机场，途经充电站",
+            "arguments": {"destination": "机场", "waypoint": "充电站", "mode": "drive"},
+        },
     ]
     parameters = {
         "destination": {"type": "string", "description": "目的地，例如 家、公司、充电站"},

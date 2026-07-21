@@ -17,8 +17,8 @@ Responder 是工作流的第三站，负责生成用户看到的最终回复。
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from time import perf_counter
-from typing import AsyncGenerator, List
 
 from openai import AsyncOpenAI
 
@@ -199,7 +199,8 @@ class ResponderAgent:
                     return fb_response.choices[0].message.content.strip()
                 except Exception as fb_err:
                     logger.error(f"Local LLM fallback also failed: {fb_err}")
-            return f"抱歉，我遇到了一些问题: {e}"
+            # 安全：异常细节仅写入日志，不透传给用户，避免泄露内部信息
+            return "抱歉，我现在有点忙不过来，请稍后再试。"
 
     async def _stream_llm_response(
         self, state: AgentState, search_ctx: str = ""
@@ -261,4 +262,5 @@ class ResponderAgent:
                     return
                 except Exception as fb_err:
                     logger.error(f"Local LLM streaming fallback also failed: {fb_err}")
-            yield f"抱歉，连接模型出错: {e}"
+            # 安全：异常细节仅写入日志，不透传给用户，避免泄露内部信息
+            yield "抱歉，我现在有点忙不过来，请稍后再试。"

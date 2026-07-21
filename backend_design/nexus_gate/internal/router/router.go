@@ -65,11 +65,28 @@ func SetupRouter(hub *ws.Hub, limiter *ratelimit.RateLimiter) *gin.Engine {
 
 	r := gin.Default()
 
-	// CORS 中间件（从配置读取允许的域名）
+	// CORS 中间件（按 CORS_ORIGINS 白名单回显具体来源，支持逗号分隔多域名）
+	allowedOrigins := cfg.AllowedOrigins()
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", cfg.CORSOrigins)
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		origin := c.GetHeader("Origin")
+		allowOrigin := ""
+		for _, a := range allowedOrigins {
+			if a == "*" {
+				allowOrigin = "*"
+				break
+			}
+			if a == origin {
+				allowOrigin = origin
+				break
+			}
+		}
+		if allowOrigin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+			c.Writer.Header().Set("Vary", "Origin")
+		}
+		// PATCH: 前端会话标题更新使用；X-Cockpit-Id: 多租户隔离请求头
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Cockpit-Id")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
@@ -196,6 +213,12 @@ func SetupRouter(hub *ws.Hub, limiter *ratelimit.RateLimiter) *gin.Engine {
 		wsActiveConnections.WithLabelValues("dataplatform").Dec()
 	})
 
+	// ==================== 兜底反代（前端统一接入网关）====================
+	// 未在网关注册的路由（/chat、/admin、/vehicle、/chat/sessions、/audio 静态资源等）
+	// 统一转发到 Python 后端，使前端只需指向网关 (8080) 即可访问全部 API，
+	// 并获得统一的 CORS/指标/日志。鉴权由 Python 侧自行把关（双端 JWT 密钥已对齐）。
+	r.NoRoute(OptionalAuthMiddleware(), proxyToPython)
+
 	return r
 }
 
@@ -238,8 +261,8 @@ func proxyToPython(c *gin.Context) {
 // handleTokenIssue JWT Token 签发
 func handleTokenIssue(c *gin.Context) {
 	var req struct {
-		UserID   string `json:"user_id"`
-		Password string `json:"password"`
+		UserID    string `json:"user_id"`
+		Password  string `json:"password"`
 		CockpitID string `json:"cockpit_id"`
 	}
 
@@ -254,14 +277,14 @@ func handleTokenIssue(c *gin.Context) {
 	}
 
 	// 设置默认值
+	cfg := config.Get()
 	cockpitID := req.CockpitID
 	if cockpitID == "" {
 		cockpitID = "cockpit-01"
 	}
-	role := "cockpit_user"
+	role := cfg.DefaultRole // 默认角色可通过 RBAC_DEFAULT_ROLE 配置（开发环境可设为 super_admin 以解锁管理页）
 
 	// Admin 用户特殊处理：需要密码验证
-	cfg := config.Get()
 	if req.UserID == cfg.AdminUsername {
 		if req.Password != cfg.AdminPassword {
 			c.JSON(401, gin.H{"error": "INVALID_CREDENTIALS", "message": "admin password incorrect"})
@@ -269,6 +292,11 @@ func handleTokenIssue(c *gin.Context) {
 		}
 		role = "super_admin"
 		cockpitID = "" // admin 不绑定座舱
+	} else if cfg.UserPassword != "" && req.Password != cfg.UserPassword {
+		// 普通用户凭证校验：设置了 RBAC_USER_PASSWORD 时强制校验共享口令
+		// （未设置 = 开发环境免密模式；生产环境由 config 启动检查强制要求设置）
+		c.JSON(401, gin.H{"error": "INVALID_CREDENTIALS", "message": "user password incorrect"})
+		return
 	}
 
 	// 签发 Token

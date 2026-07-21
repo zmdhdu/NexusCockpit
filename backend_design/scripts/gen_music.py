@@ -10,11 +10,11 @@ This script creates 10 tracks with:
 
 Run: python backend_design/scripts/gen_music.py
 """
-import struct
-import wave
 import math
 import os
 import random
+import struct
+import wave
 
 # ============================================================
 # Audio constants

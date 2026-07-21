@@ -58,7 +58,6 @@ type MiddlewareStatus struct {
 //   - RedisDB:        该座舱独占的 Redis 数据库编号
 //   - IsActive:       座舱是否处于活跃状态
 //   - ThemeColor:     前端主题色（十六进制色值）
-//   - SubAgentStatus: 子 Agent 运行状态（"running"/"stopped"）
 type CockpitInfo struct {
 	CockpitID   string `json:"cockpit_id"`
 	Name        string `json:"name"`
@@ -66,7 +65,6 @@ type CockpitInfo struct {
 	RedisDB     int    `json:"redis_db"`
 	IsActive    bool   `json:"is_active"`
 	ThemeColor  string `json:"theme_color"`
-	SubAgentStatus string `json:"subagent_status"`
 }
 
 // ============================================================
@@ -425,7 +423,6 @@ func ListCockpits(c *gin.Context) {
 			RedisDB:        i,
 			IsActive:       true,
 			ThemeColor:     themes[themeIdx],
-			SubAgentStatus: "running",
 		})
 	}
 

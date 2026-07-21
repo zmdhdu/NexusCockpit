@@ -15,7 +15,6 @@ Embedding Service — 统一文本向量化服务
 from __future__ import annotations
 
 import asyncio
-from typing import List, Optional
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -49,7 +48,7 @@ class EmbeddingService:
         self._closed = False
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
-    async def embed(self, text: str) -> List[float]:
+    async def embed(self, text: str) -> list[float]:
         """获取单条文本的 embedding 向量。
 
         Args:
@@ -75,7 +74,7 @@ class EmbeddingService:
             raise LLMError(f"Embedding failed: {e}")
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
-    async def embed_batch(self, texts: List[str], batch_size: int = 32) -> List[List[float]]:
+    async def embed_batch(self, texts: list[str], batch_size: int = 32) -> list[list[float]]:
         """批量获取 embedding，并行处理多个分片。
 
         Args:
@@ -88,13 +87,13 @@ class EmbeddingService:
         if self._closed or not texts:
             return [] if not texts else [[0.0] * self.config.embedding_dim] * len(texts)
 
-        all_embeddings: List[Optional[List[float]]] = [None] * len(texts)
+        all_embeddings: list[list[float] | None] = [None] * len(texts)
         batches = [
             (i, texts[i : i + batch_size])
             for i in range(0, len(texts), batch_size)
         ]
 
-        async def process_batch(start_idx: int, batch_texts: List[str]) -> None:
+        async def process_batch(start_idx: int, batch_texts: list[str]) -> None:
             try:
                 result = await self._circuit.call(self._embed_batch_api, batch_texts)
                 for j, emb in enumerate(result):
@@ -107,7 +106,7 @@ class EmbeddingService:
         await asyncio.gather(*[process_batch(s, b) for s, b in batches])
         return all_embeddings  # type: ignore
 
-    async def _embed_api(self, text: str) -> List[float]:
+    async def _embed_api(self, text: str) -> list[float]:
         """调用 Ark API 获取 embedding"""
         response = await self.client.post(
             "/embeddings",
@@ -120,7 +119,7 @@ class EmbeddingService:
         data = response.json()
         return data["data"][0]["embedding"]
 
-    async def _embed_batch_api(self, texts: List[str]) -> List[List[float]]:
+    async def _embed_batch_api(self, texts: list[str]) -> list[list[float]]:
         """批量调用 Ark API"""
         response = await self.client.post(
             "/embeddings",

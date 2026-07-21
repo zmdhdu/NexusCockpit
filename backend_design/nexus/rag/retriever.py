@@ -21,12 +21,12 @@ GraphRAG Retriever — 融合向量检索、图谱检索、BM25 全文检索
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.rag.embedding import EmbeddingService
-from nexus.rag.graph_store import Neo4jGraphStore
 from nexus.rag.graph_factory import build_graph_store
+from nexus.rag.graph_store import Neo4jGraphStore
 from nexus.rag.reranker_base import BaseReranker
 from nexus.rag.reranker_factory import build_reranker
 from nexus.rag.vector_base import BaseVectorStore
@@ -56,10 +56,10 @@ class GraphRAGRetriever:
 
     def __init__(
         self,
-        vector_store: Optional[BaseVectorStore] = None,
-        graph_store: Optional[Neo4jGraphStore] = None,
-        embedding_service: Optional[EmbeddingService] = None,
-        reranker: Optional[BaseReranker] = None,
+        vector_store: BaseVectorStore | None = None,
+        graph_store: Neo4jGraphStore | None = None,
+        embedding_service: EmbeddingService | None = None,
+        reranker: BaseReranker | None = None,
         enable_rerank: bool = True,
         enable_bm25: bool = True,
     ):
@@ -74,7 +74,7 @@ class GraphRAGRetriever:
 
         # BM25 索引（延迟初始化）
         self._bm25 = None
-        self._bm25_docs: List[str] = []
+        self._bm25_docs: list[str] = []
 
     def connect(self) -> None:
         """连接所有存储"""
@@ -82,7 +82,7 @@ class GraphRAGRetriever:
         self.graph_store.connect()
         logger.info("GraphRAG retriever initialized (BM25 + Rerank)")
 
-    def _init_bm25(self, documents: List[str]) -> None:
+    def _init_bm25(self, documents: list[str]) -> None:
         """初始化 BM25 索引。"""
         if not self.enable_bm25 or not documents:
             return
@@ -100,7 +100,7 @@ class GraphRAGRetriever:
             logger.error(f"BM25 init failed: {e}")
             self.enable_bm25 = False
 
-    def _tokenize(self, text: str) -> List[str]:
+    def _tokenize(self, text: str) -> list[str]:
         """中文分词：优先使用 jieba 分词，降级为按字切分；英文按空格切分。"""
         import re
         # 英文按空格
@@ -116,7 +116,7 @@ class GraphRAGRetriever:
             tokens.extend(re.findall(r"[\u4e00-\u9fff]", text))
         return [t for t in tokens if t.strip()]
 
-    def _bm25_search(self, query: str, top_k: int = 10) -> List[Dict[str, Any]]:
+    def _bm25_search(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
         """BM25 全文检索。"""
         if not self._bm25 or not self._bm25_docs:
             return []
@@ -144,7 +144,7 @@ class GraphRAGRetriever:
         user_id: str,
         top_k: int = 5,
         graph_depth: int = 1,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """三路融合检索用户记忆。
 
         流程:
@@ -164,7 +164,7 @@ class GraphRAGRetriever:
         graph_results = self.graph_store.search_user_graph(user_id, depth=graph_depth)
 
         # BM25 路召回（需要先有文档索引）
-        bm25_results: List[Dict[str, Any]] = []
+        bm25_results: list[dict[str, Any]] = []
         if self.enable_bm25 and self._bm25:
             bm25_results = self._bm25_search(query, top_k=top_k * 2)
 
@@ -177,7 +177,7 @@ class GraphRAGRetriever:
 
         return fused[:top_k]
 
-    async def retrieve_food(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def retrieve_food(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         """检索食材库。"""
         vec_results = await self.vector_store.search_food(query, top_k=top_k)
         graph_match = self.graph_store.search_food(query)
@@ -191,11 +191,11 @@ class GraphRAGRetriever:
 
     def _rrf_fuse(
         self,
-        vec_results: List[Dict[str, Any]],
-        graph_results: List[str],
-        bm25_results: List[Dict[str, Any]] = None,
+        vec_results: list[dict[str, Any]],
+        graph_results: list[str],
+        bm25_results: list[dict[str, Any]] = None,
         k: int = 60,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """RRF (Reciprocal Rank Fusion) 三路融合排序。
 
         公式: RRF(d) = Σ 1/(k + rank_i(d))
@@ -210,8 +210,8 @@ class GraphRAGRetriever:
         Returns:
             融合排序后的结果列表
         """
-        scores: Dict[str, float] = {}
-        texts: Dict[str, Dict[str, Any]] = {}
+        scores: dict[str, float] = {}
+        texts: dict[str, dict[str, Any]] = {}
 
         # 向量路打分
         for rank, item in enumerate(vec_results):

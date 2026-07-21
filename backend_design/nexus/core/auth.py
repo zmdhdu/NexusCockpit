@@ -17,7 +17,6 @@ JWT Authentication — 认证模块
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -35,8 +34,8 @@ security = HTTPBearer(auto_error=False)
 
 def create_access_token(
     user_id: str,
-    expires_delta: Optional[timedelta] = None,
-    extra_claims: Optional[dict] = None,
+    expires_delta: timedelta | None = None,
+    extra_claims: dict | None = None,
 ) -> str:
     """签发 JWT Access Token。
 
@@ -84,7 +83,7 @@ def decode_token(token: str) -> dict:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> str:
     """FastAPI 依赖: 验证 JWT Token 并返回用户 ID。
 
@@ -124,8 +123,8 @@ async def get_current_user(
 
 
 async def get_optional_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-) -> Optional[str]:
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> str | None:
     """FastAPI 依赖: 可选认证，Token 有效时返回 user_id，无效或缺失时返回 None。
 
     适用于聊天等不强制认证但可以受益于认证的场景。

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -26,9 +26,9 @@ class LLMIntentRouter:
 
     def __init__(
         self,
-        llm_client: Optional[AsyncOpenAI] = None,
+        llm_client: AsyncOpenAI | None = None,
         llm_model: str = "",
-        tool_catalog: Optional[List[dict]] = None,
+        tool_catalog: list[dict] | None = None,
         min_confidence: float = 0.55,
     ):
         self.config = get_config().llm
@@ -40,7 +40,7 @@ class LLMIntentRouter:
         self.tool_catalog = tool_catalog or []
         self.min_confidence = min_confidence
 
-    async def route(self, text: str) -> Optional[Dict[str, Any]]:
+    async def route(self, text: str) -> dict[str, Any] | None:
         """
         使用 LLM 路由意图
         返回: {"selected_tool": "...", "arguments": {...}, "confidence": 0.x, ...}
@@ -63,11 +63,12 @@ class LLMIntentRouter:
             logger.error(f"LLM routing failed: {e}")
             return None
 
-    def _build_prompt(self, text: str) -> List[Dict[str, str]]:
+    def _build_prompt(self, text: str) -> list[dict[str, str]]:
         tool_catalog_text = json.dumps(self.tool_catalog, ensure_ascii=False, indent=2)
         system_prompt = (
             "你是一个车载语音技能路由器。你的任务不是回答用户，而是从技能列表中选择最合适的一个技能，并提取参数。"
-            "如果信息不足、用户意图不明确、或需要补充参数，就返回 need_clarification=true，并给出 clarification_question。"
+            "如果信息不足、用户意图不明确、或需要补充参数，"
+            "就返回 need_clarification=true，并给出 clarification_question。"
             "如果是普通闲聊或不需要任何技能，selected_tool 设为 none。"
             "必须只输出 JSON，不要输出解释、Markdown 或多余文本。"
         )
@@ -89,7 +90,8 @@ class LLMIntentRouter:
 1. 只能选择技能列表中的 name。
 2. 车控类请求优先选择对应 vehicle_* 技能。
 3. 搜索、点餐、注册声纹也必须走对应技能。
-4. 当用户询问"附近"、"周边"的美食、餐厅、加油站、停车场等基于当前位置的信息时，优先选择 amap_poi_search 技能，而非 web_search。
+4. 当用户询问"附近"、"周边"的美食、餐厅、加油站、
+   停车场等基于当前位置的信息时，优先选择 amap_poi_search，而非 web_search。
 5. 不要编造参数；缺参数时请明确请求澄清。
 6. confidence 取 0 到 1 之间的小数。
 
@@ -101,7 +103,7 @@ class LLMIntentRouter:
             {"role": "user", "content": user_prompt},
         ]
 
-    def _parse_json(self, content: str) -> Optional[Dict[str, Any]]:
+    def _parse_json(self, content: str) -> dict[str, Any] | None:
         cleaned = content.replace("```json", "").replace("```", "").strip()
         match = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if match:
@@ -112,7 +114,7 @@ class LLMIntentRouter:
         except Exception:
             return None
 
-    def decision_to_intent(self, decision: Dict[str, Any]) -> Dict[str, Any]:
+    def decision_to_intent(self, decision: dict[str, Any]) -> dict[str, Any]:
         """将 LLM 决策转换为标准意图格式"""
         from nexus.intent.router import IntentRouterService
         return IntentRouterService._decision_to_intent_static(decision, self.min_confidence)

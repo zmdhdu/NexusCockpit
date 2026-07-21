@@ -10,7 +10,6 @@ TTS Engine — 语音合成引擎封装
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -65,7 +64,7 @@ class TTSEngine:
         text: str,
         speaker: str = "",
         output_path: str = "",
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         合成语音
         返回生成的音频文件路径，失败返回 None

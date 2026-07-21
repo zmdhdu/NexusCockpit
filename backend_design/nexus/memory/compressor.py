@@ -30,7 +30,7 @@ Context Compressor — 上下文动态压缩引擎
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -130,7 +130,7 @@ class ContextCompressor:
         "time": ["怎么样", "如何", "多少"],
     }
 
-    def __init__(self, llm_client: Optional[AsyncOpenAI] = None):
+    def __init__(self, llm_client: AsyncOpenAI | None = None):
         self.config = get_config().llm
         # 从 MemoryConfig 读取阈值压缩参数（可通过 .env 调整）
         self._memory_cfg = get_config().memory
@@ -188,7 +188,7 @@ class ContextCompressor:
         other_chars = len(text) - chinese_chars
         return max(1, int(chinese_chars / 1.5 + other_chars / 4))
 
-    def _estimate_messages_tokens(self, messages: List[Dict[str, str]]) -> int:
+    def _estimate_messages_tokens(self, messages: list[dict[str, str]]) -> int:
         """计算消息列表的总 token 数（含系统开销）。
 
         每条消息约4 token 开销（role + 结构）。
@@ -226,7 +226,7 @@ class ContextCompressor:
             logger.error(f"Text compression failed: {e}")
             return text[:max_chars]
 
-    async def compress_messages(self, messages: List[Dict[str, str]], max_chars: int = 400) -> str:
+    async def compress_messages(self, messages: list[dict[str, str]], max_chars: int = 400) -> str:
         """压缩旧对话，提取核心摘要。
 
         压缩提示词更注重保留稳定事实（位置/偏好/身份），
@@ -272,7 +272,7 @@ class ContextCompressor:
     # 智能上下文记忆管理 — 关键信息提取 / 查询增强 / 阈值压缩
     # ============================================================
 
-    def extract_key_context(self, history: List[Dict[str, str]]) -> Dict[str, str]:
+    def extract_key_context(self, history: list[dict[str, str]]) -> dict[str, str]:
         """从对话历史中提取关键上下文信息（零 LLM 调用，纯正则匹配）。
 
         从最近的对话历史中提取用户提到的关键实体，包括:
@@ -295,7 +295,7 @@ class ContextCompressor:
         if not history:
             return {}
 
-        key_ctx: Dict[str, Any] = {"preferences": []}
+        key_ctx: dict[str, Any] = {"preferences": []}
         # 只扫描最近 10 条消息（5 轮），避免全量扫描
         recent_history = history[-10:]
 
@@ -338,7 +338,7 @@ class ContextCompressor:
         # 只保留有值的字段
         return {k: v for k, v in key_ctx.items() if v}
 
-    def augment_recall_query(self, query: str, key_context: Dict[str, Any]) -> str:
+    def augment_recall_query(self, query: str, key_context: dict[str, Any]) -> str:
         """增强长期记忆召回查询 — 当用户查询模糊时补充关键上下文。
 
         核心场景:
@@ -393,7 +393,7 @@ class ContextCompressor:
 
         return augmented
 
-    def should_compress(self, history: List[Dict[str, str]]) -> bool:
+    def should_compress(self, history: list[dict[str, str]]) -> bool:
         """判断是否需要触发阈值压缩。
 
         当对话轮数超过 compress_threshold_turns 时返回 True。
@@ -413,9 +413,9 @@ class ContextCompressor:
 
     async def compress_history_with_threshold(
         self,
-        history: List[Dict[str, str]],
+        history: list[dict[str, str]],
         running_summary: str = "",
-    ) -> Tuple[List[Dict[str, str]], str]:
+    ) -> tuple[list[dict[str, str]], str]:
         """阈值压缩 — 对话超阈值时自动将旧对话压缩为滚动摘要。
 
         核心逻辑（参考 LangChain ConversationSummaryMemory + MemGPT 分层记忆）:
@@ -527,7 +527,7 @@ class ContextCompressor:
             keep_old = old_summary[: self.max_summary_chars // 2]
             return f"{keep_old}\n{new_summary}"[:self.max_summary_chars]
 
-    def _filter_low_quality_memories(self, memories: List[str]) -> List[str]:
+    def _filter_low_quality_memories(self, memories: list[str]) -> list[str]:
         """过滤低质量记忆。
 
         策略:
@@ -569,11 +569,11 @@ class ContextCompressor:
         self,
         system_prompt: str,
         user_input: str,
-        history: List[Dict[str, str]],
+        history: list[dict[str, str]],
         running_summary: str = "",
         memory_str: str = "",
         search_ctx: str = "",
-    ) -> Tuple[List[Dict[str, str]], str]:
+    ) -> tuple[list[dict[str, str]], str]:
         """分级预算组装上下文。
 
         渐进式披露 + 四级压缩:
@@ -597,7 +597,7 @@ class ContextCompressor:
             filtered = self._filter_low_quality_memories(memories)
             memory_str = ";".join(filtered) if filtered else ""
 
-        messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         new_running_summary = running_summary
 
         if memory_str:
@@ -627,7 +627,10 @@ class ContextCompressor:
         if total_tokens <= self.max_context_tokens:
             return messages, new_running_summary
 
-        logger.info(f"Context overflow ({total_tokens} > {self.max_context_tokens}), Level 1: compressing search context...")
+        logger.info(
+            f"Context overflow ({total_tokens} > {self.max_context_tokens}), "
+            "Level 1: compressing search context..."
+        )
 
         # Level 1: 压缩检索上下文
         compressed_search = search_ctx
@@ -656,7 +659,7 @@ class ContextCompressor:
             new_running_summary = (running_summary + "\n" + old_summary).strip()[:self.max_summary_chars]
 
         # 重新组装
-        final_msgs: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        final_msgs: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         if memory_str:
             final_msgs[0]["content"] += f"\n{memory_str}\n请在聊天中自然运用这些信息。"
         if new_running_summary:

@@ -15,7 +15,7 @@ Milvus Vector Store — 向量存储与检索
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pymilvus import (
     Collection,
@@ -42,12 +42,12 @@ class MilvusVectorStore(BaseVectorStore):
         embedding_service: 文本向量化服务
     """
 
-    def __init__(self, embedding_service: Optional[EmbeddingService] = None):
+    def __init__(self, embedding_service: EmbeddingService | None = None):
         self.config = get_config().milvus
         self.embedding_service = embedding_service or EmbeddingService()
         self._connected = False
-        self.food_collection: Optional[Collection] = None
-        self.memory_collection: Optional[Collection] = None
+        self.food_collection: Collection | None = None
+        self.memory_collection: Collection | None = None
 
     def connect(self) -> None:
         """连接 Milvus 并初始化集合"""
@@ -131,7 +131,7 @@ class MilvusVectorStore(BaseVectorStore):
             self.memory_collection.load()
             logger.info(f"Memory collection created: {name}")
 
-    async def search_memory(self, query_text: str, user_id: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def search_memory(self, query_text: str, user_id: str, top_k: int = 5) -> list[dict[str, Any]]:
         """检索特定用户的语义记忆"""
         if not self.memory_collection:
             return []
@@ -167,7 +167,7 @@ class MilvusVectorStore(BaseVectorStore):
             logger.error(f"Memory search failed: {e}")
             return []
 
-    async def insert_memory(self, text: str, user_id: str) -> Optional[int]:
+    async def insert_memory(self, text: str, user_id: str) -> int | None:
         """插入一条用户记忆，返回主键 ID"""
         if not self.memory_collection:
             return None
@@ -191,7 +191,7 @@ class MilvusVectorStore(BaseVectorStore):
             logger.error(f"Memory insert failed: {e}")
             return None
 
-    def delete_memory_by_ids(self, id_list: List[int], user_id: str) -> bool:
+    def delete_memory_by_ids(self, id_list: list[int], user_id: str) -> bool:
         """根据 ID 列表和 user_id 安全删除记忆"""
         if not self.memory_collection or not id_list:
             return False
@@ -206,7 +206,7 @@ class MilvusVectorStore(BaseVectorStore):
             logger.error(f"Memory delete failed: {e}")
             return False
 
-    async def search_food(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def search_food(self, query_text: str, top_k: int = 5) -> list[dict[str, Any]]:
         """检索食材库"""
         if not self.food_collection:
             return []

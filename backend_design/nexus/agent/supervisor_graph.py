@@ -36,9 +36,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from datetime import datetime, timezone, timedelta
+from collections.abc import AsyncGenerator
+from datetime import datetime, timedelta, timezone
 from time import perf_counter
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any
 
 from langgraph.graph import END, StateGraph
 from openai import AsyncOpenAI
@@ -55,10 +56,10 @@ from nexus.agent.responder import ResponderAgent
 from nexus.agent.reviewer import ReviewerAgent
 from nexus.config import get_config
 from nexus.core.logger import get_logger
+from nexus.intent.constants import VEHICLE_INTENT_KEYS
 from nexus.intent.router import IntentRouterService
-from nexus.memory.compressor import ContextCompressor
 from nexus.memory.manager import MemoryManager
-from nexus.models.state import SupervisorState, create_initial_state
+from nexus.models.state import SupervisorState
 from nexus.observability.metrics import (
     AGENT_INVOCATIONS,
     AGENT_LATENCY,
@@ -92,7 +93,7 @@ class SupervisorGraph:
         intent_router: IntentRouterService,
         memory_manager: MemoryManager,
         skill_registry: SkillRegistry,
-        llm_client: Optional[AsyncOpenAI] = None,
+        llm_client: AsyncOpenAI | None = None,
         checkpoint_saver=None,
     ):
         self.intent_router = intent_router
@@ -107,7 +108,7 @@ class SupervisorGraph:
         )
 
         # 初始化 5 个专家
-        self.experts: Dict[str, BaseExpertAgent] = {
+        self.experts: dict[str, BaseExpertAgent] = {
             "vehicle": VehicleExpert(skill_registry),
             "navigation": NavExpert(skill_registry),
             "lifestyle": LifestyleExpert(skill_registry),
@@ -186,7 +187,7 @@ class SupervisorGraph:
             return "responder"
         return "dispatch"
 
-    async def _supervisor_node(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _supervisor_node(self, state: SupervisorState) -> dict[str, Any]:
         """Supervisor 节点：记忆召回 + 用户画像加载 + 意图路由 + 专家分派决策。
 
         智能上下文记忆管理:
@@ -203,7 +204,7 @@ class SupervisorGraph:
             Partial state update
         """
         t0 = perf_counter()
-        update: Dict[str, Any] = {
+        update: dict[str, Any] = {
             "recalled_memories": [],
             "memory_str": "",
             "habits_str": "",
@@ -283,10 +284,7 @@ class SupervisorGraph:
         quick_intent = self.intent_router.heuristic.route(user_input)
         _is_fast_vehicle = (
             quick_intent
-            and any(k in quick_intent for k in (
-                "Climate_Action", "Window_Action", "Seat_Action",
-                "Media_Action", "Vehicle_Status_Action",
-            ))
+            and any(k in quick_intent for k in VEHICLE_INTENT_KEYS)
         )
 
         if _is_fast_vehicle:
@@ -294,7 +292,7 @@ class SupervisorGraph:
             intent = {**self.intent_router._build_default_intent(), **quick_intent, "Route_Source": "heuristic"}
             memories: list[str] = []
             profile: dict[str, Any] = {}
-            logger.info(f"Fast-path: heuristic vehicle command, skipping memory recall")
+            logger.info("Fast-path: heuristic vehicle command, skipping memory recall")
         else:
             async def _recall_memory():
                 """记忆召回：使用查询增强提升长期记忆召回质量。
@@ -386,7 +384,7 @@ class SupervisorGraph:
         )
         return update
 
-    def _determine_experts(self, intent: Dict[str, Any]) -> List[str]:
+    def _determine_experts(self, intent: dict[str, Any]) -> list[str]:
         """根据意图路由结果决定分派给哪些专家。
 
         策略:
@@ -399,14 +397,10 @@ class SupervisorGraph:
         Returns:
             专家名称列表
         """
-        experts: List[str] = []
+        experts: list[str] = []
 
         # 车控
-        vehicle_keys = (
-            "Climate_Action", "Window_Action", "Seat_Action",
-            "Media_Action", "Vehicle_Status_Action",
-        )
-        if any(intent.get(k) for k in vehicle_keys):
+        if any(intent.get(k) for k in VEHICLE_INTENT_KEYS):
             experts.append("vehicle")
 
         # 导航
@@ -427,7 +421,7 @@ class SupervisorGraph:
 
         return experts
 
-    async def _dispatch_node(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _dispatch_node(self, state: SupervisorState) -> dict[str, Any]:
         """专家并行分派节点：同时执行所有活跃专家。
 
         使用 asyncio.gather 并行调用所有活跃专家的 run() 方法，
@@ -453,8 +447,8 @@ class SupervisorGraph:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # 合并所有专家的 partial updates
-        merged: Dict[str, Any] = {"expert_results": []}
-        merged_metadata: Dict[str, Any] = {}
+        merged: dict[str, Any] = {"expert_results": []}
+        merged_metadata: dict[str, Any] = {}
 
         for name, result in zip(expert_names, results):
             if isinstance(result, Exception):
@@ -505,7 +499,7 @@ class SupervisorGraph:
         )
         return merged
 
-    async def _responder_node(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _responder_node(self, state: SupervisorState) -> dict[str, Any]:
         """Responder 节点：汇总专家输出，生成最终回复。
 
         增强特性:
@@ -555,7 +549,7 @@ class SupervisorGraph:
 
         # 返回 running_summary 确保 LangGraph 持久化
         # _generate_llm_response / _synthesize_tool_response 已将新摘要写入 state
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "final_response": full_response,
             "history": history_update,
             "metadata": {"responder_latency_ms": latency_ms},
@@ -614,7 +608,8 @@ class SupervisorGraph:
             navigation_constraint = (
                 "\n7. **导航类工具特殊约束（极其重要）**:\n"
                 "   - 工具只返回了目的地坐标和名称，**没有路线规划、路况、距离、预计时间等信息**\n"
-                "   - **绝对禁止编造**具体路线（如'沿XX路直行'）、路况（如'畅通'）、距离（如'约5公里'）、预计时间（如'约15分钟'）\n"
+                "   - **绝对禁止编造**具体路线（如'沿XX路直行'）、路况（如'畅通'）、"
+                "距离（如'约5公里'）、预计时间（如'约15分钟'）\n"
                 "   - 只需告知用户已开始导航到目的地，并给出目的地名称和坐标即可\n"
                 "   - 不要描述沿途 landmarks 或道路名称，除非工具结果中明确包含\n"
             )
@@ -678,7 +673,7 @@ class SupervisorGraph:
             logger.error(f"Tool response synthesis failed: {e}, falling back to raw message")
             return tool_message  # 降级：返回原始工具消息
 
-    async def _reflection_node(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _reflection_node(self, state: SupervisorState) -> dict[str, Any]:
         """反思校验节点：对 LLM 输出做事实性、一致性、无幻觉检查。
 
         反思策略:
@@ -706,7 +701,7 @@ class SupervisorGraph:
         user_input = state.get("user_input", "")
         search_context = state.get("search_context", "")
 
-        update: Dict[str, Any] = {"metadata": {}}
+        update: dict[str, Any] = {"metadata": {}}
 
         # 反思开关 — 关闭时跳过所有 LLM 反思，仅做轻量检查
         if not get_config().llm.reflection_enabled:
@@ -817,7 +812,7 @@ class SupervisorGraph:
 
     def _deterministic_date_check(
         self, user_input: str, response: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """确定性日期校验 — 使用正则表达式检测日期错误，无需 LLM 调用。
 
         检测场景:
@@ -887,7 +882,7 @@ class SupervisorGraph:
     async def _reflect_search_response(
         self, state: SupervisorState, user_input: str,
         final_response: str, search_context: str, t0: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """搜索类回复反思：检查回复是否基于搜索结果，是否正确传达时效性。
 
         检查项:
@@ -895,7 +890,7 @@ class SupervisorGraph:
             2. 回复是否正确传达了搜索结果的时效性
             3. 回复是否添加了搜索结果中不存在的具体数据（如温度、时间等）
         """
-        update: Dict[str, Any] = {"metadata": {}}
+        update: dict[str, Any] = {"metadata": {}}
 
         # 确定性日期校验（正则，无 LLM 调用，即时完成）
         # 如果检测到日期错误，直接修正并跳过 LLM 反思，大幅减少延迟
@@ -993,7 +988,7 @@ class SupervisorGraph:
     async def _reflect_chat_response(
         self, state: SupervisorState, user_input: str,
         final_response: str, t0: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """通用闲聊反思：对所有非工具类回复做 LLM 质量校验。
 
         反思 prompt 注入完整对话历史，防止反思 LLM 误判"编造对话历史"，
@@ -1012,7 +1007,7 @@ class SupervisorGraph:
             - 完整性：回复是否过于简短或遗漏关键信息
             - 无幻觉：回复是否编造了不存在的信息
         """
-        update: Dict[str, Any] = {"metadata": {}}
+        update: dict[str, Any] = {"metadata": {}}
 
         # 注入当前时间，防止时间相关的幻觉
         cn_tz = timezone(timedelta(hours=8))
@@ -1128,7 +1123,7 @@ class SupervisorGraph:
     async def _regenerate_with_feedback(
         self, state: SupervisorState, user_input: str,
         original_response: str, feedback: str,
-    ) -> Optional[str]:
+    ) -> str | None:
         """带反思反馈重新生成回复（渐进式校验的 retry 环节）。
 
         使用压缩后的历史，保存滚动摘要。
@@ -1318,7 +1313,7 @@ class SupervisorGraph:
         return fallback
 
     @staticmethod
-    def _format_key_context(key_context: Dict[str, Any]) -> str:
+    def _format_key_context(key_context: dict[str, Any]) -> str:
         """格式化关键上下文为可读文本，注入系统提示词。
 
         将 extract_key_context 提取的字典格式化为 LLM 可理解的自然语言。
@@ -1577,7 +1572,7 @@ class SupervisorGraph:
             logger.error(f"LLM streaming failed: {e}")
             yield f"抱歉，连接模型出错: {e}"
 
-    async def _reviewer_node(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _reviewer_node(self, state: SupervisorState) -> dict[str, Any]:
         """Reviewer 节点：质量检查 + 记忆存储 + 对话向量化 + 延迟统计。
 
         增强特性:
@@ -1586,7 +1581,7 @@ class SupervisorGraph:
             - 两者异步执行，不阻塞响应
         """
         t0 = perf_counter()
-        update: Dict[str, Any] = {}
+        update: dict[str, Any] = {}
 
         # 1. 响应质量检查
         final_response = state.get("final_response", "")

@@ -9,7 +9,7 @@ MCP Gateway — MCP (Model Context Protocol) 网关
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.vehicle.base import VehicleCommandResult
@@ -27,7 +27,7 @@ class MCPGateway:
         from nexus.vehicle.factory import build_vehicle_adapter
         self.adapter = adapter or build_vehicle_adapter()
 
-    def invoke(self, tool_name: str, arguments: Dict[str, Any]) -> VehicleCommandResult:
+    def invoke(self, tool_name: str, arguments: dict[str, Any]) -> VehicleCommandResult:
         """调用工具"""
         result = self.adapter.invoke_command(tool_name, arguments)
         if not result.success:

@@ -16,10 +16,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -113,7 +111,7 @@ class VoiceprintService:
         user_id: str,
         audio_data: bytes,
         audio_format: str = "wav",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """注册声纹。
 
         提取音频的声纹特征并存储。需要多次注册（默认 3 次）。
@@ -196,7 +194,7 @@ class VoiceprintService:
         cockpit_id: str,
         audio_data: bytes,
         audio_format: str = "wav",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """验证声纹。
 
         提取音频特征，与该座舱下所有已注册用户的声纹比对。
@@ -231,7 +229,7 @@ class VoiceprintService:
                 "message": "该座舱无已注册用户",
             }
 
-        best_match: Optional[str] = None
+        best_match: str | None = None
         best_score: float = 0.0
 
         for user_id in os.listdir(cockpit_dir):
@@ -270,7 +268,7 @@ class VoiceprintService:
             if verified else "未匹配到已注册用户",
         }
 
-    def get_status(self, cockpit_id: str) -> Dict[str, Any]:
+    def get_status(self, cockpit_id: str) -> dict[str, Any]:
         """获取座舱的声纹注册状态。
 
         Args:
@@ -283,7 +281,7 @@ class VoiceprintService:
         if not os.path.exists(cockpit_dir):
             return {"cockpit_id": cockpit_id, "users": []}
 
-        users: List[Dict[str, Any]] = []
+        users: list[dict[str, Any]] = []
         for user_id in os.listdir(cockpit_dir):
             user_dir = os.path.join(cockpit_dir, user_id)
             if not os.path.isdir(user_dir):
@@ -321,7 +319,7 @@ class VoiceprintService:
             return True
         return False
 
-    async def _extract_embedding(self, audio_data: bytes, audio_format: str) -> Optional[np.ndarray]:
+    async def _extract_embedding(self, audio_data: bytes, audio_format: str) -> np.ndarray | None:
         """提取音频的声纹特征向量。
 
         使用 modelscope pipeline 提取 embedding，兼容性更好。
@@ -338,8 +336,9 @@ class VoiceprintService:
         if self._model is not None:
             # 使用 modelscope pipeline 的底层模型提取特征
             try:
-                import torchaudio
                 import tempfile
+
+                import torchaudio
 
                 # 保存临时文件
                 with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as f:
@@ -390,7 +389,7 @@ class VoiceprintService:
 
 
 # 全局单例
-_voiceprint: Optional[VoiceprintService] = None
+_voiceprint: VoiceprintService | None = None
 
 
 def get_voiceprint_service() -> VoiceprintService:

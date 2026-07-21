@@ -10,11 +10,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # ============================================================
 # 座舱 CRUD 模型
@@ -30,11 +28,11 @@ class CockpitCreateRequest(BaseModel):
 
 class CockpitUpdateRequest(BaseModel):
     """更新座舱配置请求。"""
-    name: Optional[str] = None
-    user_id: Optional[str] = None
-    vehicle_adapter: Optional[str] = None
-    theme_color: Optional[str] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    user_id: str | None = None
+    vehicle_adapter: str | None = None
+    theme_color: str | None = None
+    is_active: bool | None = None
 
 
 class CockpitResponse(BaseModel):
@@ -55,7 +53,7 @@ class CockpitListResponse(BaseModel):
     """座舱列表响应。"""
     total: int
     active: int
-    cockpits: List[CockpitResponse]
+    cockpits: list[CockpitResponse]
 
 
 # ============================================================
@@ -68,8 +66,8 @@ class CockpitStatusResponse(BaseModel):
     name: str
     is_active: bool
     # subagent_status 字段已移除（SubAgent 监控已删除）
-    vehicle_status: Optional[Dict[str, Any]] = None
-    metrics: Optional[Dict[str, Any]] = None  # 对话数/车控数/缓存命中/延迟
+    vehicle_status: dict[str, Any] | None = None
+    metrics: dict[str, Any] | None = None  # 对话数/车控数/缓存命中/延迟
 
 
 # ============================================================
@@ -116,7 +114,7 @@ class AgentActivityRecord(BaseModel):
     cockpit_id: str
     check_time: str
     is_anomaly: bool
-    check_items: Optional[str] = None
+    check_items: str | None = None
     # llm_judgment 字段已移除（SubAgent LLM 巡检已删除）
 
 
@@ -128,8 +126,8 @@ class MiddlewareStatus(BaseModel):
     """中间件状态响应。"""
     name: str
     status: str  # connected / disconnected / not_configured
-    version: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
+    version: str | None = None
+    details: dict[str, Any] | None = None
 
 
 # ============================================================
@@ -156,10 +154,10 @@ class UserResponse(BaseModel):
 
 class MiddlewareConfigUpdate(BaseModel):
     """中间件配置更新请求。"""
-    isolation_mode: Optional[str] = None  # 已移除（单座舱无需隔离）
+    isolation_mode: str | None = None  # 已移除（单座舱无需隔离）
     # subagent_check_min/max/mainagent_confirm_enabled 已移除
-    cache_similarity_threshold: Optional[float] = None
-    rate_limit_qps: Optional[int] = None
+    cache_similarity_threshold: float | None = None
+    rate_limit_qps: int | None = None
 
 
 # ============================================================
@@ -170,11 +168,11 @@ class RBACRole(BaseModel):
     """RBAC 角色定义。"""
     name: str
     display_name: str
-    permissions: List[str]
+    permissions: list[str]
 
 
 # 角色 → 权限映射
-ROLE_PERMISSIONS: Dict[str, List[str]] = {
+ROLE_PERMISSIONS: dict[str, list[str]] = {
     "super_admin": [
         "cockpit:register", "cockpit:delete", "cockpit:update",
         "cockpit:chat", "cockpit:vehicle",

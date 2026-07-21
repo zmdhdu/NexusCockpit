@@ -9,11 +9,11 @@ Non-vehicle skills: web search, food delivery, voice registration
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone, timedelta
-from typing import Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
-from nexus.skills.base import BaseSkill, SkillResult
 from nexus.core.logger import get_logger
+from nexus.skills.base import BaseSkill, SkillResult
 
 # 东八区时区 (UTC+8)，确保无论服务器在什么时区都能获取正确的中国时间
 _CN_TZ = timezone(timedelta(hours=8))
@@ -72,7 +72,7 @@ class WebSearchSkill(BaseSkill):
             time_str = now.strftime("%H:%M")
             enhanced_query = f"{query} {today_str} {time_str}"
             logger.info(f"WebSearch enhanced query: {enhanced_query}")
-            
+
             response = self._client.search(query=enhanced_query, search_depth="basic")
             results = response.get("results", [])[:3]
             if not results:
@@ -94,7 +94,7 @@ class WebSearchSkill(BaseSkill):
             # 使用东八区时间
             current_time = _now_cn().strftime("%Y-%m-%d %H:%M")
             time_prefix = f"[当前时间: {current_time}]\n"
-            
+
             return SkillResult(
                 status="ok",
                 message="搜索完成",

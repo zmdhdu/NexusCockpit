@@ -12,7 +12,7 @@ Vehicle Base Skill — 车载技能基类
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.skills.base import BaseSkill, SkillResult
 from nexus.vehicle.base import BaseVehicleAdapter
@@ -23,7 +23,7 @@ class VehicleBaseSkill(BaseSkill):
 
     tool_name: str = ""
 
-    def __init__(self, adapter: Optional[BaseVehicleAdapter] = None):
+    def __init__(self, adapter: BaseVehicleAdapter | None = None):
         from nexus.vehicle.factory import build_vehicle_adapter
         # 保存默认适配器（单例），运行时可能被 _get_adapter 覆盖
         self._default_adapter = adapter or build_vehicle_adapter()
@@ -41,7 +41,7 @@ class VehicleBaseSkill(BaseSkill):
             pass
         return self._default_adapter
 
-    def _invoke(self, payload: Dict[str, Any]) -> SkillResult:
+    def _invoke(self, payload: dict[str, Any]) -> SkillResult:
         """调用车控适配器"""
         result = self.adapter.invoke_command(self.tool_name, payload)
         return SkillResult(

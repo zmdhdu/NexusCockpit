@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Quick API test script — verifies chat, vehicle, and streaming endpoints."""
-import requests
 import json
-import sys
+
+import requests
 
 BASE = "http://localhost:8000"
 
@@ -12,7 +12,11 @@ def get_token():
 
 def test_chat(token, text, cockpit="cockpit-01"):
     headers = {"Authorization": f"Bearer {token}", "X-Cockpit-Id": cockpit}
-    r = requests.post(f"{BASE}/chat", json={"text": text, "user_id": "nexus_dev", "session_id": "test"}, headers=headers, timeout=60)
+    r = requests.post(
+        f"{BASE}/chat",
+        json={"text": text, "user_id": "nexus_dev", "session_id": "test"},
+        headers=headers, timeout=60,
+    )
     d = r.json()
     print(f"  Input:    {text}")
     print(f"  Response: {d['response']}")
@@ -24,7 +28,11 @@ def test_chat(token, text, cockpit="cockpit-01"):
 
 def test_vehicle(token, command, args):
     headers = {"Authorization": f"Bearer {token}", "X-Cockpit-Id": "cockpit-01"}
-    r = requests.post(f"{BASE}/vehicle/command", json={"command": command, "arguments": args}, headers=headers, timeout=10)
+    r = requests.post(
+        f"{BASE}/vehicle/command",
+        json={"command": command, "arguments": args},
+        headers=headers, timeout=10,
+    )
     d = r.json()
     print(f"  Command:  {command} {json.dumps(args, ensure_ascii=False)}")
     print(f"  Success:  {d['success']}")
@@ -33,7 +41,11 @@ def test_vehicle(token, command, args):
 
 def test_stream(token, text):
     headers = {"Authorization": f"Bearer {token}", "X-Cockpit-Id": "cockpit-01"}
-    r = requests.post(f"{BASE}/chat/stream", json={"text": text, "user_id": "nexus_dev", "stream": True}, headers=headers, timeout=60, stream=True)
+    r = requests.post(
+        f"{BASE}/chat/stream",
+        json={"text": text, "user_id": "nexus_dev", "stream": True},
+        headers=headers, timeout=60, stream=True,
+    )
     chunks = []
     for line in r.iter_lines():
         if line:

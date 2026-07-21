@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import shlex
-from typing import Optional
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -30,7 +29,7 @@ from nexus.vehicle.mock import MockVehicleBus
 logger = get_logger(__name__)
 
 # 模块级单例 — 避免每次调用都创建新实例（SubAgent 巡检、技能实例化等场景）
-_singleton_adapter: Optional[BaseVehicleAdapter] = None
+_singleton_adapter: BaseVehicleAdapter | None = None
 
 # 每座舱独立的车控适配器实例（MockVehicleBus 状态隔离）
 _cockpit_adapters: dict[str, BaseVehicleAdapter] = {}

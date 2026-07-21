@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
@@ -28,7 +28,7 @@ class VehicleCommandResult:
     """
     success: bool
     message: str
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
 
 
@@ -43,16 +43,16 @@ class BaseVehicleAdapter(ABC):
     def vehicle_climate(
         self,
         op: str = "status",
-        target_temp: Optional[int] = None,
-        delta: Optional[int] = None,
-        fan_speed: Optional[int] = None,
-        mode: Optional[str] = None,
+        target_temp: int | None = None,
+        delta: int | None = None,
+        fan_speed: int | None = None,
+        mode: str | None = None,
     ) -> VehicleCommandResult:
         raise NotImplementedError
 
     @abstractmethod
     def vehicle_window(
-        self, op: str = "status", position: str = "all", percent: Optional[int] = None
+        self, op: str = "status", position: str = "all", percent: int | None = None
     ) -> VehicleCommandResult:
         raise NotImplementedError
 
@@ -61,8 +61,8 @@ class BaseVehicleAdapter(ABC):
         self,
         op: str = "status",
         position: str = "driver",
-        level: Optional[int] = None,
-        direction: Optional[str] = None,
+        level: int | None = None,
+        direction: str | None = None,
     ) -> VehicleCommandResult:
         raise NotImplementedError
 
@@ -76,9 +76,9 @@ class BaseVehicleAdapter(ABC):
     def vehicle_media(
         self,
         op: str = "play",
-        source: Optional[str] = None,
-        track: Optional[str] = None,
-        volume: Optional[int] = None,
+        source: str | None = None,
+        track: str | None = None,
+        volume: int | None = None,
     ) -> VehicleCommandResult:
         raise NotImplementedError
 
@@ -87,5 +87,5 @@ class BaseVehicleAdapter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def invoke_command(self, command_name: str, payload: Dict[str, Any]) -> VehicleCommandResult:
+    def invoke_command(self, command_name: str, payload: dict[str, Any]) -> VehicleCommandResult:
         raise NotImplementedError

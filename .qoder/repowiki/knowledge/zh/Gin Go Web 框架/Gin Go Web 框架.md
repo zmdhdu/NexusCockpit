@@ -4,14 +4,13 @@ name: Gin Go Web 框架
 slug: gin
 category: external_dependency
 category_hints:
-    - framework_behavior
+    - vendor_identity
 scope:
     - '**'
 ---
 
 ### Gin Go Web 框架
-- **角色**: Go 并发网关核心框架，处理高并发非 AI 请求和反向代理
-- **集成点**: `backend_design/nexus_gate/cmd/main.go` 作为 HTTP 服务器入口
-- **关键职责**: JWT 鉴权、座舱级令牌桶限流、WebSocket Hub、Python 后端反向代理
-- **性能特性**: gorilla/websocket 支持千级并发连接、低内存占用
-- **架构定位**: 前置网关层，保护 Python AI 服务免受直接外部访问
+- **角色**：Go 并发网关核心 Web 框架，处理高并发请求、JWT 鉴权、CORS、反向代理
+- **集成点**：`backend_design/nexus_gate/internal/router/router.go` 路由分发，handlers 包处理非 AI 请求
+- **使用模式**：轻量级高性能 HTTP 服务器，gorilla/websocket 支持 WebSocket Hub，prometheus/client_golang 暴露指标
+- **关键特性**：支持 NoRoute 兜底反代到 Python 后端，优先级令牌桶限流，JWT 中间件鉴权

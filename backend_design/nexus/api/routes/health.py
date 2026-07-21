@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from nexus import __version__
+from nexus.core.logger import get_logger
 from nexus.models.schemas import HealthResponse
+
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -31,7 +35,8 @@ async def health_check(request: Request):
 
     # --- Milvus 向量数据库 ---
     if hasattr(app.state, "vector_store"):
-        services["milvus"] = "connected" if app.state.vector_store and app.state.vector_store.is_connected else "disconnected"
+        milvus = app.state.vector_store
+        services["milvus"] = "connected" if milvus and milvus.is_connected else "disconnected"
     else:
         services["milvus"] = "not_configured"
 
@@ -43,7 +48,8 @@ async def health_check(request: Request):
 
     # --- Redis 缓存 ---
     if hasattr(app.state, "semantic_cache"):
-        services["redis"] = "connected" if app.state.semantic_cache and app.state.semantic_cache.is_enabled else "disconnected"
+        redis = app.state.semantic_cache
+        services["redis"] = "connected" if redis and redis.is_enabled else "disconnected"
     else:
         services["redis"] = "not_configured"
 
@@ -52,6 +58,7 @@ async def health_check(request: Request):
     # --- MySQL 数据库 ---
     try:
         import socket as _sock
+
         from nexus.config import get_config as _gc
         _mcfg = _gc().mysql
         _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
@@ -59,7 +66,8 @@ async def health_check(request: Request):
         _r = _s.connect_ex((_mcfg.host, _mcfg.port))
         _s.close()
         services["mysql"] = "connected" if _r == 0 else "disconnected"
-    except Exception:
+    except Exception as e:
+        logger.warning(f"MySQL health check failed: {e}")
         services["mysql"] = "disconnected"
 
     # --- OSS 对象存储 ---
@@ -84,7 +92,7 @@ async def health_check(request: Request):
     )
     status = "healthy" if all_healthy else "degraded"
 
-    return HealthResponse(status=status, version="2.0.0", services=services)
+    return HealthResponse(status=status, version=__version__, services=services)
 
 
 @router.get("/")
@@ -92,7 +100,7 @@ async def root():
     """根路径"""
     return {
         "name": "NexusCockpit",
-        "version": "2.1.0",
+        "version": __version__,
         "description": "Enterprise Vehicle Voice Agent",
         "docs": "/docs",
         "health": "/health",

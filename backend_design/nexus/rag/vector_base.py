@@ -14,7 +14,7 @@ Vector Store Base — 向量存储抽象基类
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.rag.embedding import EmbeddingService
 
@@ -25,7 +25,7 @@ class BaseVectorStore(ABC):
     子类必须实现: 连接 / 记忆检索 / 记忆写入 / 记忆删除 / 食材检索 / 断开。
     """
 
-    def __init__(self, embedding_service: Optional[EmbeddingService] = None):
+    def __init__(self, embedding_service: EmbeddingService | None = None):
         self.embedding_service = embedding_service or EmbeddingService()
 
     @abstractmethod
@@ -34,22 +34,22 @@ class BaseVectorStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def search_memory(self, query_text: str, user_id: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def search_memory(self, query_text: str, user_id: str, top_k: int = 5) -> list[dict[str, Any]]:
         """检索特定用户的语义记忆。"""
         raise NotImplementedError
 
     @abstractmethod
-    async def insert_memory(self, text: str, user_id: str) -> Optional[int]:
+    async def insert_memory(self, text: str, user_id: str) -> int | None:
         """插入一条用户记忆，返回主键 ID。"""
         raise NotImplementedError
 
     @abstractmethod
-    def delete_memory_by_ids(self, id_list: List[int], user_id: str) -> bool:
+    def delete_memory_by_ids(self, id_list: list[int], user_id: str) -> bool:
         """根据 ID 列表和 user_id 安全删除记忆。"""
         raise NotImplementedError
 
     @abstractmethod
-    async def search_food(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    async def search_food(self, query_text: str, top_k: int = 5) -> list[dict[str, Any]]:
         """检索食材库。"""
         raise NotImplementedError
 

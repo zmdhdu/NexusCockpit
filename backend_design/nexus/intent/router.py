@@ -17,7 +17,7 @@ Intent Router Service — 统一意图路由服务
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -52,9 +52,9 @@ class IntentRouterService:
 
     def __init__(
         self,
-        llm_client: Optional[AsyncOpenAI] = None,
+        llm_client: AsyncOpenAI | None = None,
         llm_model: str = "",
-        tool_catalog: Optional[list[dict]] = None,
+        tool_catalog: list[dict] | None = None,
         llm_enabled: bool = True,
         min_confidence: float = 0.55,
     ):
@@ -75,7 +75,7 @@ class IntentRouterService:
             min_confidence=min_confidence,
         ) if self.llm_enabled else None
 
-    async def route(self, text: str) -> Dict[str, Any]:
+    async def route(self, text: str) -> dict[str, Any]:
         """路由用户意图，返回标准意图字典。
 
         路由顺序（性能优化）:
@@ -114,7 +114,7 @@ class IntentRouterService:
         # Level 3: 默认闲聊
         return default
 
-    def _build_default_intent(self) -> Dict[str, Any]:
+    def _build_default_intent(self) -> dict[str, Any]:
         return {
             "Call_elm": False,
             "Food_candidate": "",
@@ -133,12 +133,12 @@ class IntentRouterService:
             "Route_Confidence": 0.0,
         }
 
-    def _decision_to_intent(self, decision: Dict[str, Any]) -> Dict[str, Any]:
+    def _decision_to_intent(self, decision: dict[str, Any]) -> dict[str, Any]:
         """将 LLM 决策转换为标准意图格式"""
         return self._decision_to_intent_static(decision, self.min_confidence)
 
     @staticmethod
-    def _decision_to_intent_static(decision: Dict[str, Any], min_confidence: float = 0.55) -> Dict[str, Any]:
+    def _decision_to_intent_static(decision: dict[str, Any], min_confidence: float = 0.55) -> dict[str, Any]:
         """静态方法: LLM 决策 → 标准意图"""
         default = IntentRouterService()._build_default_intent()
         tool_name = str(decision.get("selected_tool") or "").strip()
@@ -155,7 +155,8 @@ class IntentRouterService:
         need_clarification = bool(decision.get("need_clarification"))
         clarification_question = str(decision.get("clarification_question") or "").strip()
 
-        if need_clarification or confidence < min_confidence or not tool_name or tool_name.lower() in {"none", "chat", "default"}:
+        no_tool = not tool_name or tool_name.lower() in {"none", "chat", "default"}
+        if need_clarification or confidence < min_confidence or no_tool:
             if clarification_question:
                 default["Need_Clarification"] = True
                 default["Clarification_Prompt"] = clarification_question
@@ -166,7 +167,7 @@ class IntentRouterService:
         return IntentRouterService._tool_to_legacy_intent(tool_name, arguments, confidence)
 
     @staticmethod
-    def _tool_to_legacy_intent(tool_name: str, arguments: Dict[str, Any], confidence: float = 0.0) -> Dict[str, Any]:
+    def _tool_to_legacy_intent(tool_name: str, arguments: dict[str, Any], confidence: float = 0.0) -> dict[str, Any]:
         """工具名 → 遗留意图格式"""
         default = IntentRouterService()._build_default_intent()
         tool_name = tool_name.strip()

@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.skills.base import BaseSkill, SkillGroup, SkillResult, register_skill

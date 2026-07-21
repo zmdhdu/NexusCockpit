@@ -21,9 +21,8 @@ Cherry Knowledge Base — 文档型知识库
 
 from __future__ import annotations
 
-import os
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -59,7 +58,7 @@ class CherryKnowledgeBase:
 
     def __init__(
         self,
-        embedding_service: Optional[EmbeddingService] = None,
+        embedding_service: EmbeddingService | None = None,
         milvus_client=None,
     ):
         self.embedding_service = embedding_service or EmbeddingService()
@@ -101,7 +100,7 @@ class CherryKnowledgeBase:
         if not self._client:
             return
         try:
-            from pymilvus import Collection, CollectionSchema, FieldSchema, DataType, utility
+            from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, utility
 
             if utility.has_collection(_COLLECTION_NAME, using=self._milvus_alias):
                 logger.info(f"KB collection '{_COLLECTION_NAME}' already exists")
@@ -181,7 +180,7 @@ class CherryKnowledgeBase:
             logger.error(f"KB add document failed: {e}")
             return 0
 
-    def _chunk_text(self, text: str, chunk_size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> List[str]:
+    def _chunk_text(self, text: str, chunk_size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> list[str]:
         """文本分块。
 
         优先使用 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter，
@@ -211,7 +210,7 @@ class CherryKnowledgeBase:
         query: str,
         top_k: int = 5,
         category: str = "",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """检索知识库文档。
 
         Args:
@@ -265,7 +264,7 @@ class CherryKnowledgeBase:
             logger.error(f"KB search failed: {e}")
             return []
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取知识库统计信息。"""
         if not self._connected or not self._client:
             return {"connected": False, "total_docs": 0}

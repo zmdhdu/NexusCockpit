@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.skills.base import BaseSkill, SkillGroup, SkillResult, register_skill
@@ -50,7 +50,7 @@ class DiagnoseVehicleSkill(BaseSkill):
         logger.info(f"DiagnoseVehicle: query={query}")
 
         # 调取车辆状态
-        vehicle_status: Dict[str, Any] = {}
+        vehicle_status: dict[str, Any] = {}
         if self.vehicle_adapter:
             try:
                 result = self.vehicle_adapter.invoke_command("vehicle_status", {"op": "status"})

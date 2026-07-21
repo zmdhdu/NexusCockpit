@@ -28,6 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
 
+from nexus import __version__
+
 # 导入 API 路由
 from nexus.api.routes.admin import router as admin_router
 from nexus.api.routes.asr import router as asr_router
@@ -49,7 +51,7 @@ from nexus.middleware.redis_cache import SemanticCache
 from nexus.middleware.session_store import SessionStore
 from nexus.observability.cockpit_metrics import CockpitMetrics
 from nexus.observability.langfuse import LangfuseMonitor
-from nexus.observability.metrics import init_metrics, REQUEST_COUNT, REQUEST_LATENCY
+from nexus.observability.metrics import REQUEST_COUNT, REQUEST_LATENCY, init_metrics
 from nexus.rag.embedding import EmbeddingService
 from nexus.rag.graph_factory import build_graph_store
 from nexus.rag.vector_factory import build_vector_store
@@ -179,9 +181,10 @@ async def lifespan(app: FastAPI):
         # SqliteSaver checkpoint 持久化
         checkpoint_saver = None
         try:
-            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-            import aiosqlite
             import os
+
+            import aiosqlite
+            from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
             db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
             # 使用 aiosqlite 异步连接执行 setup
@@ -213,7 +216,6 @@ async def lifespan(app: FastAPI):
         # Cherry 知识库 + 统一检索器
         try:
             from nexus.rag.cherry_kb import CherryKnowledgeBase
-            from nexus.rag.unified_retriever import UnifiedRetriever
             cherry_kb = CherryKnowledgeBase(embedding_service)
             cherry_kb.connect(getattr(vector_store, "_connected", False) or vector_store)
             app.state.cherry_kb = cherry_kb
@@ -315,8 +317,11 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="NexusCockpit",
-        description="Enterprise Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP — Cockpit Control + Operations Dashboard",
-        version="2.0.0",
+        description=(
+            "Enterprise Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP "
+            "— Cockpit Control + Operations Dashboard"
+        ),
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -335,7 +340,7 @@ def create_app() -> FastAPI:
         """根路径：返回项目基本信息。"""
         return {
             "name": "NexusCockpit",
-            "version": "2.0.0",
+            "version": __version__,
             "description": "Enterprise Vehicle Voice Agent Platform",
         }
 
@@ -358,9 +363,13 @@ def create_app() -> FastAPI:
 
     # 挂载静态音频文件目录 (/audio/music/*.wav)
     # 用于车机媒体播放功能，前端通过 /audio/music/track_01.wav 访问
-    from fastapi.staticfiles import StaticFiles
     import os as _os
-    _audio_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "assets", "audio")
+
+    from fastapi.staticfiles import StaticFiles
+    _audio_dir = _os.path.join(
+        _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))),
+        "assets", "audio",
+    )
     if _os.path.isdir(_audio_dir):
         app.mount("/audio", StaticFiles(directory=_audio_dir), name="audio")
         logger.info(f"Audio static files mounted at /audio from {_audio_dir}")
@@ -456,7 +465,7 @@ def create_app() -> FastAPI:
                             status=str(status_code),
                         ).inc()
                         REQUEST_LATENCY.labels(endpoint=path).observe(
-                            (time.perf_counter() - start)
+                            time.perf_counter() - start
                         )
                 await send(message)
 

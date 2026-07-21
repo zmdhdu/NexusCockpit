@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -53,7 +52,7 @@ class SessionResponse(BaseModel):
 class SessionListResponse(BaseModel):
     """会话列表响应。"""
     total: int
-    sessions: List[SessionResponse]
+    sessions: list[SessionResponse]
 
 
 @router.get("", response_model=SessionListResponse)
@@ -87,8 +86,16 @@ async def list_sessions(request: Request):
                 user_id=r.get("user_id", ""),
                 title=r.get("title", "新对话"),
                 message_count=r.get("message_count", 0),
-                created_at=r["created_at"].isoformat() if isinstance(r.get("created_at"), datetime) else str(r.get("created_at", "")),
-                last_message_at=r["last_message_at"].isoformat() if isinstance(r.get("last_message_at"), datetime) else str(r.get("last_message_at", "")),
+                created_at=(
+                    r["created_at"].isoformat()
+                    if isinstance(r.get("created_at"), datetime)
+                    else str(r.get("created_at", ""))
+                ),
+                last_message_at=(
+                    r["last_message_at"].isoformat()
+                    if isinstance(r.get("last_message_at"), datetime)
+                    else str(r.get("last_message_at", ""))
+                ),
             ))
 
         return SessionListResponse(total=len(sessions), sessions=sessions)

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 
@@ -56,7 +56,7 @@ class CockpitConfig:
     theme_color: str = "#4fc3f7"
     # subagent_status 字段已移除（SubAgent 监控已删除）
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典（用于 API 响应）。"""
         return {
             "cockpit_id": self.cockpit_id,
@@ -85,7 +85,7 @@ class CockpitManager:
     """
 
     def __init__(self) -> None:
-        self._cockpits: Dict[str, CockpitConfig] = {}
+        self._cockpits: dict[str, CockpitConfig] = {}
         self._next_seq: int = 0
         self._init_default_cockpits()
 
@@ -109,7 +109,7 @@ class CockpitManager:
         self._next_seq = 4  # 下一个注册的序号从 4 开始
         logger.info(f"CockpitManager initialized with {len(self._cockpits)} default cockpits")
 
-    def get_cockpit(self, cockpit_id: str) -> Optional[CockpitConfig]:
+    def get_cockpit(self, cockpit_id: str) -> CockpitConfig | None:
         """查询单个座舱配置。
 
         Args:
@@ -120,7 +120,7 @@ class CockpitManager:
         """
         return self._cockpits.get(cockpit_id)
 
-    def list_cockpits(self, include_inactive: bool = False) -> List[CockpitConfig]:
+    def list_cockpits(self, include_inactive: bool = False) -> list[CockpitConfig]:
         """列出所有座舱。
 
         Args:
@@ -190,7 +190,7 @@ class CockpitManager:
 
         return config
 
-    async def initialize_middleware(self, cockpit_id: str) -> Dict[str, Any]:
+    async def initialize_middleware(self, cockpit_id: str) -> dict[str, Any]:
         """初始化座舱的中间件资源（W7）。
 
         为新注册的座舱初始化:
@@ -209,11 +209,12 @@ class CockpitManager:
         if not config:
             return {"error": f"Cockpit {cockpit_id} not found"}
 
-        results: Dict[str, Any] = {"cockpit_id": cockpit_id}
+        results: dict[str, Any] = {"cockpit_id": cockpit_id}
 
         # 1. 初始化 Redis（设置座舱统计 hash 初始值）
         try:
             import redis.asyncio as aioredis
+
             from nexus.config import get_config
             redis_config = get_config().redis
             client = aioredis.Redis(
@@ -312,8 +313,8 @@ class CockpitManager:
         return False
 
     def update_cockpit(
-        self, cockpit_id: str, updates: Dict[str, Any]
-    ) -> Optional[CockpitConfig]:
+        self, cockpit_id: str, updates: dict[str, Any]
+    ) -> CockpitConfig | None:
         """更新座舱配置。
 
         Args:
@@ -363,7 +364,7 @@ class CockpitManager:
         config = self._cockpits.get(cockpit_id)
         return config.milvus_collection_prefix if config else ""
 
-    def get_stats_summary(self) -> Dict[str, Any]:
+    def get_stats_summary(self) -> dict[str, Any]:
         """获取座舱统计摘要（用于数据中台）。
 
         Returns:
@@ -380,7 +381,7 @@ class CockpitManager:
 
 
 # 全局单例
-_cockpit_manager: Optional[CockpitManager] = None
+_cockpit_manager: CockpitManager | None = None
 
 
 def get_cockpit_manager() -> CockpitManager:

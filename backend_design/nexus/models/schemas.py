@@ -11,7 +11,7 @@ FastAPI 会根据这些模型自动生成 OpenAPI/Swagger 文档。
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,7 @@ class ChatResponse(BaseModel):
     user_id: str = Field(default="")
     session_id: str = Field(default="")
     latency_ms: float = Field(default=0.0, description="总延迟(毫秒)")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     cache_hit: bool = Field(default=False)
     intent: str = Field(default="", description="识别到的意图")
     action: str = Field(default="", description="执行的技能动作")
@@ -55,7 +55,7 @@ class VoiceResponse(BaseModel):
 class VehicleCommandRequest(BaseModel):
     """车控命令请求"""
     command: str = Field(..., description="命令名称")
-    arguments: Dict[str, Any] = Field(default_factory=dict)
+    arguments: dict[str, Any] = Field(default_factory=dict)
     user_id: str = Field(default="default")
 
 
@@ -63,7 +63,7 @@ class VehicleCommandResponse(BaseModel):
     """车控命令响应"""
     success: bool
     message: str
-    data: Dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
     error: str = Field(default="")
 
 
@@ -71,17 +71,17 @@ class HealthResponse(BaseModel):
     """健康检查响应"""
     status: str = Field(default="healthy")
     version: str = Field(default="1.0.0")
-    services: Dict[str, str] = Field(default_factory=dict, description="各服务组件状态")
+    services: dict[str, str] = Field(default_factory=dict, description="各服务组件状态")
 
 
 class SkillListResponse(BaseModel):
     """技能列表响应"""
-    skills: List[Dict[str, Any]] = Field(default_factory=list)
+    skills: list[dict[str, Any]] = Field(default_factory=list)
     count: int = Field(default=0)
 
 
 class MemoryResponse(BaseModel):
     """记忆查询响应"""
     user_id: str
-    memories: List[str] = Field(default_factory=list)
-    profile: Dict[str, Any] = Field(default_factory=dict)
+    memories: list[str] = Field(default_factory=list)
+    profile: dict[str, Any] = Field(default_factory=dict)

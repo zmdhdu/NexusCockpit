@@ -39,6 +39,9 @@ func GenerateToken(userID, cockpitID, role, username string) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expireHours)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    "nexus_gate",
+			// Subject 必须设置：Python 后端 get_current_user 从 "sub" claim 读取用户 ID，
+			// 缺失会导致网关签发的 Token 在 Python 侧鉴权失败 (401)
+			Subject: userID,
 		},
 	}
 

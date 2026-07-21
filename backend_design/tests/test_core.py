@@ -2,13 +2,9 @@
 NexusCockpit Test Suite
 """
 
-import asyncio
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from nexus.models.state import AgentState
-from nexus.skills.base import SkillResult
-from nexus.vehicle.base import VehicleCommandResult
 from nexus.vehicle.mock import MockVehicleBus
 
 
