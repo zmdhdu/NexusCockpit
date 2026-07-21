@@ -16,7 +16,6 @@ Rate Limiter — 基于 Redis 的分布式限流
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 import redis.asyncio as aioredis
 
@@ -74,7 +73,7 @@ class RateLimiter:
 
     def __init__(
         self,
-        redis_client: Optional[aioredis.Redis] = None,
+        redis_client: aioredis.Redis | None = None,
         max_requests: int = 60,
         window_seconds: int = 60,
     ):
@@ -82,7 +81,7 @@ class RateLimiter:
         self._redis = redis_client
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self._lua_script: Optional[str] = None
+        self._lua_script: str | None = None
 
     async def connect(self) -> None:
         """连接 Redis 并加载 Lua 脚本"""

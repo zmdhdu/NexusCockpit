@@ -21,8 +21,7 @@ Memory Manager — 统一记忆管理器
 from __future__ import annotations
 
 import asyncio
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -61,10 +60,10 @@ class MemoryManager:
 
     def __init__(
         self,
-        vector_store: Optional[MilvusVectorStore] = None,
-        graph_store: Optional[Neo4jGraphStore] = None,
-        llm_client: Optional[AsyncOpenAI] = None,
-        reranker: Optional[BaseReranker] = None,
+        vector_store: MilvusVectorStore | None = None,
+        graph_store: Neo4jGraphStore | None = None,
+        llm_client: AsyncOpenAI | None = None,
+        reranker: BaseReranker | None = None,
     ):
         self.config = get_config().llm
         self.vector_store = vector_store or MilvusVectorStore()
@@ -94,7 +93,7 @@ class MemoryManager:
 
     async def recall(
         self, query: str, user_id: str, top_k: int = 5
-    ) -> List[str]:
+    ) -> list[str]:
         """记忆召回 — 使用 GraphRAG 三路融合 + Rerank。
 
         渐进式披露策略:
@@ -123,13 +122,20 @@ class MemoryManager:
             results = await self.vector_store.search_memory(query, user_id, top_k=adjusted_k)
 
         # 格式化记忆
-        memories: List[str] = []
+        memories: list[str] = []
         for r in results:
             text = r.get("text", "") or r.get("item_name", "")
             source = r.get("source", "vector")
             score = r.get("rerank_score", r.get("rrf_score", r.get("score", 0)))
             if text:
-                tag = "语义" if source == "vector" else "图谱" if source == "graph" else "全文" if source == "bm25" else source
+                if source == "vector":
+                    tag = "语义"
+                elif source == "graph":
+                    tag = "图谱"
+                elif source == "bm25":
+                    tag = "全文"
+                else:
+                    tag = source
                 memories.append(f"[{tag}] {text} (score={score:.3f})")
 
         # 追加用户习惯记忆（从 MySQL 加载）
@@ -152,7 +158,7 @@ class MemoryManager:
         Returns:
             调整后的召回数
         """
-        query_lower = query.lower()
+        _query_lower = query.lower()
 
         # 简单指令：车控、导航 → 快速返回 3 条
         simple_keywords = (
@@ -172,7 +178,7 @@ class MemoryManager:
 
         return default_k
 
-    async def _load_user_habits(self, user_id: str) -> List[str]:
+    async def _load_user_habits(self, user_id: str) -> list[str]:
         """从 MySQL 加载用户习惯，格式化为记忆字符串。
 
         习惯记忆是频次加权的，高频操作会被优先注入。
@@ -306,7 +312,7 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to store conversation vector: {e}")
 
-    def store_from_text_async(self, user_text: str, user_id: str) -> Optional[asyncio.Task]:
+    def store_from_text_async(self, user_text: str, user_id: str) -> asyncio.Task | None:
         """在当前事件循环中非阻塞存储记忆（fire-and-forget）。
 
         注: 使用 asyncio.create_task() 在当前事件循环中调度，
@@ -331,7 +337,7 @@ class MemoryManager:
 
     def store_conversation_async(
         self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str = ""
-    ) -> Optional[asyncio.Task]:
+    ) -> asyncio.Task | None:
         """非阻塞存储对话向量（fire-and-forget）。
 
         注: 使用 asyncio.create_task() 替代线程+新事件循环方案。
@@ -384,7 +390,7 @@ class MemoryManager:
                 logger.error(f"Background task '{label}' failed: {exc}")
         return _callback
 
-    def get_user_profile(self, user_id: str) -> Dict[str, Any]:
+    def get_user_profile(self, user_id: str) -> dict[str, Any]:
         """获取用户完整画像（从 Neo4j 图谱）。"""
         return self.graph_store.get_user_profile(user_id)
 

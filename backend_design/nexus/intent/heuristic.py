@@ -10,13 +10,13 @@ Heuristic Intent Router — 基于规则的关键词意图路由
 from __future__ import annotations
 
 import re
-from typing import Any, Dict
+from typing import Any
 
 
 class HeuristicRouter:
     """关键词规则路由器"""
 
-    def route(self, text: str) -> Dict[str, Any]:
+    def route(self, text: str) -> dict[str, Any]:
         """返回意图字典，未匹配返回空字典"""
         text = text or ""
         compact = text.replace(" ", "")
@@ -39,7 +39,7 @@ class HeuristicRouter:
 
         return {}
 
-    def _extract_climate(self, text: str) -> Dict[str, Any]:
+    def _extract_climate(self, text: str) -> dict[str, Any]:
         if not any(k in text for k in ("空调", "车内温度", "风量", "冷一点", "热一点", "制冷", "制热", "除雾")):
             return {}
         if "温度" in text and not any(k in text for k in ("空调", "车内", "车里", "调高", "调低", "设置", "设为")):
@@ -77,7 +77,7 @@ class HeuristicRouter:
             }
         }
 
-    def _extract_window(self, text: str) -> Dict[str, Any]:
+    def _extract_window(self, text: str) -> dict[str, Any]:
         if not any(k in text for k in ("车窗", "窗", "天窗")):
             return {}
 
@@ -91,7 +91,7 @@ class HeuristicRouter:
         position = "sunroof" if "天窗" in text else "all"
         return {"Window_Action": {"op": op, "position": position, "percent": percent}}
 
-    def _extract_seat(self, text: str) -> Dict[str, Any]:
+    def _extract_seat(self, text: str) -> dict[str, Any]:
         if not any(k in text for k in ("座椅", "按摩", "加热", "通风", "靠背")):
             return {}
 
@@ -109,9 +109,14 @@ class HeuristicRouter:
             op = "status"
 
         position = "passenger" if "副驾" in text else "driver"
-        return {"Seat_Action": {"op": op, "position": position, "level": 1, "direction": op if op in ("forward", "backward") else None}}
+        return {
+            "Seat_Action": {
+                "op": op, "position": position, "level": 1,
+                "direction": op if op in ("forward", "backward") else None,
+            }
+        }
 
-    def _extract_navigation(self, text: str) -> Dict[str, Any]:
+    def _extract_navigation(self, text: str) -> dict[str, Any]:
         # 位置查询优先 — 覆盖多种自然语言表达方式
         location_keywords = (
             # 基础位置查询
@@ -135,7 +140,11 @@ class HeuristicRouter:
         if any(k in text for k in location_keywords):
             return {"Navigation_Action": {"op": "location", "destination": "", "waypoint": "", "mode": "drive"}}
 
-        if not any(k in text for k in ("导航", "带我", "前往", "回家", "充电站", "去公司", "去学校", "去机场", "开到", "开去", "去往")):
+        nav_keywords = (
+            "导航", "带我", "前往", "回家", "充电站",
+            "去公司", "去学校", "去机场", "开到", "开去", "去往",
+        )
+        if not any(k in text for k in nav_keywords):
             if not re.search(r"去[^，。！？?]{1,12}(家|公司|学校|机场|医院|商场|车站|充电站)", text):
                 return {}
 
@@ -152,7 +161,7 @@ class HeuristicRouter:
 
         return {"Navigation_Action": {"destination": destination or "目的地", "waypoint": "", "mode": "drive"}}
 
-    def _extract_media(self, text: str) -> Dict[str, Any]:
+    def _extract_media(self, text: str) -> dict[str, Any]:
         if not any(k in text for k in ("音乐", "播放", "暂停", "下一首", "上一首", "音量", "切歌", "听歌")):
             return {}
 
@@ -172,7 +181,7 @@ class HeuristicRouter:
 
         return {"Media_Action": {"op": op, "source": "local", "track": "", "volume": volume}}
 
-    def _extract_vehicle_status(self, text: str) -> Dict[str, Any]:
+    def _extract_vehicle_status(self, text: str) -> dict[str, Any]:
         # 位置查询
         if any(k in text for k in ("我在哪", "当前位置", "我在什么位置", "现在在哪", "我的位置", "我们在哪", "这是哪")):
             return {"Vehicle_Status_Action": {"op": "location"}}
@@ -181,7 +190,7 @@ class HeuristicRouter:
             return {}
         return {"Vehicle_Status_Action": {"op": "status"}}
 
-    def _extract_time(self, text: str) -> Dict[str, Any]:
+    def _extract_time(self, text: str) -> dict[str, Any]:
         """检测时间查询意图。
 
         当用户询问当前时间、日期、星期时，直接走闲聊分支。
@@ -200,7 +209,7 @@ class HeuristicRouter:
             return {"Time_Query": True}
         return {}
 
-    def _extract_nearby_poi(self, text: str) -> Dict[str, Any]:
+    def _extract_nearby_poi(self, text: str) -> dict[str, Any]:
         """检测周边 POI 搜索意图（附近美食、周边加油站等）。
 
         当用户询问基于当前位置的周边信息时，路由到高德 POI 搜索技能，
@@ -214,7 +223,11 @@ class HeuristicRouter:
         # POI 类型关键词映射
         poi_patterns = [
             # 餐饮类
-            (("好吃的", "美食", "餐厅", "吃饭", "吃饭的地方", "外卖店", "餐馆", "小吃", "火锅", "烧烤", "面馆", "快餐"), "餐厅", "restaurant"),
+            (
+                ("好吃的", "美食", "餐厅", "吃饭", "吃饭的地方",
+                 "外卖店", "餐馆", "小吃", "火锅", "烧烤", "面馆", "快餐"),
+                "餐厅", "restaurant",
+            ),
             # 加油站
             (("加油站", "加油", "加气站"), "加油站", "gas_station"),
             # 停车场
@@ -261,7 +274,7 @@ class HeuristicRouter:
 
         return {}
 
-    def _extract_search(self, text: str) -> Dict[str, Any]:
+    def _extract_search(self, text: str) -> dict[str, Any]:
         """检测联网搜索意图"""
         # 如果包含周边搜索关键词，不拦截为通用搜索（已由 _extract_nearby_poi 处理）
         nearby_keywords = ("附近", "周边", "周围", "就近")
@@ -295,7 +308,7 @@ class HeuristicRouter:
         # 提取搜索 query：原文本即作为搜索关键词
         return {"Need_Search": text}
 
-    def _extract_food(self, text: str) -> Dict[str, Any]:
+    def _extract_food(self, text: str) -> dict[str, Any]:
         """检测点餐意图"""
         food_keywords = ("点外卖", "饿了", "想吃", "点餐", "叫外卖", "吃什么", "帮我点")
         if not any(k in text for k in food_keywords):

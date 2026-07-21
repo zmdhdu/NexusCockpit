@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC
 from time import perf_counter
-from typing import Any, Dict
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.models.state import SupervisorState
@@ -45,7 +45,7 @@ class BaseExpertAgent(ABC):
         """检查此专家是否在 Supervisor 分派的活跃列表中。"""
         return self.expert_name in state.get("active_experts", [])
 
-    async def run(self, state: SupervisorState) -> Dict[str, Any]:
+    async def run(self, state: SupervisorState) -> dict[str, Any]:
         """执行专家逻辑，返回 partial state update。
 
         如果专家不在 active_experts 中，返回空字典（no-op）。
@@ -82,7 +82,7 @@ class BaseExpertAgent(ABC):
                 }
             }
 
-    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         """子类实现：执行具体技能逻辑，返回 partial update。"""
         raise NotImplementedError
 
@@ -94,7 +94,7 @@ class BaseExpertAgent(ABC):
         handled: bool = True,
         skip_synthesis: bool = False,
         **extra: Any,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """构建专家返回的 partial state update。
 
         同时写入 expert_results 列表（通过 reducer 累加）和
@@ -116,7 +116,7 @@ class BaseExpertAgent(ABC):
             "handled": handled,
             **extra,
         }
-        update: Dict[str, Any] = {
+        update: dict[str, Any] = {
             "expert_results": [result_entry],
             "skill_action": action,
             "skill_handled": handled,

@@ -37,8 +37,9 @@ def apply_ssl_fix() -> None:
 
     # 确保使用 certifi 作为 CA 证书来源
     try:
-        import certifi
         import os
+
+        import certifi
 
         ca_path = certifi.where()
         os.environ.setdefault("SSL_CERT_FILE", ca_path)

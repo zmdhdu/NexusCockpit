@@ -3,43 +3,33 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-07-20T15:46:17Z"
+exported_at: "2026-07-21T04:09:34Z"
 modules:
     "":
-        dir_name: NexusCockpit 全栈工程根
-        title: NexusCockpit 全栈工程根
+        dir_name: NexusCockpit 车载语音 Agent 全栈工程
+        title: NexusCockpit 车载语音 Agent 全栈工程
         scope:
             - README.md
             - .gitignore
-            - .editorconfig
-            - .pre-commit-config.yaml
             - Makefile
             - docker-compose.yml
             - Agent.md
+            - .editorconfig
             - .env
             - .env.example
+            - .pre-commit-config.yaml
             - LICENSE
+            - 项目全面审核分析报告.md
         source_files: []
         children:
-            - docs
-            - infra_config
-            - shared_assets
+            - config_and_infra
+            - data_assets
+            - docs_and_images
         depends_on: []
         related_to: []
-    docs:
-        dir_name: NexusCockpit 技术文档中心
-        title: NexusCockpit 技术文档中心
-        scope:
-            - docs/
-        source_files: []
-        children: []
-        depends_on: []
-        related_to:
-            - path: infra_config
-            - path: shared_assets
-    infra_config:
-        dir_name: 基础设施配置与 CI 流水线
-        title: 基础设施配置与 CI 流水线
+    config_and_infra:
+        dir_name: 可观测性配置与 CI_脚本基础设施
+        title: 可观测性配置与 CI/脚本基础设施
         scope:
             - config/
             - scripts/
@@ -47,19 +37,24 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: docs
-            - path: shared_assets
-    shared_assets:
-        dir_name: 共享资源与模型权重仓库
-        title: 共享资源与模型权重仓库
+        related_to: []
+    data_assets:
+        dir_name: 数据、静态资源与模型权重
+        title: 数据、静态资源与模型权重
         scope:
-            - assets/
             - data/
+            - assets/
             - models/
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: docs
-            - path: infra_config
+        related_to: []
+    docs_and_images:
+        dir_name: NexusCockpit 项目文档中心
+        title: NexusCockpit 项目文档中心
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

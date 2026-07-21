@@ -11,8 +11,7 @@ scope:
 ---
 
 ### Milvus 向量数据库
-- **角色**: 语义向量存储与检索，支撑 GraphRAG 三路融合检索的向量路径
-- **集成点**: `backend_design/nexus/rag/vector_factory.py` 通过工厂模式支持本地/云端切换
-- **双模式部署**: local=本地 Docker Milvus 2.4 | cloud=Zilliz Cloud 托管服务
-- **关键配置**: HNSW 索引、IP 距离度量、集合命名（Food_List/User_Memory）
-- **容器化**: docker-compose.yml 中 etcd + minio + milvus 三组件编排
+- **角色**：语义记忆存储与相似度检索，支撑 GraphRAG 的向量路径检索
+- **集成点**：`backend_design/nexus/rag/vector_store.py` 中的 MilvusVectorStore 类，通过 pymilvus SDK 连接
+- **双模式部署**：本地 Docker (milvusdb/milvus:v2.4.0) 或云端 Zilliz Cloud，通过 VECTOR_STORE_PROVIDER 配置切换
+- **约束**：需配合 etcd 和 MinIO 运行，集合维度必须与 EMBEDDING_DIM 配置匹配，切换 embedding 模型时需重建集合

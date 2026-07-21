@@ -3,7 +3,7 @@ NexusCockpit API Integration Tests
 """
 
 import pytest
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture

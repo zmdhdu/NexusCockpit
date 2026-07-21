@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any
 
 from openai import AsyncOpenAI
 
@@ -34,9 +34,9 @@ class ConflictDetector:
     async def detect_conflict(
         self,
         new_memory: str,
-        existing_memories: List[Dict[str, Any]],
+        existing_memories: list[dict[str, Any]],
         user_input: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测新记忆与现有记忆的冲突
         返回: {"action": "DELETE"|"IGNORE"|"NONE", "ids": [...]}
@@ -112,7 +112,7 @@ class MemoryExtractor:
             base_url=self.config.ark_base_url,
         )
 
-    async def extract(self, user_text: str) -> List[Dict[str, str]]:
+    async def extract(self, user_text: str) -> list[dict[str, str]]:
         """
         从用户输入中提取结构化记忆三元组
         返回: [{"relation": "LIKES", "target": "咖啡", "type": "Food"}, ...]

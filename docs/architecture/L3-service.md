@@ -102,27 +102,29 @@ vehicle_skills = registry.get_skills_by_group(SkillGroup.VEHICLE)
 side_effect_skills = registry.get_side_effect_skills()
 ```
 
-### 车载技能 (nexus/skills/vehicle/) — 6 个
+### 基础技能 (10 个)
+
+#### 车载技能 (nexus/skills/vehicle/) — 6 个 | SkillGroup.VEHICLE / NAVIGATION
 
 | 技能 | 文件 | 功能 | 分组 |
 |------|------|------|------|
-| 空调控制 | `climate.py` | 温度调节、风量、模式 | VEHICLE |
-| 车窗控制 | `window.py` | 开关窗、位置 | VEHICLE |
-| 座椅控制 | `seat.py` | 位置、加热、通风 | VEHICLE |
-| 媒体控制 | `media.py` | 音乐、音量、播放 | VEHICLE |
-| 导航 | `navigation.py` | 路线规划、POI | VEHICLE |
-| 车辆状态 | `status.py` | 电量、车速、胎压 | VEHICLE |
+| vehicle_climate | `climate.py` | 温度调节、风量、模式 | VEHICLE |
+| vehicle_window | `window.py` | 开关窗、位置 | VEHICLE |
+| vehicle_seat | `seat.py` | 位置、加热、通风 | VEHICLE |
+| vehicle_media | `media.py` | 音乐、音量、播放 | VEHICLE |
+| vehicle_navigation | `navigation.py` | 路线规划、POI | NAVIGATION |
+| vehicle_status | `status.py` | 电量、车速、胎压 | VEHICLE |
 
-### 非车载技能 (nexus/skills/special.py) — 4 个
+#### 非车载基础技能 (nexus/skills/special.py) — 4 个 | SkillGroup.LIFESTYLE / CHAT
 
 | 技能 | 功能 | 分组 |
 |------|------|------|
-| WebSearch | Tavily 联网搜索 | LIFESTYLE |
-| FoodDelivery | GraphRAG 餐饮推荐 | LIFESTYLE |
-| AmapPoiSearch | 高德 POI 周边搜索 (v2.2.3 新增) | LIFESTYLE |
-| RegisterVoice | 声纹注册 | CHAT |
+| web_search | Tavily 联网搜索 | LIFESTYLE |
+| order_food | GraphRAG 餐饮推荐 | LIFESTYLE |
+| amap_poi_search | 高德 POI 周边搜索 | LIFESTYLE |
+| register_voice | 声纹注册 | CHAT |
 
-### v2.0 新增技能 — 12 个
+### 扩展技能 (9 个)
 
 | 技能 | 文件 | 功能 | 分组 |
 |------|------|------|------|
@@ -138,7 +140,7 @@ side_effect_skills = registry.get_side_effect_skills()
 
 > **v2.2 精简**: `local_life.py` 中的 3 个本地生活推荐技能 (recommend_poi / multi_turn_refine / preference_filter) 已删除（调用的 `search_poi`/`add_habit` 方法在 graph_store 中不存在，为死代码）。
 
-### 技能总数: 19 个 (车载 6 + 非车载 4 + v2.0 新增 9)
+### 技能总数: 19 个 (基础 10 + 扩展 9)
 
 ## 车控总线 (nexus/vehicle/)
 

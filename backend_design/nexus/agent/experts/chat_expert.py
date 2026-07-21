@@ -11,7 +11,7 @@ Chat Expert — 闲聊专家 Agent
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from nexus.agent.experts.base import BaseExpertAgent
 from nexus.core.logger import get_logger
@@ -31,7 +31,7 @@ class ChatExpert(BaseExpertAgent):
     expert_name = "chat"
     group = SkillGroup.CHAT
 
-    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         intent = state.get("intent", {})
 
         # 声纹注册

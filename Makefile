@@ -5,6 +5,7 @@
 # 项目结构:
 #   NexusCockpit/
 #   ├── backend_design/  # 后端 Python 代码
+#   │   └── nexus_gate/  # Go API 网关
 #   ├── frontend_design/ # 前端 Next.js 代码
 #   ├── docs/            # 文档
 #   ├── models/          # 模型文件
@@ -15,7 +16,7 @@
 #   └── Makefile         # 本文件
 # ============================================================
 
-.PHONY: help install install-gpu install-frontend dev dev-frontend dev-all dev-log dev-frontend-log dev-gateway-log test lint format check clean docker-up docker-down docker-logs docker-clean init-db
+.PHONY: help install install-gpu install-frontend install-gateway dev dev-frontend dev-all dev-log dev-frontend-log dev-gateway-log test lint format check clean docker-up docker-down docker-logs docker-clean init-db lint-backend lint-gateway build-gateway
 
 PYTHON := python
 PIP := pip
@@ -24,6 +25,7 @@ VENV := .venv
 # 目录常量
 BACKEND_DIR := backend_design
 FRONTEND_DIR := frontend_design
+GATEWAY_DIR := backend_design/nexus_gate
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -51,7 +53,11 @@ install-frontend: ## Install frontend dependencies
 	cd $(FRONTEND_DIR) && npm install
 	@echo "✓ Frontend dependencies installed"
 
-install-all: install install-frontend ## Install both backend and frontend dependencies
+install-gateway: ## Install Go gateway dependencies
+	cd $(GATEWAY_DIR) && go mod download
+	@echo "✓ Gateway dependencies installed"
+
+install-all: install install-frontend install-gateway ## Install backend, frontend and gateway dependencies
 
 # ============================================================
 # Development
@@ -113,19 +119,31 @@ init-db: ## Initialize Milvus and Neo4j
 # Code Quality
 # ============================================================
 
-lint: ## Run linter (backend)
-	cd $(BACKEND_DIR) && $(VENV)/Scripts/ruff check nexus/ tests/ scripts/
-	@echo "✓ Lint passed"
+lint: lint-backend lint-gateway ## Run linters (backend + gateway)
+	@echo "✓ All lints passed"
+
+lint-backend: ## Run backend linter (venv or system ruff)
+	@if [ -f "$(VENV)/Scripts/ruff" ] || [ -f "$(VENV)/Scripts/ruff.exe" ]; then \
+		cd $(BACKEND_DIR) && ../$(VENV)/Scripts/ruff check nexus/ tests/ scripts/; \
+	else \
+		cd $(BACKEND_DIR) && ruff check nexus/ tests/ scripts/; \
+	fi
+	@echo "✓ Backend lint passed"
+
+lint-gateway: ## Run Go gateway vet
+	cd $(GATEWAY_DIR) && go vet ./...
+	@echo "✓ Gateway vet passed"
 
 format: ## Format code (backend)
 	cd $(BACKEND_DIR) && $(VENV)/Scripts/ruff format nexus/ tests/ scripts/
 	cd $(BACKEND_DIR) && $(VENV)/Scripts/ruff check --fix nexus/ tests/ scripts/
 	@echo "✓ Code formatted"
 
-check: ## Run all checks (lint + type check + test)
-	cd $(BACKEND_DIR) && $(VENV)/Scripts/ruff check nexus/ tests/ scripts/
+check: ## Run all checks (lint + type check + test + build)
+	$(MAKE) lint
 	cd $(BACKEND_DIR) && $(VENV)/Scripts/mypy nexus/ --ignore-missing-imports
 	cd $(BACKEND_DIR) && $(VENV)/Scripts/pytest tests/ -v
+	cd $(GATEWAY_DIR) && go build ./...
 	@echo "✓ All checks passed"
 
 # ============================================================
@@ -134,6 +152,9 @@ check: ## Run all checks (lint + type check + test)
 
 test: ## Run backend tests
 	cd $(BACKEND_DIR) && $(VENV)/Scripts/pytest tests/ -v
+
+build-gateway: ## Build Go gateway binary
+	cd $(GATEWAY_DIR) && go build ./...
 
 test-cov: ## Run tests with coverage
 	cd $(BACKEND_DIR) && $(VENV)/Scripts/pytest tests/ --cov=nexus --cov-report=html

@@ -10,7 +10,7 @@ Lifestyle Expert — 生活推荐专家 Agent
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from nexus.agent.experts.base import BaseExpertAgent
 from nexus.core.logger import get_logger
@@ -26,7 +26,7 @@ class LifestyleExpert(BaseExpertAgent):
     expert_name = "lifestyle"
     group = SkillGroup.LIFESTYLE
 
-    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         intent = state.get("intent", {})
 
         # 优先级 0: 高德 POI 周边搜索

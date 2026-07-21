@@ -13,7 +13,7 @@ Navigation Expert — 导航专家 Agent
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from nexus.agent.experts.base import BaseExpertAgent
 from nexus.core.logger import get_logger
@@ -29,7 +29,7 @@ class NavExpert(BaseExpertAgent):
     expert_name = "navigation"
     group = SkillGroup.NAVIGATION
 
-    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         intent = state.get("intent", {})
         nav_action = intent.get("Navigation_Action") or {}
 

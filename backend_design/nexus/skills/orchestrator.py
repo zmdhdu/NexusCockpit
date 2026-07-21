@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from time import perf_counter
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.skills.base import SkillResult
@@ -36,7 +36,7 @@ class DispatchResult:
     action: str = ""
     reply: str = ""
     search_context: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     # 是否有副作用: 车控类技能会修改车辆硬件状态，标记后禁止缓存
     has_side_effect: bool = False
 
@@ -51,14 +51,14 @@ class SkillOrchestrator:
     def __init__(self, skill_registry: SkillRegistry):
         self.registry = skill_registry
 
-    async def _timed_execute(self, tool_name: str, payload: Dict[str, Any]) -> tuple[SkillResult, float]:
+    async def _timed_execute(self, tool_name: str, payload: dict[str, Any]) -> tuple[SkillResult, float]:
         """执行技能并记录耗时"""
         t0 = perf_counter()
         result = await self.registry.execute(tool_name, payload)
         duration_ms = round((perf_counter() - t0) * 1000, 2)
         return result, duration_ms
 
-    async def dispatch(self, intent: Dict[str, Any]) -> DispatchResult:
+    async def dispatch(self, intent: dict[str, Any]) -> DispatchResult:
         """
         根据意图结果分发到对应技能
         intent 格式参考 IntentRouterService 的输出
@@ -116,7 +116,7 @@ class SkillOrchestrator:
             )
 
         # 声纹注册
-        register_name: Optional[str] = intent.get("Register_Action")
+        register_name: str | None = intent.get("Register_Action")
         if register_name:
             result, duration = await self._timed_execute("register_voice", {"user_name": register_name})
             return DispatchResult(

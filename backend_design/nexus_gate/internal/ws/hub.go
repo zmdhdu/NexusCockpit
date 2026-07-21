@@ -14,25 +14,38 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"nexus_gate/internal/config"
+
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
+	// CheckOrigin 按 CORS_ORIGINS 白名单校验来源，防止跨站 WebSocket 劫持 (CSWSH)。
+	// 配置为 "*" 时放行所有来源（仅开发环境；生产环境由 config 启动检查拦截）。
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Demo: 允许所有来源
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // 非浏览器客户端（无 Origin 头）放行，由 JWT 鉴权把关
+		}
+		for _, allowed := range config.Get().AllowedOrigins() {
+			if allowed == "*" || allowed == origin {
+				return true
+			}
+		}
+		log.Printf("WebSocket origin rejected: %s", origin)
+		return false
 	},
 }
 
 // Client WebSocket 客户端
 type Client struct {
-	conn       *websocket.Conn
-	cockpitID  string
-	userID     string
-	send       chan []byte
-	hub        *Hub
-	backend    *websocket.Conn // 到 Python AI 的后端 WebSocket 连接
-	token      string          // JWT Token（用于连接 Python WebSocket）
+	conn      *websocket.Conn
+	cockpitID string
+	userID    string
+	send      chan []byte
+	hub       *Hub
+	backend   *websocket.Conn // 到 Python AI 的后端 WebSocket 连接
+	token     string          // JWT Token（用于连接 Python WebSocket）
 }
 
 // Hub WebSocket 连接管理器
@@ -315,7 +328,7 @@ func injectCockpitInfo(message []byte, cockpitID, userID string) []byte {
 	if err := json.Unmarshal(message, &data); err != nil {
 		// 非 JSON 消息，包装后转发
 		data = map[string]interface{}{
-			"text":    string(message),
+			"text":       string(message),
 			"cockpit_id": cockpitID,
 			"user_id":    userID,
 		}

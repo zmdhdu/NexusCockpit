@@ -20,7 +20,6 @@ Session Store — 基于 Redis 的会话历史持久化
 from __future__ import annotations
 
 import json
-from typing import Dict, List, Optional
 
 import redis.asyncio as aioredis
 
@@ -54,11 +53,11 @@ class SessionStore:
         _summary_fallback: 摘要的内存降级存储
     """
 
-    def __init__(self, redis_client: Optional[aioredis.Redis] = None):
-        self._redis: Optional[aioredis.Redis] = redis_client
-        self._fallback: Dict[str, List[Dict[str, str]]] = {}
+    def __init__(self, redis_client: aioredis.Redis | None = None):
+        self._redis: aioredis.Redis | None = redis_client
+        self._fallback: dict[str, list[dict[str, str]]] = {}
         # 滚动摘要的内存降级存储
-        self._summary_fallback: Dict[str, str] = {}
+        self._summary_fallback: dict[str, str] = {}
         # 从 MemoryConfig 读取历史保留条数（可通过 .env 调整）
         try:
             self._max_history = get_config().memory.max_history_len
@@ -78,7 +77,7 @@ class SessionStore:
             logger.warning(f"SessionStore Redis connection failed, using memory fallback: {e}")
             self._redis = None
 
-    def get(self, session_key: str) -> List[Dict[str, str]]:
+    def get(self, session_key: str) -> list[dict[str, str]]:
         """同步获取会话历史 (内存降级模式)。
 
         Redis 模式请使用 async_get。
@@ -87,7 +86,7 @@ class SessionStore:
             return self._fallback.get(session_key, [])
         return []  # Redis 模式下不应调用此方法
 
-    async def async_get(self, session_key: str) -> List[Dict[str, str]]:
+    async def async_get(self, session_key: str) -> list[dict[str, str]]:
         """异步获取会话历史。
 
         Args:
@@ -145,7 +144,7 @@ class SessionStore:
 
         return deleted
 
-    async def async_set(self, session_key: str, history: List[Dict[str, str]]) -> None:
+    async def async_set(self, session_key: str, history: list[dict[str, str]]) -> None:
         """异步保存会话历史 (只保留最近 max_history_len 条)。
 
         Args:
@@ -169,7 +168,7 @@ class SessionStore:
             logger.error(f"SessionStore set failed: {e}")
             self._fallback[session_key] = trimmed
 
-    async def list_sessions(self) -> Dict[str, dict]:
+    async def list_sessions(self) -> dict[str, dict]:
         """列出所有活跃会话 (用于管理接口)"""
         if not self._redis:
             return {

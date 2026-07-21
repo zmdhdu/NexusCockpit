@@ -11,7 +11,7 @@ Health Expert — 车辆健康专家 Agent
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from nexus.agent.experts.base import BaseExpertAgent
 from nexus.core.logger import get_logger
@@ -31,8 +31,8 @@ class HealthExpert(BaseExpertAgent):
     expert_name = "health"
     group = SkillGroup.HEALTH
 
-    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
-        intent = state.get("intent", {})
+    async def _execute(self, state: SupervisorState) -> dict[str, Any]:
+        _intent = state.get("intent", {})
         user_input = state.get("user_input", "")
 
         # 检查是否有车辆健康相关的技能可调用

@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -69,12 +69,12 @@ class SemanticCache:
 
     def __init__(
         self,
-        embedding_service: Optional[EmbeddingService] = None,
-        redis_client: Optional[aioredis.Redis] = None,
+        embedding_service: EmbeddingService | None = None,
+        redis_client: aioredis.Redis | None = None,
     ):
         self.config = get_config().redis
         self.embedding_service = embedding_service or EmbeddingService()
-        self._redis: Optional[aioredis.Redis] = redis_client
+        self._redis: aioredis.Redis | None = redis_client
         self._enabled = self.config.cache_enabled
         self._hit_count = 0
         self._miss_count = 0
@@ -157,7 +157,7 @@ class SemanticCache:
             logger.warning(f"Failed to create RediSearch index: {e}, falling back to scan mode")
             self._index_ready = False
 
-    async def get(self, query: str, user_id: str = "") -> Optional[Dict[str, Any]]:
+    async def get(self, query: str, user_id: str = "") -> dict[str, Any] | None:
         """查询缓存（KNN 向量检索）。
 
         使用 RediSearch FT.SEARCH KNN 实现 O(log n) 向量相似度检索。
@@ -181,7 +181,7 @@ class SemanticCache:
 
     async def _knn_search(
         self, query_vec: list[float], user_id: str, query: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """RediSearch KNN 向量检索。"""
         try:
             import numpy as np
@@ -250,7 +250,7 @@ class SemanticCache:
 
     async def _scan_search(
         self, query_vec: list[float], user_id: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Fallback: O(n) 遍历搜索（兼容非 Redis Stack 环境）。"""
         try:
             # 扫描所有缓存 key
@@ -315,7 +315,7 @@ class SemanticCache:
     async def set(
         self,
         query: str,
-        response: Dict[str, Any],
+        response: dict[str, Any],
         user_id: str = "",
         embedding: list[float] | None = None,
         ttl: int = 0,
@@ -516,7 +516,7 @@ class SemanticCache:
         except Exception:
             return 0
 
-    async def stats(self) -> Dict[str, Any]:
+    async def stats(self) -> dict[str, Any]:
         """返回缓存统计信息。"""
         total = self._hit_count + self._miss_count
         hit_rate = round(self._hit_count / total * 100, 1) if total > 0 else 0

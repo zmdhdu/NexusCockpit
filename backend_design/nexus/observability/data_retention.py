@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 from nexus.core.db_manager import get_db_manager
 from nexus.core.logger import get_logger
@@ -29,7 +29,7 @@ from nexus.core.logger import get_logger
 logger = get_logger(__name__)
 
 # 各表的保留策略（天数）
-RETENTION_POLICY: Dict[str, int] = {
+RETENTION_POLICY: dict[str, int] = {
     "subagent_logs": 30,
     "mainagent_logs": 90,
     "audit_logs": 180,
@@ -94,7 +94,7 @@ class DataRetentionManager:
             logger.debug("MySQL not connected, skipping data retention cleanup")
             return
 
-        total_deleted = 0
+        _total_deleted = 0
         timestamp_col_map = {
             "subagent_logs": "check_time",
             "mainagent_logs": "alert_time",
@@ -107,7 +107,7 @@ class DataRetentionManager:
         for table, retention_days in RETENTION_POLICY.items():
             ts_col = timestamp_col_map.get(table, "created_at")
             try:
-                rows = await db.execute_query(
+                _rows = await db.execute_query(
                     f"DELETE FROM {table} "
                     f"WHERE {ts_col} < DATE_SUB(NOW(), INTERVAL %s DAY)",
                     (retention_days,),
@@ -129,7 +129,7 @@ class DataRetentionManager:
 
         logger.info(f"Data retention cleanup completed at {datetime.now()}")
 
-    async def get_retention_stats(self) -> Dict[str, Any]:
+    async def get_retention_stats(self) -> dict[str, Any]:
         """获取各表的数据量和保留策略信息。"""
         db = get_db_manager()
         if not db.is_connected:

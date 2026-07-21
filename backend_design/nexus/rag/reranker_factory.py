@@ -13,12 +13,10 @@ Reranker Factory — 重排服务工厂
 
 from __future__ import annotations
 
-from typing import Optional
-
 from nexus.config import get_config
 from nexus.core.logger import get_logger
-from nexus.rag.reranker_base import BaseReranker
 from nexus.rag.reranker import LocalReranker
+from nexus.rag.reranker_base import BaseReranker
 from nexus.rag.siliconflow_reranker import SiliconFlowReranker
 
 logger = get_logger(__name__)
@@ -44,7 +42,7 @@ class NoneReranker(BaseReranker):
         return True
 
 
-def build_reranker() -> Optional[BaseReranker]:
+def build_reranker() -> BaseReranker | None:
     """根据 RERANKER_PROVIDER 配置选择重排后端。
 
     Returns:

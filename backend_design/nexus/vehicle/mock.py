@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import glob
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.vehicle.base import BaseVehicleAdapter, VehicleCommandResult
@@ -60,15 +60,15 @@ class MockVehicleBus(BaseVehicleAdapter):
 
     def __init__(self):
         # 动态扫描音频目录，构建播放列表
-        self._playlist: List[Dict[str, Any]] = self._scan_music_dir()
+        self._playlist: list[dict[str, Any]] = self._scan_music_dir()
         self._track_index = 0
-        self.climate: Dict[str, Any] = {
+        self.climate: dict[str, Any] = {
             "temperature": 22,
             "fan_speed": 3,
             "mode": "auto",
             "power": True,
         }
-        self.windows: Dict[str, int] = {
+        self.windows: dict[str, int] = {
             "all": 0,
             "front_left": 0,
             "front_right": 0,
@@ -76,11 +76,11 @@ class MockVehicleBus(BaseVehicleAdapter):
             "rear_right": 0,
             "sunroof": 0,
         }
-        self.seats: Dict[str, Dict[str, Any]] = {
+        self.seats: dict[str, dict[str, Any]] = {
             "driver": {"heat": 0, "cool": 0, "massage": False, "position": "neutral"},
             "passenger": {"heat": 0, "cool": 0, "massage": False, "position": "neutral"},
         }
-        self.media: Dict[str, Any] = {
+        self.media: dict[str, Any] = {
             "playing": False,
             "volume": 18,
             "source": "local",
@@ -89,7 +89,7 @@ class MockVehicleBus(BaseVehicleAdapter):
             "play_mode": "sequential",  # 播放模式: sequential(列表循环) / single(单曲循环) / shuffle(随机播放)
             "playlist": list(self._playlist),  # 完整的播放列表（含 url）
         }
-        self.navigation: Dict[str, Any] = {
+        self.navigation: dict[str, Any] = {
             "destination": "",
             "waypoint": "",
             "mode": "drive",
@@ -99,7 +99,7 @@ class MockVehicleBus(BaseVehicleAdapter):
             "speed_kmh": 0,
             "heading": "北",
         }
-        self.status: Dict[str, Any] = {
+        self.status: dict[str, Any] = {
             "tire_pressure": "normal",
             "range_km": 420,
             "fuel_percent": 58,
@@ -108,7 +108,7 @@ class MockVehicleBus(BaseVehicleAdapter):
         }
         logger.info("MockVehicleBus initialized")
 
-    def _scan_music_dir(self) -> List[Dict[str, Any]]:
+    def _scan_music_dir(self) -> list[dict[str, Any]]:
         """扫描 assets/audio/music/ 目录，构建播放列表。
 
         替代硬编码播放列表，动态扫描本地音频文件。
@@ -126,7 +126,7 @@ class MockVehicleBus(BaseVehicleAdapter):
             "assets", "audio", "music"
         )
         supported_formats = {".mp3", ".wav"}
-        playlist: List[Dict[str, Any]] = []
+        playlist: list[dict[str, Any]] = []
 
         if os.path.isdir(music_dir):
             for filepath in sorted(glob.glob(os.path.join(music_dir, "*"))):
@@ -168,10 +168,10 @@ class MockVehicleBus(BaseVehicleAdapter):
     def vehicle_climate(
         self,
         op: str = "status",
-        target_temp: Optional[int] = None,
-        delta: Optional[int] = None,
-        fan_speed: Optional[int] = None,
-        mode: Optional[str] = None,
+        target_temp: int | None = None,
+        delta: int | None = None,
+        fan_speed: int | None = None,
+        mode: str | None = None,
     ) -> VehicleCommandResult:
         # 电源开关
         if op in ("power_on", "on", "open"):
@@ -210,7 +210,7 @@ class MockVehicleBus(BaseVehicleAdapter):
         )
 
     def vehicle_window(
-        self, op: str = "status", position: str = "all", percent: Optional[int] = None
+        self, op: str = "status", position: str = "all", percent: int | None = None
     ) -> VehicleCommandResult:
         if op in ("status", "query", "query_status"):
             return VehicleCommandResult(
@@ -220,7 +220,10 @@ class MockVehicleBus(BaseVehicleAdapter):
             )
 
         if op in ("set_position", "set", "move_to"):
-            value = max(0, min(100, int(percent))) if percent is not None else self.windows.get(position, self.windows["all"])
+            if percent is not None:
+                value = max(0, min(100, int(percent)))
+            else:
+                value = self.windows.get(position, self.windows["all"])
         else:
             value = 0 if op in ("close", "down", "lower") else 100
             if percent is not None:
@@ -246,8 +249,8 @@ class MockVehicleBus(BaseVehicleAdapter):
         self,
         op: str = "status",
         position: str = "driver",
-        level: Optional[int] = None,
-        direction: Optional[str] = None,
+        level: int | None = None,
+        direction: str | None = None,
     ) -> VehicleCommandResult:
         seat = self.seats.get(position, self.seats["driver"])
         if op in ("heat_on", "heat", "seat_heat"):
@@ -277,8 +280,8 @@ class MockVehicleBus(BaseVehicleAdapter):
     def vehicle_navigation(
         self, destination: str = "", waypoint: str = "", mode: str = "drive",
         op: str = "navigate",
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> VehicleCommandResult:
         # 查询当前位置
         if op in ("location", "current_location", "where", "位置", "我在哪"):
@@ -303,7 +306,7 @@ class MockVehicleBus(BaseVehicleAdapter):
             data={"navigation": dict(self.navigation)},
         )
 
-    def _fetch_ip_location(self, latitude: Optional[float] = None, longitude: Optional[float] = None) -> str:
+    def _fetch_ip_location(self, latitude: float | None = None, longitude: float | None = None) -> str:
         """通过 IP 或浏览器坐标获取当前位置。
 
         优先级:
@@ -326,6 +329,7 @@ class MockVehicleBus(BaseVehicleAdapter):
         if latitude is not None and longitude is not None:
             try:
                 import httpx
+
                 from nexus.config import get_config
                 amap_key = get_config().amap.api_key
                 if amap_key:
@@ -378,6 +382,7 @@ class MockVehicleBus(BaseVehicleAdapter):
         # 2a. IP 定位 — 高德 IP 定位 API (国内服务，速度快)
         try:
             import httpx
+
             from nexus.config import get_config
             amap_key = get_config().amap.api_key
             if amap_key:
@@ -450,10 +455,10 @@ class MockVehicleBus(BaseVehicleAdapter):
     def vehicle_media(
         self,
         op: str = "play",
-        source: Optional[str] = None,
-        track: Optional[str] = None,
-        volume: Optional[int] = None,
-        play_mode: Optional[str] = None,
+        source: str | None = None,
+        track: str | None = None,
+        volume: int | None = None,
+        play_mode: str | None = None,
     ) -> VehicleCommandResult:
         # 设置播放模式 (sequential / single / shuffle)
         if op in ("set_play_mode", "play_mode"):
@@ -603,7 +608,7 @@ class MockVehicleBus(BaseVehicleAdapter):
             },
         )
 
-    def invoke_command(self, command_name: str, payload: Dict[str, Any]) -> VehicleCommandResult:
+    def invoke_command(self, command_name: str, payload: dict[str, Any]) -> VehicleCommandResult:
         """统一命令入口，支持别名映射"""
         payload = payload or {}
         normalized_name = self.COMMAND_ALIASES.get(command_name, command_name)

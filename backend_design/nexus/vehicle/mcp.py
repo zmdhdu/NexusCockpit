@@ -13,11 +13,9 @@ import atexit
 import json
 import os
 import queue
-import shlex
 import subprocess
 import threading
-import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.vehicle.base import BaseVehicleAdapter, VehicleCommandResult
@@ -28,7 +26,7 @@ logger = get_logger(__name__)
 class StdioJsonRpcTransport:
     """MCP stdio 传输层，使用 Content-Length framing"""
 
-    def __init__(self, command: list[str], cwd: Optional[str] = None, env: Optional[Dict[str, str]] = None):
+    def __init__(self, command: list[str], cwd: str | None = None, env: dict[str, str] | None = None):
         if not command:
             raise ValueError("MCP command is required")
 
@@ -47,7 +45,7 @@ class StdioJsonRpcTransport:
         self._stdout = self.process.stdout
         self._stderr = self.process.stderr
         self._write_lock = threading.Lock()
-        self._pending: Dict[int, queue.Queue] = {}
+        self._pending: dict[int, queue.Queue] = {}
         self._pending_lock = threading.Lock()
         self._message_id = 0
 
@@ -57,7 +55,7 @@ class StdioJsonRpcTransport:
         self._stderr_thread.start()
         atexit.register(self.close)
 
-    def request(self, method: str, params: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Dict[str, Any]:
+    def request(self, method: str, params: dict[str, Any] | None = None, timeout: float = 10.0) -> dict[str, Any]:
         request_id = self._next_id()
         response_queue: queue.Queue = queue.Queue(maxsize=1)
 
@@ -81,7 +79,7 @@ class StdioJsonRpcTransport:
 
         return response
 
-    def notify(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
+    def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         self._send({"jsonrpc": "2.0", "method": method, "params": params or {}})
 
     def close(self) -> None:
@@ -103,7 +101,7 @@ class StdioJsonRpcTransport:
         self._message_id += 1
         return self._message_id
 
-    def _send(self, payload: Dict[str, Any]) -> None:
+    def _send(self, payload: dict[str, Any]) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         framed = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii") + raw
         with self._write_lock:
@@ -146,7 +144,7 @@ class StdioJsonRpcTransport:
             if text:
                 logger.debug(f"[MCP STDERR] {text}")
 
-    def _extract_message(self, buffer: bytes) -> tuple[Optional[Dict[str, Any]], bytes]:
+    def _extract_message(self, buffer: bytes) -> tuple[dict[str, Any] | None, bytes]:
         header_end = buffer.find(b"\r\n\r\n")
         if header_end < 0:
             return None, buffer
@@ -185,8 +183,8 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
         self,
         command: list[str],
         *,
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
         protocol_version: str = "2024-11-05",
         client_name: str = "NexusCockpit",
         client_version: str = "1.0.0",
@@ -227,8 +225,14 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
         except Exception as exc:
             logger.warning(f"MCP tools/list failed: {exc}")
 
-    def vehicle_climate(self, op="status", target_temp=None, delta=None, fan_speed=None, mode=None) -> VehicleCommandResult:
-        return self._call_tool("vehicle_climate", {"op": op, "target_temp": target_temp, "delta": delta, "fan_speed": fan_speed, "mode": mode})
+    def vehicle_climate(
+        self, op="status", target_temp=None, delta=None,
+        fan_speed=None, mode=None,
+    ) -> VehicleCommandResult:
+        return self._call_tool("vehicle_climate", {
+            "op": op, "target_temp": target_temp, "delta": delta,
+            "fan_speed": fan_speed, "mode": mode,
+        })
 
     def vehicle_window(self, op="status", position="all", percent=None) -> VehicleCommandResult:
         return self._call_tool("vehicle_window", {"op": op, "position": position, "percent": percent})
@@ -245,10 +249,10 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
     def vehicle_status(self) -> VehicleCommandResult:
         return self._call_tool("vehicle_status", {})
 
-    def invoke_command(self, command_name: str, payload: Dict[str, Any]) -> VehicleCommandResult:
+    def invoke_command(self, command_name: str, payload: dict[str, Any]) -> VehicleCommandResult:
         return self._call_tool(command_name, payload)
 
-    def _call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> VehicleCommandResult:
+    def _call_tool(self, tool_name: str, arguments: dict[str, Any]) -> VehicleCommandResult:
         if self.available_tools and tool_name not in self.available_tools:
             return VehicleCommandResult(False, f"MCP server 不暴露工具: {tool_name}", error="tool_not_exposed")
 
@@ -264,7 +268,7 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
         payload = response.get("result", response) if isinstance(response, dict) else response
         return self._convert_result(payload, tool_name)
 
-    def _convert_result(self, response: Dict[str, Any], tool_name: str) -> VehicleCommandResult:
+    def _convert_result(self, response: dict[str, Any], tool_name: str) -> VehicleCommandResult:
         if not isinstance(response, dict):
             return VehicleCommandResult(True, str(response), data={"raw": response})
 
@@ -284,8 +288,12 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
         if not message:
             message = f"MCP 工具 {tool_name} 已执行。"
 
-        data: Dict[str, Any] = {"raw": response}
+        data: dict[str, Any] = {"raw": response}
         if structured is not None:
             data["structuredContent"] = structured
 
-        return VehicleCommandResult(success=not is_error, message=message, data=data, error="mcp_tool_error" if is_error else "")
+        err = "mcp_tool_error" if is_error else ""
+        return VehicleCommandResult(
+            success=not is_error, message=message,
+            data=data, error=err,
+        )

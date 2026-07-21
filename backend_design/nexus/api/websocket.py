@@ -35,7 +35,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from nexus.config import get_config
 from nexus.core.auth import decode_token
 from nexus.core.exceptions import AuthError
-from nexus.core.logger import get_logger, bind_context, clear_context
+from nexus.core.logger import bind_context, clear_context, get_logger
 from nexus.observability.metrics import ACTIVE_CONNECTIONS
 
 logger = get_logger(__name__)
@@ -171,7 +171,7 @@ async def ws_chat(websocket: WebSocket):
                 async for event in app.state.agent_graph.stream_with_events(state):
                     await websocket.send_json(event)
 
-                latency = round((time.perf_counter() - start) * 1000, 2)
+                _latency = round((time.perf_counter() - start) * 1000, 2)
 
                 # 更新会话历史 (优先使用 SessionStore, from main L5 fix)
                 state_history = state.get("history", [])

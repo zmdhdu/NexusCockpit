@@ -13,10 +13,11 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import APIRouter
 
+from nexus import __version__
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/middleware", tags=["middleware"])
 
 
 @router.get("/")
-async def get_all_middleware_status() -> Dict[str, Any]:
+async def get_all_middleware_status() -> dict[str, Any]:
     """获取所有中间件状态概览。"""
     return {
         "asr": _get_asr_config(),
@@ -42,19 +43,19 @@ async def get_all_middleware_status() -> Dict[str, Any]:
 
 
 @router.get("/redis")
-async def get_redis_status() -> Dict[str, Any]:
+async def get_redis_status() -> dict[str, Any]:
     """Redis 状态。"""
     return await _get_redis_status()
 
 
 @router.get("/milvus")
-async def get_milvus_status() -> Dict[str, Any]:
+async def get_milvus_status() -> dict[str, Any]:
     """Milvus 状态。"""
     return await _get_milvus_status()
 
 
 @router.get("/neo4j")
-async def get_neo4j_status() -> Dict[str, Any]:
+async def get_neo4j_status() -> dict[str, Any]:
     """Neo4j 状态。"""
     return await _get_neo4j_status()
 
@@ -62,7 +63,7 @@ async def get_neo4j_status() -> Dict[str, Any]:
 
 
 @router.get("/mysql")
-async def get_mysql_status() -> Dict[str, Any]:
+async def get_mysql_status() -> dict[str, Any]:
     """MySQL 状态。"""
     return await _get_mysql_status()
 
@@ -71,7 +72,7 @@ async def get_mysql_status() -> Dict[str, Any]:
 # 内部实现
 # ============================================================
 
-async def _get_redis_status() -> Dict[str, Any]:
+async def _get_redis_status() -> dict[str, Any]:
     """获取 Redis 状态。"""
     config = get_config().redis
     try:
@@ -97,7 +98,7 @@ async def _get_redis_status() -> Dict[str, Any]:
         return {"name": "Redis", "status": "disconnected", "error": str(e)}
 
 
-async def _get_milvus_status() -> Dict[str, Any]:
+async def _get_milvus_status() -> dict[str, Any]:
     """获取 Milvus 状态。"""
     config = get_config().milvus
     try:
@@ -115,7 +116,7 @@ async def _get_milvus_status() -> Dict[str, Any]:
         return {"name": "Milvus", "status": "disconnected", "error": str(e)}
 
 
-async def _get_neo4j_status() -> Dict[str, Any]:
+async def _get_neo4j_status() -> dict[str, Any]:
     """获取 Neo4j 状态。"""
     config = get_config().neo4j
     try:
@@ -162,7 +163,7 @@ async def _get_neo4j_status() -> Dict[str, Any]:
         }
 
 
-async def _get_mysql_status() -> Dict[str, Any]:
+async def _get_mysql_status() -> dict[str, Any]:
     """获取 MySQL 状态。"""
     config = get_config().mysql
     try:
@@ -196,7 +197,7 @@ async def _get_mysql_status() -> Dict[str, Any]:
 # 应用级配置
 # ============================================================
 
-def _get_llm_config() -> Dict[str, Any]:
+def _get_llm_config() -> dict[str, Any]:
     """获取 LLM 模型配置信息。"""
     config = get_config().llm
     api_key = config.ark_api_key or ""
@@ -215,7 +216,7 @@ def _get_llm_config() -> Dict[str, Any]:
     }
 
 
-def _get_tts_config() -> Dict[str, Any]:
+def _get_tts_config() -> dict[str, Any]:
     """获取 TTS 语音合成配置信息。"""
     config = get_config().asr
     model_path = config.resolved_cosyvoice_path()
@@ -229,7 +230,7 @@ def _get_tts_config() -> Dict[str, Any]:
     }
 
 
-def _get_asr_config() -> Dict[str, Any]:
+def _get_asr_config() -> dict[str, Any]:
     """获取 ASR 语音识别配置信息。"""
     config = get_config().asr
     model_path = config.resolved_funasr_path()
@@ -242,13 +243,13 @@ def _get_asr_config() -> Dict[str, Any]:
     }
 
 
-def _get_app_config() -> Dict[str, Any]:
+def _get_app_config() -> dict[str, Any]:
     """获取应用级运行配置。"""
     config = get_config()
     return {
         "name": "应用配置",
         "status": "running",
-        "version": "2.1.0",
+        "version": __version__,
         "environment": os.getenv("APP_ENV", "development"),
         "debug": config.server.debug,
         "host": config.server.host,
@@ -261,6 +262,6 @@ def _get_app_config() -> Dict[str, Any]:
     }
 
 
-def _get_oss_config() -> Dict[str, Any]:
+def _get_oss_config() -> dict[str, Any]:
     """OSS 对象存储已移除（未集成，过度设计）。"""
     return {"name": "OSS 对象存储", "status": "removed", "reason": "已简化移除"}

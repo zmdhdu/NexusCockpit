@@ -11,7 +11,7 @@ Vehicle Expert — 车控专家 Agent
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from nexus.agent.experts.base import BaseExpertAgent
 from nexus.core.logger import get_logger
@@ -36,7 +36,7 @@ class VehicleExpert(BaseExpertAgent):
     expert_name = "vehicle"
     group = SkillGroup.VEHICLE
 
-    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
+    async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         intent = state.get("intent", {})
 
         for intent_key, tool_name in _VEHICLE_ACTION_MAP.items():
@@ -69,7 +69,7 @@ class VehicleExpert(BaseExpertAgent):
             handled=False,
         )
 
-    def _verify_result(self, tool_name: str, result: Any, args: Dict[str, Any]) -> Any:
+    def _verify_result(self, tool_name: str, result: Any, args: dict[str, Any]) -> Any:
         """验证车控命令执行结果。
 
         检查工具返回的 data 是否反映了预期的状态变更，

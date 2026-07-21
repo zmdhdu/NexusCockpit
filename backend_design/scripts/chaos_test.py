@@ -23,7 +23,7 @@ import argparse
 import asyncio
 import json
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 try:
     import httpx
@@ -37,7 +37,7 @@ class ChaosTestRunner:
 
     def __init__(self, base_url: str = "http://localhost:8000"):
         self.base_url = base_url
-        self.results: List[Dict[str, Any]] = []
+        self.results: list[dict[str, Any]] = []
 
     def _record(self, test_name: str, passed: bool, detail: str = "") -> None:
         """记录测试结果。"""

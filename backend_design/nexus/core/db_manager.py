@@ -18,9 +18,8 @@ MySQL 数据库管理器 — 统一数据库访问层
 from __future__ import annotations
 
 import json
-import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import aiomysql
 
@@ -43,7 +42,7 @@ class DatabaseManager:
     """
 
     def __init__(self) -> None:
-        self._pool: Optional[aiomysql.Pool] = None
+        self._pool: aiomysql.Pool | None = None
         self._connected = False
 
     async def connect(self) -> None:
@@ -206,11 +205,11 @@ class DatabaseManager:
     async def insert_subagent_log(
         self,
         cockpit_id: str,
-        check_items: Dict[str, Any],
-        llm_judgment: Optional[Dict[str, Any]] = None,
-        decision_trace: Optional[Dict[str, Any]] = None,
+        check_items: dict[str, Any],
+        llm_judgment: dict[str, Any] | None = None,
+        decision_trace: dict[str, Any] | None = None,
         is_anomaly: bool = False,
-    ) -> Optional[int]:
+    ) -> int | None:
         """写入 SubAgent 巡检日志。
 
         Args:
@@ -233,7 +232,7 @@ class DatabaseManager:
         )
         try:
             # 使用东八区时间，避免 Docker 容器 UTC 时区导致时间偏差
-            from datetime import timezone, timedelta
+            from datetime import timedelta, timezone
             cn_tz = timezone(timedelta(hours=8))
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
@@ -259,12 +258,12 @@ class DatabaseManager:
         cockpit_id: str,
         alert_type: str,
         severity: str,
-        subagent_judgment: Dict[str, Any],
-        mainagent_judgment: Dict[str, Any],
+        subagent_judgment: dict[str, Any],
+        mainagent_judgment: dict[str, Any],
         action_taken: str,
-        alert_time: Optional[float] = None,
-        confirm_time: Optional[float] = None,
-    ) -> Optional[int]:
+        alert_time: float | None = None,
+        confirm_time: float | None = None,
+    ) -> int | None:
         """写入 MainAgent 确认日志。
 
         Args:
@@ -316,9 +315,9 @@ class DatabaseManager:
         cockpit_id: str,
         user_id: str,
         action: str,
-        detail: Optional[Dict[str, Any]] = None,
-        ip_address: Optional[str] = None,
-    ) -> Optional[int]:
+        detail: dict[str, Any] | None = None,
+        ip_address: str | None = None,
+    ) -> int | None:
         """写入审计日志。
 
         Args:
@@ -366,7 +365,7 @@ class DatabaseManager:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         cost_yuan: float = 0.0,
-    ) -> Optional[int]:
+    ) -> int | None:
         """记录 LLM 调用成本。
 
         Args:
@@ -405,8 +404,8 @@ class DatabaseManager:
             return None
 
     async def get_llm_cost_summary(
-        self, cockpit_id: Optional[str] = None, hours: int = 24
-    ) -> Dict[str, Any]:
+        self, cockpit_id: str | None = None, hours: int = 24
+    ) -> dict[str, Any]:
         """获取 LLM 成本汇总。
 
         Args:
@@ -470,7 +469,7 @@ class DatabaseManager:
     # 用户管理（RBAC）
     # ============================================================
 
-    async def list_users(self) -> List[Dict[str, Any]]:
+    async def list_users(self) -> list[dict[str, Any]]:
         """列出所有用户。"""
         if not self.is_connected:
             return []
@@ -497,7 +496,7 @@ class DatabaseManager:
             logger.error(f"Failed to list users: {e}")
             return []
 
-    async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_user(self, user_id: str) -> dict[str, Any] | None:
         """查询单个用户。"""
         if not self.is_connected:
             return None
@@ -529,10 +528,10 @@ class DatabaseManager:
         self,
         user_id: str,
         username: str,
-        cockpit_id: Optional[str] = None,
+        cockpit_id: str | None = None,
         role: str = "cockpit_user",
-        password_hash: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
+        password_hash: str | None = None,
+    ) -> dict[str, Any] | None:
         """创建用户。
 
         Returns:
@@ -606,12 +605,12 @@ class DatabaseManager:
         user_id: str,
         user_input: str,
         assistant_reply: str,
-        session_id: Optional[str] = None,
-        intent: Optional[str] = None,
-        experts_involved: Optional[List[str]] = None,
+        session_id: str | None = None,
+        intent: str | None = None,
+        experts_involved: list[str] | None = None,
         latency_ms: float = 0,
         cache_hit: bool = False,
-    ) -> Optional[int]:
+    ) -> int | None:
         """写入对话历史。"""
         if not self.is_connected:
             return None
@@ -644,9 +643,9 @@ class DatabaseManager:
     async def get_chat_history(
         self,
         cockpit_id: str,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
         limit: int = 50,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """获取对话历史。"""
         if not self.is_connected:
             return []
@@ -679,7 +678,7 @@ class DatabaseManager:
 
     async def execute_query(
         self, sql: str, params: tuple = ()
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """执行查询并返回结果。"""
         if not self.is_connected:
             return []
@@ -730,9 +729,12 @@ class DatabaseManager:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(
-                        "INSERT INTO user_habits (user_id, cockpit_id, habit_key, habit_value, hit_count, last_used_at) "
+                        "INSERT INTO user_habits "
+                        "(user_id, cockpit_id, habit_key, habit_value, hit_count, last_used_at) "
                         "VALUES (%s, %s, %s, %s, 1, NOW()) "
-                        "ON DUPLICATE KEY UPDATE habit_value=VALUES(habit_value), hit_count=hit_count+1, last_used_at=NOW()",
+                        "ON DUPLICATE KEY UPDATE "
+                        "habit_value=VALUES(habit_value), "
+                        "hit_count=hit_count+1, last_used_at=NOW()",
                         (user_id, cockpit_id, habit_key, habit_value),
                     )
         except Exception as e:
@@ -740,7 +742,7 @@ class DatabaseManager:
 
     async def get_user_habits(
         self, user_id: str, cockpit_id: str = ""
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """获取用户习惯列表。"""
         if not self.is_connected:
             return []
@@ -758,7 +760,7 @@ class DatabaseManager:
 
 
 # 全局单例
-_db_manager: Optional[DatabaseManager] = None
+_db_manager: DatabaseManager | None = None
 
 
 def get_db_manager() -> DatabaseManager:

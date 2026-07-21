@@ -22,7 +22,7 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class SkillGroup(str, Enum):
@@ -37,7 +37,7 @@ class SkillGroup(str, Enum):
 # ---- 全局技能注册表 ----
 # 装饰器 @register_skill 会将技能类信息写入此表
 # SkillRegistry 初始化时自动遍历此表完成注册
-_SKILL_REGISTRY: Dict[str, dict] = {}
+_SKILL_REGISTRY: dict[str, dict] = {}
 
 
 def register_skill(
@@ -98,12 +98,12 @@ class SkillResult:
     """
     status: str = "ok"  # ok / error
     message: str = ""
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     action: str = ""
     search_context: str = ""
     handled: bool = True
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseSkill(ABC):
@@ -122,10 +122,10 @@ class BaseSkill(ABC):
 
     name: str = ""
     description: str = ""
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     required_parameters: list[str] = []
     optional_parameters: list[str] = []
-    examples: list[Dict[str, Any]] = []
+    examples: list[dict[str, Any]] = []
     risk_level: str = "low"  # low / medium / high
     timeout_ms: int = 3000
     requires_auth: bool = False

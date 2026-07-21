@@ -21,14 +21,13 @@ Task Queue — 异步任务队列
 from __future__ import annotations
 
 import asyncio
-from typing import Set
 
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
 
 # 后台任务强引用集合（防止 asyncio.Task 被 GC 回收）
-_background_tasks: Set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task] = set()
 
 
 def create_background_task(coro, name: str = "") -> asyncio.Task:

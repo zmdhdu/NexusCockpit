@@ -34,6 +34,7 @@ from fastapi.responses import StreamingResponse
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.core.tenant_context import get_cockpit_id
+from nexus.intent.constants import VEHICLE_INTENT_KEYS
 from nexus.intent.heuristic import HeuristicRouter
 from nexus.middleware.rate_limiter import RateLimiter
 from nexus.models.schemas import ChatRequest, ChatResponse
@@ -54,11 +55,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 # 启发式路由器单例 — 用于判断是否为车控指令（跳过缓存）
 _heuristic_router = HeuristicRouter()
 
-# 车控意图字段集合 — 命中其中任一即为车控指令
-_VEHICLE_INTENT_KEYS = (
-    "Climate_Action", "Window_Action", "Seat_Action",
-    "Media_Action", "Vehicle_Status_Action",
-)
+# 车控意图字段集合 — 命中其中任一即为车控指令（常量来自 nexus.intent.constants）
 
 
 def _is_vehicle_command(text: str) -> bool:
@@ -68,7 +65,7 @@ def _is_vehicle_command(text: str) -> bool:
     确保车控命令每次都实际执行而非返回旧缓存。
     """
     quick = _heuristic_router.route(text)
-    return any(k in quick for k in _VEHICLE_INTENT_KEYS)
+    return any(k in quick for k in VEHICLE_INTENT_KEYS)
 
 
 # 会话级别并发锁 — 防止同一 session 的并发请求交叉污染会话历史
@@ -145,7 +142,8 @@ async def _record_chat_metrics(
                 # 会话标题用第一次用户问题前20字，首次消息时自动更新
                 title = user_input[:20] if user_input else "新对话"
                 await db.execute_update(
-                    "INSERT INTO chat_sessions (session_id, cockpit_id, user_id, title, message_count, last_message_at) "
+                    "INSERT INTO chat_sessions "
+                    "(session_id, cockpit_id, user_id, title, message_count, last_message_at) "
                     "VALUES (%s, %s, %s, %s, 1, NOW()) "
                     "ON DUPLICATE KEY UPDATE message_count=message_count+1, last_message_at=NOW(), "
                     "title=IF(title='新对话' AND message_count=0, %s, title)",
@@ -268,7 +266,7 @@ async def chat(request: Request, body: ChatRequest):
         except Exception as e:
             logger.error(f"Agent invocation failed: {e}")
             AGENT_INVOCATIONS.labels(agent_name="supervisor_pipeline", status="error").inc()
-            state["final_response"] = f"处理失败: {e}"
+            state["final_response"] = "处理失败，服务暂时不可用"
         finally:
             if langfuse and agent_span:
                 langfuse.end_observation(
@@ -384,9 +382,21 @@ async def chat_stream(request: Request, body: ChatRequest):
                     session_id=body.session_id,
                 )
                 # 缓存命中：直接以 done 事件返回，不走 Agent 流式
-                yield f"data: {json.dumps({'type': 'thinking', 'data': {'message': '命中缓存'}}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': cached_response}}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'done', 'data': {'response': cached_response, 'latency_ms': latency, 'cache_hit': True}}, ensure_ascii=False)}\n\n"
+                yield (
+                    f"data: {json.dumps({'type': 'thinking', 'data': {'message': '命中缓存'}}, ensure_ascii=False)}\n\n"
+                )
+                yield (
+                    f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': cached_response}}, ensure_ascii=False)}\n\n"
+                )
+                done_payload = {
+                    'type': 'done',
+                    'data': {
+                        'response': cached_response,
+                        'latency_ms': latency,
+                        'cache_hit': True,
+                    },
+                }
+                yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
                 return
             CACHE_MISSES.inc()
         elif is_vehicle_cmd:
@@ -471,7 +481,11 @@ async def chat_stream(request: Request, body: ChatRequest):
 
             except Exception as e:
                 logger.error(f"Stream failed: {e}")
-                yield f"data: {json.dumps({'type': 'error', 'data': {'message': str(e)}}, ensure_ascii=False)}\n\n"
+                err_payload = {
+                    'type': 'error',
+                    'data': {'message': '服务暂时不可用'},
+                }
+                yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
 
             finally:
                 # 确保会话历史始终被更新，即使流被中断

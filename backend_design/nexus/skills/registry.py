@@ -18,16 +18,15 @@ Skill Registry — 技能注册中心
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.observability.metrics import SKILL_EXECUTIONS
 from nexus.skills.base import (
+    _SKILL_REGISTRY,
     BaseSkill,
     SkillGroup,
-    SkillResult,
-    _SKILL_REGISTRY,
-    register_skill,  # 导出供技能模块使用
+    SkillResult,  # 导出供技能模块使用
 )
 
 logger = get_logger(__name__)
@@ -47,7 +46,7 @@ class SkillRegistry:
     """
 
     def __init__(self, graph_store=None, vehicle_adapter=None):
-        self._skills: Dict[str, BaseSkill] = {}
+        self._skills: dict[str, BaseSkill] = {}
         self._deps = {
             "graph_store": graph_store,
             "vehicle_adapter": vehicle_adapter,
@@ -80,7 +79,7 @@ class SkillRegistry:
         import inspect
 
         sig = inspect.signature(cls.__init__)
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
 
         for param_name, param in sig.parameters.items():
             if param_name == "self":
@@ -112,12 +111,30 @@ class SkillRegistry:
             "order_food": (FoodDeliverySkill, {"graph_store": self._deps["graph_store"]}),
             "amap_poi_search": (AmapPoiSearchSkill, {}),
             "register_voice": (RegisterVoiceSkill, {}),
-            "vehicle_climate": (ClimateControlSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
-            "vehicle_window": (WindowControlSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
-            "vehicle_seat": (SeatControlSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
-            "vehicle_navigation": (NavigationSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
-            "vehicle_media": (MediaControlSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
-            "vehicle_status": (VehicleStatusSkill, {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {}),
+            "vehicle_climate": (
+                ClimateControlSkill,
+                {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {},
+            ),
+            "vehicle_window": (
+                WindowControlSkill,
+                {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {},
+            ),
+            "vehicle_seat": (
+                SeatControlSkill,
+                {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {},
+            ),
+            "vehicle_navigation": (
+                NavigationSkill,
+                {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {},
+            ),
+            "vehicle_media": (
+                MediaControlSkill,
+                {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {},
+            ),
+            "vehicle_status": (
+                VehicleStatusSkill,
+                {"adapter": self._deps["vehicle_adapter"]} if self._deps["vehicle_adapter"] else {},
+            ),
         }
 
         for name, (cls, kwargs) in legacy_map.items():
@@ -127,7 +144,10 @@ class SkillRegistry:
                     clean_kwargs = {k: v for k, v in kwargs.items() if v is not None}
                     self._skills[name] = cls(**clean_kwargs) if clean_kwargs else cls()
                     # 设置分组（旧技能未标记装饰器的，手动设置）
-                    if not hasattr(self._skills[name], "_skill_group") or self._skills[name]._skill_group == SkillGroup.CHAT:
+                    skill = self._skills[name]
+                    no_group = not hasattr(skill, "_skill_group")
+                    chat_group = getattr(skill, "_skill_group", None) == SkillGroup.CHAT
+                    if no_group or chat_group:
                         if name.startswith("vehicle_"):
                             self._skills[name]._skill_group = SkillGroup.VEHICLE
                             self._skills[name]._skill_has_side_effect = True
@@ -143,33 +163,33 @@ class SkillRegistry:
         """手动注册技能。"""
         self._skills[name] = skill
 
-    def get_skill(self, name: str) -> Optional[BaseSkill]:
+    def get_skill(self, name: str) -> BaseSkill | None:
         """获取技能实例。"""
         return self._skills.get(name)
 
-    def list_skills(self) -> List[str]:
+    def list_skills(self) -> list[str]:
         """列出所有技能名称。"""
         return list(self._skills.keys())
 
-    def get_all_tools(self) -> List[dict]:
+    def get_all_tools(self) -> list[dict]:
         """获取所有技能的 Tool Schema。"""
         return [skill.get_tool_schema() for skill in self._skills.values()]
 
-    def get_skills_by_group(self, group: SkillGroup) -> Dict[str, BaseSkill]:
+    def get_skills_by_group(self, group: SkillGroup) -> dict[str, BaseSkill]:
         """按专家分组获取技能（供专家 Agent 使用）。"""
         return {
             name: skill for name, skill in self._skills.items()
             if getattr(skill, "_skill_group", SkillGroup.CHAT) == group
         }
 
-    def get_side_effect_skills(self) -> List[str]:
+    def get_side_effect_skills(self) -> list[str]:
         """获取所有有副作用的技能名称（供缓存层使用）。"""
         return [
             name for name, skill in self._skills.items()
             if getattr(skill, "_skill_has_side_effect", False)
         ]
 
-    async def execute(self, tool_name: str, arguments: Dict[str, Any]) -> SkillResult:
+    async def execute(self, tool_name: str, arguments: dict[str, Any]) -> SkillResult:
         """执行指定技能。"""
         skill = self._skills.get(tool_name)
         if not skill:

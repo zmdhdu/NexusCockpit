@@ -19,8 +19,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from enum import Enum
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from nexus.core.exceptions import CircuitBreakerError
 from nexus.core.logger import get_logger
@@ -126,7 +127,7 @@ class CircuitBreaker:
             result = await func(*args, **kwargs)
             self._on_success()
             return result
-        except Exception as e:
+        except Exception:
             # 记录失败并可能触发熔断
             self._on_failure()
             raise

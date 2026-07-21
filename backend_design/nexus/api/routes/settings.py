@@ -11,9 +11,9 @@ Demo 阶段由 Python 提供 CRUD API。
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path, UploadFile, File, Form, Request
+from fastapi import APIRouter, File, Form, HTTPException, Path, Request, UploadFile
 
 from nexus.config import get_config
 from nexus.core.cockpit_manager import get_cockpit_manager
@@ -80,7 +80,7 @@ async def update_cockpit(
 
 
 @router.delete("/cockpits/{cockpit_id}")
-async def delete_cockpit(cockpit_id: str = Path(...)) -> Dict[str, Any]:
+async def delete_cockpit(cockpit_id: str = Path(...)) -> dict[str, Any]:
     """注销座舱（软删除）。"""
     manager = get_cockpit_manager()
     success = manager.unregister_cockpit(cockpit_id)
@@ -93,8 +93,8 @@ async def delete_cockpit(cockpit_id: str = Path(...)) -> Dict[str, Any]:
 # 用户管理（持久化到 MySQL）
 # ============================================================
 
-@router.get("/users", response_model=List[UserResponse])
-async def list_users(request: Request) -> List[UserResponse]:
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(request: Request) -> list[UserResponse]:
     """列出所有用户。"""
     db = get_db_manager()
     if db.is_connected:
@@ -157,7 +157,7 @@ async def register_user(body: UserCreateRequest, request: Request) -> UserRespon
 async def delete_user(
     user_id: str = Path(...),
     request: Request = ...,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """删除用户。"""
     db = get_db_manager()
     if not db.is_connected:
@@ -180,9 +180,9 @@ async def delete_user(
 @router.put("/users/{user_id}/password")
 async def reset_user_password(
     user_id: str = Path(...),
-    body: Dict[str, str] = ...,
+    body: dict[str, str] = ...,
     request: Request = ...,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """管理员重置用户密码。"""
     db = get_db_manager()
     if not db.is_connected:
@@ -218,7 +218,7 @@ async def reset_user_password(
 # ============================================================
 
 @router.get("/middleware")
-async def get_middleware_config() -> Dict[str, Any]:
+async def get_middleware_config() -> dict[str, Any]:
     """获取中间件配置。"""
     redis_config = get_config().redis
     return {
@@ -229,7 +229,7 @@ async def get_middleware_config() -> Dict[str, Any]:
 
 
 @router.put("/middleware")
-async def update_middleware_config(body: MiddlewareConfigUpdate) -> Dict[str, Any]:
+async def update_middleware_config(body: MiddlewareConfigUpdate) -> dict[str, Any]:
     """更新中间件配置（热更新）。"""
     updated_fields = body.model_dump(exclude_none=True)
     if not updated_fields:
@@ -237,8 +237,10 @@ async def update_middleware_config(body: MiddlewareConfigUpdate) -> Dict[str, An
 
     # 将配置变更写入 Redis（热更新通道）
     try:
-        import redis.asyncio as aioredis
         import json
+
+        import redis.asyncio as aioredis
+
         from nexus.config import get_config
         redis_config = get_config().redis
         client = aioredis.Redis(
@@ -275,7 +277,7 @@ async def update_middleware_config(body: MiddlewareConfigUpdate) -> Dict[str, An
 # ============================================================
 
 @router.get("/voiceprint/status")
-async def get_voiceprint_status(cockpit_id: str = "") -> Dict[str, Any]:
+async def get_voiceprint_status(cockpit_id: str = "") -> dict[str, Any]:
     """获取声纹注册状态。"""
     service = get_voiceprint_service()
     if cockpit_id:
@@ -293,7 +295,7 @@ async def enroll_voiceprint(
     cockpit_id: str = Form(...),
     user_id: str = Form(...),
     audio: UploadFile = File(...),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """声纹注册。
 
     模型不可用时返回 HTTP 503，前端能正确识别失败。
@@ -314,7 +316,7 @@ async def enroll_voiceprint(
 async def verify_voiceprint(
     cockpit_id: str = Form(...),
     audio: UploadFile = File(...),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """声纹验证 — 验证成功后自动签发 JWT Token（N9）。
 
     验证流程:
@@ -331,9 +333,10 @@ async def verify_voiceprint(
     if result.get("verified") and result.get("user_id"):
         user_id = result["user_id"]
         try:
-            from nexus.core.auth import create_access_token
             from datetime import timedelta
+
             from nexus.config import get_config
+            from nexus.core.auth import create_access_token
 
             jwt_config = get_config().jwt
 
@@ -378,7 +381,7 @@ async def verify_voiceprint(
 async def delete_voiceprint(
     user_id: str = Path(...),
     cockpit_id: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """删除声纹。"""
     service = get_voiceprint_service()
     if not cockpit_id:

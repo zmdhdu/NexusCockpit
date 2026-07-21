@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -30,7 +30,7 @@ class HttpVehicleBusAdapter(BaseVehicleAdapter):
         protocol: str = "rest",
         endpoint: str = "/vehicle/tools/invoke",
         timeout: float = 5.0,
-        auth_token: Optional[str] = None,
+        auth_token: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.protocol = protocol.strip().lower()
@@ -38,8 +38,14 @@ class HttpVehicleBusAdapter(BaseVehicleAdapter):
         self.timeout = timeout
         self.auth_token = auth_token
 
-    def vehicle_climate(self, op="status", target_temp=None, delta=None, fan_speed=None, mode=None) -> VehicleCommandResult:
-        return self._invoke("vehicle_climate", {"op": op, "target_temp": target_temp, "delta": delta, "fan_speed": fan_speed, "mode": mode})
+    def vehicle_climate(
+        self, op="status", target_temp=None, delta=None,
+        fan_speed=None, mode=None,
+    ) -> VehicleCommandResult:
+        return self._invoke("vehicle_climate", {
+            "op": op, "target_temp": target_temp, "delta": delta,
+            "fan_speed": fan_speed, "mode": mode,
+        })
 
     def vehicle_window(self, op="status", position="all", percent=None) -> VehicleCommandResult:
         return self._invoke("vehicle_window", {"op": op, "position": position, "percent": percent})
@@ -56,11 +62,11 @@ class HttpVehicleBusAdapter(BaseVehicleAdapter):
     def vehicle_status(self) -> VehicleCommandResult:
         return self._invoke("vehicle_status", {})
 
-    def invoke_command(self, command_name: str, payload: Dict[str, Any]) -> VehicleCommandResult:
+    def invoke_command(self, command_name: str, payload: dict[str, Any]) -> VehicleCommandResult:
         cleaned = {k: v for k, v in (payload or {}).items() if v is not None}
         return self._invoke(command_name, cleaned)
 
-    def _invoke(self, tool_name: str, payload: Dict[str, Any]) -> VehicleCommandResult:
+    def _invoke(self, tool_name: str, payload: dict[str, Any]) -> VehicleCommandResult:
         body = self._build_body(tool_name, payload)
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.auth_token:
@@ -85,7 +91,7 @@ class HttpVehicleBusAdapter(BaseVehicleAdapter):
         except Exception as exc:
             return VehicleCommandResult(False, f"调用真实车控服务失败: {exc}", error="invoke_failed")
 
-    def _build_body(self, tool_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_body(self, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         if self.protocol == "jsonrpc":
             return {"jsonrpc": "2.0", "id": int(time.time() * 1000), "method": tool_name, "params": payload}
         return {"tool": tool_name, "arguments": payload}
@@ -110,7 +116,10 @@ class HttpVehicleBusAdapter(BaseVehicleAdapter):
             if "error" in data:
                 error_block = data["error"]
                 if isinstance(error_block, dict):
-                    return VehicleCommandResult(False, str(error_block.get("message", "车控服务返回错误")), error=str(error_block))
+                    msg = str(error_block.get("message", "车控服务返回错误"))
+                    return VehicleCommandResult(
+                        False, msg, error=str(error_block),
+                    )
                 return VehicleCommandResult(False, str(error_block), error=str(error_block))
             return VehicleCommandResult(True, "车控服务执行成功。", data=data)
 

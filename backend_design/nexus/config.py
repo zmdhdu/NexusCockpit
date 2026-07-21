@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Optional
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -313,7 +312,7 @@ class VehicleConfig(BaseSettings):
     # HTTP 调用超时时间 (秒)
     api_timeout: float = Field(default=5.0, validation_alias="VEHICLE_API_TIMEOUT")
     # HTTP 认证 Token
-    api_token: Optional[str] = Field(default=None, validation_alias="VEHICLE_API_TOKEN")
+    api_token: str | None = Field(default=None, validation_alias="VEHICLE_API_TOKEN")
     # MCP 模式的启动命令 (如 "python vehicle_mcp_server.py")
     mcp_command: str = Field(default="", validation_alias="VEHICLE_MCP_COMMAND")
     # MCP 启动参数
@@ -678,25 +677,41 @@ class AppConfig(BaseSettings):
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     def model_post_init(self, __context) -> None:
-        """初始化后安全检查：生产环境使用默认弱密钥时发出警告。"""
+        """初始化后安全检查：生产环境不安全配置直接拒绝启动。"""
         if _APP_ENV != "prod":
             return
+        errors = []
         warnings = []
+        # --- P0: JWT 弱密钥必须阻止启动 ---
         if self.jwt.secret_key == "change-me-in-production":
-            warnings.append("JWT_SECRET_KEY 仍为默认弱密钥")
+            errors.append("JWT_SECRET_KEY 仍为默认弱密钥，生产环境必须修改！")
+        # --- P0: CORS 通配符必须阻止启动 ---
+        if self.server.cors_origins == ["*"]:
+            errors.append("CORS origins 为 ['*'] (允许所有域)，生产环境必须指定具体域名！")
+        # --- 警告级别（不阻止启动） ---
         if self.mysql.password == "nexuscockpit":
             warnings.append("MYSQL_PASSWORD 仍为默认密码")
         if self.neo4j.password == "nexuscockpit":
             warnings.append("NEO4J_PASSWORD 仍为默认密码")
-        if "*" in self.server.cors_origins:
-            warnings.append("CORS origins 包含 '*' (允许所有域)")
         if warnings:
             import sys
             msg = "\n".join(f"  ⚠️ {w}" for w in warnings)
             print(
-                f"\n🚨 [生产环境安全警告] 检测到以下不安全配置:\n{msg}\n"
+                f"\n⚠️ [生产环境安全警告] 检测到以下不安全配置:\n{msg}\n"
+                f"请在 .env.prod 中修改以上配置。\n",
+                file=sys.stderr,
+            )
+        if errors:
+            import sys
+            msg = "\n".join(f"  ❌ {e}" for e in errors)
+            print(
+                f"\n🚨 [生产环境安全拒绝] 检测到以下致命安全配置错误:\n{msg}\n"
                 f"请在 .env.prod 中修改以上配置后再启动！\n",
                 file=sys.stderr,
+            )
+            raise ValueError(
+                "生产环境安全检查失败，拒绝启动:\n" +
+                "\n".join(f"  - {e}" for e in errors)
             )
 
     @computed_field

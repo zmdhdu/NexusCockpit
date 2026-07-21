@@ -11,15 +11,12 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 import redis.asyncio as aioredis
 
 from nexus.core.logger import get_logger
-from nexus.core.tenant_context import get_cockpit_id
 
 logger = get_logger(__name__)
 
@@ -35,7 +32,7 @@ class CockpitMetrics:
         redis_client: Redis 客户端
     """
 
-    def __init__(self, redis_client: Optional[aioredis.Redis] = None) -> None:
+    def __init__(self, redis_client: aioredis.Redis | None = None) -> None:
         self._redis = redis_client
 
     async def record_chat(self, cockpit_id: str, latency_ms: float, cache_hit: bool) -> None:
@@ -103,7 +100,7 @@ class CockpitMetrics:
         except Exception as e:
             logger.error(f"Failed to record error metrics: {e}")
 
-    async def get_cockpit_stats(self, cockpit_id: str) -> Dict[str, Any]:
+    async def get_cockpit_stats(self, cockpit_id: str) -> dict[str, Any]:
         """获取座舱的实时统计指标。
 
         Args:
@@ -121,7 +118,7 @@ class CockpitMetrics:
             if not raw:
                 return {}
 
-            stats: Dict[str, Any] = {}
+            stats: dict[str, Any] = {}
             for k, v in raw.items():
                 if isinstance(k, bytes):
                     k = k.decode()
@@ -164,7 +161,7 @@ class CockpitMetrics:
             logger.error(f"Failed to get cockpit stats: {e}")
             return {}
 
-    async def get_all_cockpit_stats(self, cockpit_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+    async def get_all_cockpit_stats(self, cockpit_ids: list[str]) -> dict[str, dict[str, Any]]:
         """获取所有座舱的统计指标。
 
         Args:
@@ -189,7 +186,7 @@ class CockpitMetrics:
 
 
 # 全局单例
-_metrics: Optional[CockpitMetrics] = None
+_metrics: CockpitMetrics | None = None
 
 
 def get_cockpit_metrics() -> CockpitMetrics:

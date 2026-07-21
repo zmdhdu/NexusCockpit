@@ -5,7 +5,9 @@
 """Seat Control Skill"""
 
 from __future__ import annotations
+
 from typing import Any
+
 from nexus.skills.base import SkillResult
 from nexus.skills.vehicle import VehicleBaseSkill
 

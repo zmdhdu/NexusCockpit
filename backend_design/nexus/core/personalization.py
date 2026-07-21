@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -46,7 +46,7 @@ class PersonalizationService:
         # 确保偏好目录存在
         os.makedirs(self._prefs_dir, exist_ok=True)
 
-    async def get_user_profile(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_profile(self, user_id: str) -> dict[str, Any]:
         """获取用户画像，用于注入 Prompt。
 
         合并 JSON 偏好文件和 MySQL 习惯记录，生成用户画像文本。
@@ -72,7 +72,7 @@ class PersonalizationService:
             "preferences": prefs,
         }
 
-    def _load_json_prefs(self, user_id: str) -> Dict[str, Any]:
+    def _load_json_prefs(self, user_id: str) -> dict[str, Any]:
         """读取用户偏好 JSON 文件。
 
         文件路径: data/preferences/{user_id}.json
@@ -89,7 +89,7 @@ class PersonalizationService:
             default_path = os.path.join(self._prefs_dir, "default_user.json")
             if os.path.exists(default_path):
                 try:
-                    with open(default_path, "r", encoding="utf-8") as f:
+                    with open(default_path, encoding="utf-8") as f:
                         return json.load(f)
                 except Exception as e:
                     logger.warning(f"Failed to load default preferences: {e}")
@@ -97,13 +97,13 @@ class PersonalizationService:
             return {}
 
         try:
-            with open(prefs_path, "r", encoding="utf-8") as f:
+            with open(prefs_path, encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
             logger.warning(f"Failed to load preferences for user={user_id}: {e}")
             return {}
 
-    async def _load_mysql_habits(self, user_id: str) -> List[Dict[str, Any]]:
+    async def _load_mysql_habits(self, user_id: str) -> list[dict[str, Any]]:
         """读取 MySQL user_habits 表的频次记录。
 
         Args:
@@ -145,7 +145,7 @@ class PersonalizationService:
             return []
 
     def _build_profile_text(
-        self, prefs: Dict[str, Any], habits: List[Dict[str, Any]]
+        self, prefs: dict[str, Any], habits: list[dict[str, Any]]
     ) -> str:
         """构建用户画像文本，注入到 Prompt。
 
@@ -156,7 +156,7 @@ class PersonalizationService:
         Returns:
             用户画像文本字符串
         """
-        lines: List[str] = []
+        lines: list[str] = []
 
         # 音乐偏好
         music = prefs.get("music", {})
@@ -199,7 +199,7 @@ class PersonalizationService:
 
         return "；".join(lines) if lines else ""
 
-    async def match_music(self, user_id: str) -> List[Dict[str, Any]]:
+    async def match_music(self, user_id: str) -> list[dict[str, Any]]:
         """根据用户偏好匹配本地音乐播放列表。
 
         扫描 assets/audio/music/ 目录，与用户偏好的歌曲列表匹配。
@@ -238,7 +238,7 @@ class PersonalizationService:
 
         return matched if matched else local_songs  # 无匹配则返回全部
 
-    def _scan_local_music(self) -> List[Dict[str, Any]]:
+    def _scan_local_music(self) -> list[dict[str, Any]]:
         """扫描 assets/audio/music/ 目录，构建本地音乐列表。
 
         支持的格式: .mp3, .wav
@@ -250,7 +250,7 @@ class PersonalizationService:
             self.config.project_root, "assets", "audio", "music"
         )
         supported_formats = {".mp3", ".wav"}
-        playlist: List[Dict[str, Any]] = []
+        playlist: list[dict[str, Any]] = []
 
         if not os.path.isdir(music_dir):
             logger.warning(f"Music directory not found: {music_dir}")
@@ -298,7 +298,7 @@ class PersonalizationService:
         return name
 
     def save_preferences(
-        self, user_id: str, preferences: Dict[str, Any]
+        self, user_id: str, preferences: dict[str, Any]
     ) -> bool:
         """保存用户偏好到 JSON 文件。
 
@@ -318,7 +318,7 @@ class PersonalizationService:
         existing = {}
         if os.path.exists(prefs_path):
             try:
-                with open(prefs_path, "r", encoding="utf-8") as f:
+                with open(prefs_path, encoding="utf-8") as f:
                     existing = json.load(f)
             except Exception:
                 pass
@@ -340,7 +340,7 @@ class PersonalizationService:
 
 
 # 全局单例
-_personalization: Optional[PersonalizationService] = None
+_personalization: PersonalizationService | None = None
 
 
 def get_personalization_service() -> PersonalizationService:

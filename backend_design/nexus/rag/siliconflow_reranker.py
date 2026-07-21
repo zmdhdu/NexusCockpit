@@ -17,7 +17,7 @@ SiliconFlow Reranker — 硅基流动云端重排
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
@@ -49,10 +49,10 @@ class SiliconFlowReranker(BaseReranker):
     def rerank(
         self,
         query: str,
-        documents: List[Dict[str, Any]],
+        documents: list[dict[str, Any]],
         text_field: str = "text",
         top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """对检索结果重排 (硅基流动 API)。
 
         硅基流动 API 为同步 HTTP, 这里用 httpx 同步调用 (rerank 在检索链路中是阻塞步骤)。
@@ -61,8 +61,8 @@ class SiliconFlowReranker(BaseReranker):
             return []
 
         # 提取每条文档的文本
-        texts: List[str] = []
-        valid_docs: List[Dict[str, Any]] = []
+        texts: list[str] = []
+        valid_docs: list[dict[str, Any]] = []
         for doc in documents:
             text = doc.get(text_field, "") or doc.get("content", "") or str(doc)
             if text:
@@ -88,7 +88,7 @@ class SiliconFlowReranker(BaseReranker):
             data = response.json()
 
             # 映射回原 documents, 加 rerank_score
-            results: List[Dict[str, Any]] = []
+            results: list[dict[str, Any]] = []
             for item in data.get("results", []):
                 idx = item.get("index")
                 score = float(item.get("relevance_score", 0.0))

@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import contextvars
-from typing import Optional
 
 # 协程安全的上下文变量
 _current_cockpit_id: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -81,8 +80,8 @@ class CockpitContext:
     def __init__(self, cockpit_id: str, user_id: str = ""):
         self._cockpit_id = cockpit_id
         self._user_id = user_id
-        self._token_cockpit: Optional[contextvars.Token] = None
-        self._token_user: Optional[contextvars.Token] = None
+        self._token_cockpit: contextvars.Token | None = None
+        self._token_user: contextvars.Token | None = None
 
     def __enter__(self):
         self._token_cockpit = _current_cockpit_id.set(self._cockpit_id)

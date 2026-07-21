@@ -21,12 +21,63 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from typing import Any
 
 import structlog
 
 from nexus.config import get_config
+
+# ============================================================
+# 日志脱敏处理器 — 过滤敏感字段 (API Key / JWT Token / 密码)
+# ============================================================
+
+# 匹配敏感 key 名称的模式 (不区分大小写)
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(api[_-]?key|secret|token|password|passwd|pwd|authorization|jwt|bearer)",
+    re.IGNORECASE,
+)
+
+# 匹配 Bearer token 值 (长 base64 字符串)
+_BEARER_TOKEN_PATTERN = re.compile(
+    r"(Bearer\s+)([A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+)"
+)
+
+# 匹配看起来像 API Key 的长字符串 (32+ 字符的 alphanumeric+下划线)
+_LONG_SECRET_PATTERN = re.compile(
+    r"(?<=['\"])(sk-[A-Za-z0-9]{20,}|[A-Za-z0-9_\-]{32,})(?=['\"])"
+)
+
+_MASK = "***REDACTED***"
+
+
+def _sanitize_value(value: Any) -> Any:
+    """对单个字符串值进行脱敏处理。"""
+    if not isinstance(value, str):
+        return value
+    # 掩码 Bearer token
+    value = _BEARER_TOKEN_PATTERN.sub(r"\1" + _MASK, value)
+    # 掩码长密钥字符串
+    value = _LONG_SECRET_PATTERN.sub(_MASK, value)
+    return value
+
+
+def sanitize_log_processor(
+    logger: Any, method_name: str, event_dict: dict
+) -> dict:
+    """structlog 处理器 — 对日志事件字典中的敏感字段进行脱敏。
+
+    遍历 event_dict 的所有 key-value:
+    - key 匹配敏感模式 (api_key, secret, token, password 等) → 值替换为 ***REDACTED***
+    - value 是字符串且包含 Bearer token / 长密钥 → 部分掩码
+    """
+    for key in list(event_dict.keys()):
+        if _SENSITIVE_KEY_PATTERN.search(key):
+            event_dict[key] = _MASK
+        elif isinstance(event_dict[key], str):
+            event_dict[key] = _sanitize_value(event_dict[key])
+    return event_dict
 
 
 def setup_logging() -> None:
@@ -60,6 +111,22 @@ def setup_logging() -> None:
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     console_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+
+    # 标准 logging 脱敏过滤器 — 对 stdlib logging 输出进行脱敏
+    class SensitiveDataFilter(logging.Filter):
+        """stdlib logging 过滤器，掩码日志消息中的敏感数据。"""
+
+        def filter(self, record: logging.LogRecord) -> bool:
+            if isinstance(record.msg, str):
+                record.msg = _BEARER_TOKEN_PATTERN.sub(
+                    r"\1" + _MASK, record.msg
+                )
+                record.msg = _LONG_SECRET_PATTERN.sub(_MASK, record.msg)
+            return True
+
+    sensitive_filter = SensitiveDataFilter()
+    file_handler.addFilter(sensitive_filter)
+    console_handler.addFilter(sensitive_filter)
 
     # 标准 logging 配置 (同时输出到控制台和文件)
     logging.basicConfig(
@@ -99,6 +166,8 @@ def setup_logging() -> None:
             structlog.processors.StackInfoRenderer(),
             # 格式化异常信息
             structlog.processors.format_exc_info,
+            # 敏感字段脱敏 (API Key / JWT Token / 密码)
+            sanitize_log_processor,
             # 输出格式: 生产环境用 JSON，开发环境用彩色控制台
             structlog.processors.JSONRenderer(ensure_ascii=False)
             if not config.server.debug

@@ -8,7 +8,7 @@ NexusCockpit 单元测试 — 多座舱管理 + 多租户上下文
 
 import pytest
 
-from nexus.core.cockpit_manager import CockpitConfig, CockpitManager
+from nexus.core.cockpit_manager import CockpitManager
 from nexus.core.tenant_context import (
     CockpitContext,
     get_cache_prefix,
@@ -17,7 +17,6 @@ from nexus.core.tenant_context import (
     set_cockpit_id,
     set_user_id,
 )
-
 
 # ============================================================
 # CockpitManager 测试
@@ -42,7 +41,7 @@ class TestCockpitManager:
         """查询单个座舱"""
         c = manager.get_cockpit("cockpit-01")
         assert c is not None
-        assert c.name == "座舱1"
+        assert c.name == "Cockpit One"
         assert c.is_active is True
 
     def test_get_nonexistent_cockpit(self, manager):
@@ -126,7 +125,7 @@ class TestCockpitManager:
         config = manager.get_cockpit("cockpit-01")
         d = config.to_dict()
         assert d["cockpit_id"] == "cockpit-01"
-        assert d["name"] == "座舱1"
+        assert d["name"] == "Cockpit One"
         assert "created_at" in d
         assert isinstance(d["is_active"], bool)
 

@@ -217,8 +217,6 @@ export interface AlertRecord {
   alert_time: string;
   alert_type: string;
   severity: string;
-  subagent_judgment?: string;
-  mainagent_judgment?: string;
   action_taken: string;
 }
 

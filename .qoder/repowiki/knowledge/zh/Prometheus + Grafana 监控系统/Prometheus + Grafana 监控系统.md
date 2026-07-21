@@ -10,8 +10,7 @@ scope:
 ---
 
 ### Prometheus + Grafana 监控系统
-- **角色**: 基础设施和应用性能监控，提供可视化看板
-- **集成点**: `backend_design/nexus/observability/metrics.py` Prometheus 指标导出
-- **监控范围**: API 延迟、Agent 执行耗时、缓存命中率、中间件状态
-- **容器编排**: docker-compose.yml 中 prometheus + grafana + loki 日志聚合
-- **访问地址**: Grafana http://localhost:3001 (admin/admin)
+- **角色**：云原生标准监控方案，采集应用指标、中间件状态、业务 KPI
+- **集成点**：Prometheus 采集 Python/Go 服务指标，Grafana 提供可视化看板，Loki 聚合日志
+- **部署模式**：Docker Compose 一键部署，预配置 dashboard 和告警规则
+- **关键特性**：API 延迟监控、Agent 执行耗时、缓存命中率、中间件健康状态可视化

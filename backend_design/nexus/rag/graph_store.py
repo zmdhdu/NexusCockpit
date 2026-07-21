@@ -9,7 +9,7 @@ Neo4j Knowledge Graph Store — 知识图谱存储与检索
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from neo4j import GraphDatabase
 
@@ -95,7 +95,7 @@ class Neo4jGraphStore(BaseGraphStore):
         except Exception as e:
             logger.error(f"Relation delete failed: {e}")
 
-    def search_user_graph(self, user_id: str, depth: int = 1) -> List[str]:
+    def search_user_graph(self, user_id: str, depth: int = 1) -> list[str]:
         """查询用户的 N 阶关系"""
         if depth == 1:
             cypher = """
@@ -109,7 +109,7 @@ class Neo4jGraphStore(BaseGraphStore):
                    [node in nodes(path) | coalesce(node.name, node.id)] as nodes
             """
 
-        results: List[str] = []
+        results: list[str] = []
         try:
             with self.driver.session() as session:
                 if depth == 1:
@@ -132,7 +132,7 @@ class Neo4jGraphStore(BaseGraphStore):
             logger.error(f"Graph search failed: {e}")
             return results
 
-    def search_food(self, food_name: str) -> Optional[str]:
+    def search_food(self, food_name: str) -> str | None:
         """在图谱中搜索食材"""
         cypher = """
         MATCH (f:Food {name: $name})
@@ -150,13 +150,13 @@ class Neo4jGraphStore(BaseGraphStore):
             logger.error(f"Food graph search failed: {e}")
             return None
 
-    def get_user_profile(self, user_id: str) -> Dict[str, Any]:
+    def get_user_profile(self, user_id: str) -> dict[str, Any]:
         """获取用户完整画像"""
         cypher = """
         MATCH (u:User {id: $user_id})-[r]->(t)
         RETURN type(r) as relation, t.name as target, labels(t) as labels, coalesce(r.mid, -1) as mid
         """
-        profile: Dict[str, Any] = {"user_id": user_id, "relations": []}
+        profile: dict[str, Any] = {"user_id": user_id, "relations": []}
         try:
             with self.driver.session() as session:
                 for record in session.run(cypher, user_id=user_id):

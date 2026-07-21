@@ -20,7 +20,7 @@ reducer 说明:
 from __future__ import annotations
 
 from operator import add
-from typing import Annotated, Any, Dict, List, TypedDict
+from typing import Annotated, Any, TypedDict
 
 
 def merge_dict(left: dict, right: dict) -> dict:
@@ -62,22 +62,22 @@ class SupervisorState(TypedDict, total=False):
     cockpit_id: str  # 座舱 ID（多租户隔离键）
 
     # ---- 记忆召回 ----
-    recalled_memories: Annotated[List[str], add]
+    recalled_memories: Annotated[list[str], add]
     memory_str: str
     habits_str: str  # 用户习惯（从 MySQL 加载）
-    user_profile: Dict[str, Any]
-    key_context: Dict[str, Any]  # 从短期历史提取的关键上下文（位置/偏好/身份）
+    user_profile: dict[str, Any]
+    key_context: dict[str, Any]  # 从短期历史提取的关键上下文（位置/偏好/身份）
 
     # ---- 意图路由 / Supervisor 分派 ----
-    intent: Dict[str, Any]
+    intent: dict[str, Any]
     intent_source: str
     need_clarification: bool
     clarification_prompt: str
-    active_experts: List[str]           # Supervisor 决定分派给哪些专家
+    active_experts: list[str]           # Supervisor 决定分派给哪些专家
     query_type: str                     # memory / knowledge / hybrid
 
     # ---- 专家输出（并行累加） ----
-    expert_results: Annotated[List[Dict[str, Any]], add]
+    expert_results: Annotated[list[dict[str, Any]], add]
 
     # ---- 技能字段 ----
     skill_result: Any                   # DispatchResult
@@ -85,24 +85,24 @@ class SupervisorState(TypedDict, total=False):
     skill_action: str
     search_context: str
     # 工具调用结果（供 Responder 做 LLM 合成和反思校验）
-    tool_result: Dict[str, Any]         # {tool_name, message, data, handled}
+    tool_result: dict[str, Any]         # {tool_name, message, data, handled}
     # 副作用标记: 车控等操作会修改车辆状态，此类响应禁止写入语义缓存
     # 避免 "打开空调" 缓存命中后车控指令不执行的安全事故 (from main L5 fix)
     has_side_effect: bool
 
     # ---- LLM 对话 ----
-    history: Annotated[List[Dict[str, str]], add]
+    history: Annotated[list[dict[str, str]], add]
     running_summary: str
     llm_response: str
-    _compressed_history: List[Dict[str, str]]  # 阈值压缩后的历史（内部传递用）
+    _compressed_history: list[dict[str, str]]  # 阈值压缩后的历史（内部传递用）
 
     # ---- 最终输出 ----
     final_response: str
-    metadata: Annotated[Dict[str, Any], merge_dict]
+    metadata: Annotated[dict[str, Any], merge_dict]
 
     # ---- 可观测性 ----
     trace_id: str
-    span_ids: Annotated[Dict[str, str], merge_dict]
+    span_ids: Annotated[dict[str, str], merge_dict]
     latency_ms: float
 
 
@@ -117,7 +117,7 @@ def create_initial_state(
     user_input: str,
     user_id: str = "default",
     session_id: str = "",
-    history: List[Dict[str, str]] | None = None,
+    history: list[dict[str, str]] | None = None,
     running_summary: str = "",
 ) -> SupervisorState:
     """创建初始 SupervisorState（推荐入口）。

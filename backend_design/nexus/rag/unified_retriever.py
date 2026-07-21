@@ -19,7 +19,7 @@ Unified Retriever — 统一检索路由层
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.rag.cherry_kb import CherryKnowledgeBase
@@ -46,9 +46,9 @@ class UnifiedRetriever:
 
     def __init__(
         self,
-        graph_rag: Optional[GraphRAGRetriever] = None,
-        cherry_kb: Optional[CherryKnowledgeBase] = None,
-        reranker: Optional[BaseReranker] = None,
+        graph_rag: GraphRAGRetriever | None = None,
+        cherry_kb: CherryKnowledgeBase | None = None,
+        reranker: BaseReranker | None = None,
     ):
         self.graph_rag = graph_rag or GraphRAGRetriever()
         self.cherry_kb = cherry_kb or CherryKnowledgeBase()
@@ -66,7 +66,7 @@ class UnifiedRetriever:
         user_id: str = "default",
         query_type: str = "auto",
         top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """统一检索入口。
 
         Args:
@@ -109,13 +109,13 @@ class UnifiedRetriever:
 
     async def _retrieve_memory(
         self, query: str, user_id: str, top_k: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """检索用户记忆（GraphRAG）。"""
         return await self.graph_rag.retrieve_memories(query, user_id, top_k=top_k)
 
     async def _retrieve_knowledge(
         self, query: str, top_k: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """检索知识库文档（Cherry KB）。"""
         docs = await self.cherry_kb.search(query, top_k=top_k)
         # 统一格式
@@ -125,7 +125,7 @@ class UnifiedRetriever:
 
     async def _retrieve_hybrid(
         self, query: str, user_id: str, top_k: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """混合检索（GraphRAG + Cherry KB）。"""
         # 并行检索
         import asyncio
@@ -137,7 +137,7 @@ class UnifiedRetriever:
         )
 
         # 合并结果
-        merged: List[Dict[str, Any]] = []
+        merged: list[dict[str, Any]] = []
         if isinstance(memory_results, list):
             for r in memory_results:
                 r.setdefault("source", "memory")

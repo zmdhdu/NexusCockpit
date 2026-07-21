@@ -35,7 +35,9 @@ Write-Host ""
 Set-Location $gatewayDir
 
 # 启动 Go 网关，所有终端输出通过 Tee-Object 同时写入文件
-go run ./cmd/ 2>&1 | Tee-Object -FilePath $logFile -Append
+# --env 加载项目根目录 .env.local，与 Python 后端共享配置（JWT_SECRET_KEY 双端对齐）
+$envFile = Join-Path $projectRoot ".env.local"
+go run ./cmd/ --env $envFile 2>&1 | Tee-Object -FilePath $logFile -Append
 
 Write-Host ""
 Write-Host "Gateway stopped. Log saved to: $logFile" -ForegroundColor Yellow

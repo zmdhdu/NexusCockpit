@@ -17,6 +17,8 @@ Auth Routes — 认证接口
 
 from __future__ import annotations
 
+import random
+import time
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends
@@ -109,9 +111,6 @@ async def change_password(
 
 
 # 手机验证码修改密码 — 忘记旧密码时的备用方式
-
-import random
-import time
 
 # 内存验证码存储: {phone: (code, expire_timestamp)}
 _verify_codes: dict[str, tuple[str, float]] = {}

@@ -11,7 +11,7 @@ Reranker Base — 重排抽象基类
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 
 
 class BaseReranker(ABC):
@@ -25,10 +25,10 @@ class BaseReranker(ABC):
     def rerank(
         self,
         query: str,
-        documents: List[Dict[str, Any]],
+        documents: list[dict[str, Any]],
         text_field: str = "text",
         top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """对检索结果重排。
 
         Args:

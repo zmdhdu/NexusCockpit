@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel
@@ -26,7 +25,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/asr", tags=["asr"])
 
 # 全局 ASR 引擎实例（懒加载）
-_asr_engine: Optional[ASREngine] = None
+_asr_engine: ASREngine | None = None
 
 
 def _get_asr_engine() -> ASREngine:
@@ -140,7 +139,7 @@ async def get_asr_status():
         }
 
 
-def _convert_to_wav(input_path: str) -> Optional[str]:
+def _convert_to_wav(input_path: str) -> str | None:
     """将音频文件转换为 16kHz 单声道 WAV 格式。
 
     转换策略（按优先级）:
@@ -205,7 +204,6 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
     # --- 策略 3: torchaudio (不支持 webm, 但支持 wav/flac) ---
     try:
         import torchaudio
-        import torch
         waveform, sample_rate = torchaudio.load(input_path)
         # 重采样到 16kHz
         if sample_rate != 16000:
@@ -223,8 +221,8 @@ def _convert_to_wav(input_path: str) -> Optional[str]:
 
     # --- 策略 4: soundfile (通过 libsndfile 支持 ogg/flac/wav) ---
     try:
-        import soundfile as sf
         import numpy as np
+        import soundfile as sf
         data, sr = sf.read(input_path, dtype="float32")
         # 转为单声道
         if len(data.shape) > 1:

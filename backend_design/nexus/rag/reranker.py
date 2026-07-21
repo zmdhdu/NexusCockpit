@@ -17,7 +17,7 @@ Rerank 模型封装 — BAAI/bge-reranker-v2-m3
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.rag.reranker_base import BaseReranker
@@ -79,10 +79,10 @@ class LocalReranker(BaseReranker):
     def rerank(
         self,
         query: str,
-        documents: List[Dict[str, Any]],
+        documents: list[dict[str, Any]],
         text_field: str = "text",
         top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """对检索结果重排。
 
         Args:
