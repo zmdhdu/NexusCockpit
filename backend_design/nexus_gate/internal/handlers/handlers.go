@@ -156,21 +156,6 @@ func GetAllMiddlewareStatus(c *gin.Context) {
 	}
 	statuses = append(statuses, neo4jStatus)
 
-	// RabbitMQ
-	rabbitHost := getEnv("RABBITMQ_HOST", "127.0.0.1")
-	rabbitPort := getEnvInt("RABBITMQ_PORT", 5672)
-	rabbitLatency, rabbitErr := checkTCP(rabbitHost, rabbitPort)
-	rabbitStatus := MiddlewareStatus{
-		Name: "rabbitmq", Latency: rabbitLatency,
-	}
-	if rabbitErr != nil {
-		rabbitStatus.Status = "offline"
-		rabbitStatus.Error = rabbitErr.Error()
-	} else {
-		rabbitStatus.Status = "online"
-	}
-	statuses = append(statuses, rabbitStatus)
-
 	// Python AI 服务
 	aiLatency, aiErr := checkTCP(cfg.AIHost, cfg.AIPort)
 	aiStatus := MiddlewareStatus{
@@ -241,15 +226,6 @@ func GetSingleMiddlewareStatus(c *gin.Context) {
 		}
 	case "neo4j":
 		latency, err := checkTCP(getEnv("NEO4J_HOST", "127.0.0.1"), getEnvInt("NEO4J_BOLT_PORT", 7687))
-		status.Latency = latency
-		if err != nil {
-			status.Status = "offline"
-			status.Error = err.Error()
-		} else {
-			status.Status = "online"
-		}
-	case "rabbitmq":
-		latency, err := checkTCP(getEnv("RABBITMQ_HOST", "127.0.0.1"), getEnvInt("RABBITMQ_PORT", 5672))
 		status.Latency = latency
 		if err != nil {
 			status.Status = "offline"

@@ -41,7 +41,6 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 
 座舱控制台是系统的核心交互页面，集成了语音对话、车控操作等。
 
-| 座舱控制台主界面 | 语音对话与车控联动 |
 ![座舱控制台主界面](images/frontend/cockpit-main.png) 
 
 ### 座舱控制
@@ -270,13 +269,20 @@ API 文档 (Swagger) 访问：http://localhost:8000/docs
 ```bash
 cd backend_design/nexus_gate
 
-# 方式一：直接运行
+# 方式一：直接运行（自动向上查找 .env.local，无需手动指定）
 go run cmd/main.go
 
-# 方式二：编译后运行
+# 方式二：编译后运行（同样自动查找 .env.local）
 go build -o nexus_gate cmd/main.go
-./nexus_gate --env ../.env
+./nexus_gate
+
+# 方式三：手动指定 .env 文件路径
+go run cmd/main.go --env ../../.env.local
 ```
+
+> **注意**: Go 网关必须与 Python 后端使用相同的 JWT 密钥（`JWT_SECRET_KEY`），
+> 否则网关签发的 Token 在 Python 后端验证失败会导致 `/vehicle/*` 等接口返回 401。
+> 网关启动时会自动加载项目根目录的 `.env.local`，启动日志会打印脱敏后的 JWT 密钥用于排查。
 
 验证网关已启动：
 
@@ -313,7 +319,7 @@ make dev-frontend
 | **健康检查** | http://localhost:8000/health | Python 后端健康状态 |
 | **网关健康** | http://localhost:8080/health | Go 网关健康状态 |
 | **grafana** | http://localhost:3001 | 监控面板 (admin/admin) |
-| **Prometheus** | http://localhost:9090 | 指标查询 |
+| **Prometheus** | http://localhost:9200 | 指标查询 |
 
 ---
 

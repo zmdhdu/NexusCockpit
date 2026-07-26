@@ -11,6 +11,8 @@ package router
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -63,7 +65,27 @@ func SetupRouter(hub *ws.Hub, limiter *ratelimit.RateLimiter) *gin.Engine {
 		gin.SetMode(gin.DebugMode)
 	}
 
-	r := gin.Default()
+	// 使用 gin.New() 替代 gin.Default()，自定义 Recovery 中间件。
+	// 原因: gin.Default() 的 Recovery 会捕获 http.ErrAbortHandler panic，
+	// 但该 panic 是 Go 标准库反向代理在客户端断开连接时的预期行为，
+	// 必须重新 panic 交由 net/http 处理（关闭连接），而非被 Recovery 捕获后
+	// 在已关闭的连接上尝试写 500 响应。
+	r := gin.New()
+	r.Use(gin.Logger())
+	r.Use(func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				// http.ErrAbortHandler 是 net/http 的特殊 sentinel panic，
+				// 反向代理在客户端断开时使用，必须重新 panic 让标准库正常关闭连接。
+				if err == http.ErrAbortHandler {
+					panic(err)
+				}
+				log.Printf("[Recovery] panic recovered: %v", err)
+				c.AbortWithStatus(http.StatusInternalServerError)
+			}
+		}()
+		c.Next()
+	})
 
 	// CORS 中间件（按 CORS_ORIGINS 白名单回显具体来源，支持逗号分隔多域名）
 	allowedOrigins := cfg.AllowedOrigins()
@@ -143,11 +165,14 @@ func SetupRouter(hub *ws.Hub, limiter *ratelimit.RateLimiter) *gin.Engine {
 		dataplatform.GET("/comparison", proxyToPython)
 	}
 
-	// 中间件状态 API — Go 原生处理（TCP 端口连通性检查）
+	// 中间件状态 API — 转发 Python（获取详细配置信息：host/port/model_path/version 等）
+	// Go 原生 handler 仅做 TCP 端口连通性检查，返回字段太少（只有 latency_ms），
+	// 前端"系统监控"页面需要 Python 返回的丰富配置信息才能展示详细状态。
+	// Go 原生的 TCP 检查能力保留在 /health 端点中（HealthCheck handler）。
 	middlewareGroup := r.Group("/middleware", OptionalAuthMiddleware())
 	{
-		middlewareGroup.GET("/", handlers.GetAllMiddlewareStatus)
-		middlewareGroup.GET("/:name", handlers.GetSingleMiddlewareStatus)
+		middlewareGroup.GET("/", proxyToPython)
+		middlewareGroup.GET("/:name", proxyToPython)
 	}
 
 	// 设置中心 API — Go 原生处理座舱列表，其余转发 Python
@@ -243,12 +268,27 @@ func proxyToPython(c *gin.Context) {
 		}
 	}
 
-	// cockpit_id 解析优先级: JWT > URL path > 空
-	// 对座舱级路由 (/cockpit/:cockpit_id/...)，AuthMiddleware 已校验 URL path 与 JWT 匹配
-	// 对非座舱路由 (/dataplatform/cockpit/:cockpit_id 等)，JWT 为空时用 URL path
-	finalCockpitID := jwtCockpitID
-	if finalCockpitID == "" {
-		finalCockpitID = c.Param("cockpit_id")
+	// cockpit_id 解析策略:
+	// 1. 座舱级路由 (/cockpit/:cockpit_id/...): 使用 JWT claims 中的 cockpit_id
+	//    （已由 AuthMiddleware 校验 URL path 与 JWT 匹配，防止越权访问其他座舱）
+	// 2. 非座舱路由 (NoRoute: /vehicle/status, /chat/sessions 等):
+	//    优先使用前端 X-Cockpit-Id 请求头（用户切换座舱时前端动态设置），
+	//    回退到 JWT claims 中的 cockpit_id。
+	//    这确保前端切换座舱时，/vehicle/status 等非座舱路由返回正确座舱的数据，
+	//    而不是始终返回 JWT 签发时绑定的座舱（隔离回归修复）。
+	finalCockpitID := ""
+	if c.Param("cockpit_id") != "" {
+		// 座舱级路由: JWT 优先，回退到 URL path
+		finalCockpitID = jwtCockpitID
+		if finalCockpitID == "" {
+			finalCockpitID = c.Param("cockpit_id")
+		}
+	} else {
+		// 非座舱路由 (NoRoute): 前端 X-Cockpit-Id 头优先，回退到 JWT
+		finalCockpitID = c.GetHeader("X-Cockpit-Id")
+		if finalCockpitID == "" {
+			finalCockpitID = jwtCockpitID
+		}
 	}
 
 	c.Request.Header.Set("X-Cockpit-Id", finalCockpitID)

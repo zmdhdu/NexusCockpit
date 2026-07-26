@@ -190,6 +190,11 @@ data/preferences/*.json
 **/qweather_secrets*
 
 # ============================================================
+# Go gateway build artifacts (not for GitHub)
+# ============================================================
+backend_design/nexus_gate/*.exe
+
+# ============================================================
 # Analysis report (local working document)
 # ============================================================
 分析报告.md

@@ -162,8 +162,13 @@ export function VehiclePanel() {
     };
   }, []);
 
-/** 拉取车辆状态 — 从后端获取最新车控数据，失败时降级到 Mock 数据 */
-  const fetchStatus = async () => {
+/** 拉取车辆状态 — 从后端获取最新车控数据，失败时降级到 Mock 数据
+ *
+ * 首次失败时不立即降级，而是延迟 2 秒重试一次。
+ * 这可以覆盖 Token 过期 → 401 拦截器刷新 Token → 重试请求 的时序窗口，
+ * 避免因 Token 刷新尚未完成而误显示"模拟模式"。
+ */
+  const fetchStatus = async (isRetry = false) => {
     try {
       const s = await getVehicleStatus();
       if (mountedRef.current) {
@@ -174,6 +179,14 @@ export function VehiclePanel() {
         }
       }
     } catch {
+      // 首次失败：延迟 2 秒重试（Token 刷新窗口）
+      if (!isRetry && mountedRef.current) {
+        setTimeout(() => {
+          if (mountedRef.current) fetchStatus(true);
+        }, 2000);
+        return;
+      }
+      // 重试仍失败：降级到 Mock 数据
       if (mountedRef.current) {
         setStatus(MOCK_STATUS);
         setOffline(true);
@@ -187,8 +200,9 @@ fetchStatus();
 
 // 座舱切换时重新拉取车辆状态（每个座舱数据独立）
 useEffect(() => {
-  // 重置音频同步缓存，确保新座舱的媒体状态被强制同步到全局 Audio
-  resetAudioSyncKey();
+  // 重置音频同步缓存 — audio-store 内部通过 cockpitId 判断是否真正切换，
+  // 避免组件 remount（路由切回同一座舱）时误重置导致音乐从头播放
+  resetAudioSyncKey(cockpitId);
   fetchStatus();
 }, [cockpitId]);
 

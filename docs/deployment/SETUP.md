@@ -164,9 +164,9 @@ docker compose ps
 | etcd | 2379 | running |
 | minio | 9000, 9001 | running |
 | neo4j | 7474, 7687 | running |
-| redis | 6379 | running |
-| mysql | 3306 | running |
-| prometheus | 9090 | running |
+| redis | 16379 | running |
+| mysql | 13306 | running |
+| prometheus | 9200 | running |
 | grafana | 3001 | running |
 
 ### 4.3 各服务管理界面
@@ -175,7 +175,7 @@ docker compose ps
 |------|------|-----------|
 | Neo4j Browser | http://localhost:7474 | neo4j / nexuscockpit |
 | MinIO Console | http://localhost:9001 | minioadmin / minioadmin |
-| Prometheus | http://localhost:9090 | - |
+| Prometheus | http://localhost:9200 | - |
 | Grafana | http://localhost:3001 | admin / admin |
 
 ### 4.4 停止/清理

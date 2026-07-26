@@ -33,20 +33,61 @@ import (
 // main 是 NexusGate Go 网关的入口函数。
 // 启动流程:
 //  1. 解析命令行参数（可选 --env 指定 .env 文件路径）
-//  2. 加载配置（config.Load）
-//  3. 初始化反向代理（proxy.Init）
-//  4. 启动 WebSocket Hub（后台协程）
-//  5. 创建限流器并设置路由
-//  6. 启动 HTTP 服务并监听信号实现优雅关闭
+//  2. 加载 .env 文件（指定路径 > 自动查找 .env.local > .env）
+//  3. 加载配置（config.Load）
+//  4. 初始化反向代理（proxy.Init）
+//  5. 启动 WebSocket Hub（后台协程）
+//  6. 创建限流器并设置路由
+//  7. 启动 HTTP 服务并监听信号实现优雅关闭
 func main() {
 	// 解析命令行参数
-	envFile := flag.String("env", "", "Path to .env file")
+	envFile := flag.String("env", "", "Path to .env file (auto-detect .env.local if empty)")
 	flag.Parse()
 
-	// 加载 .env 文件（如果指定）
+	// 加载 .env 文件
+	// 优先级: --env 指定路径 > 自动查找 .env.local > .env
 	if *envFile != "" {
+		// 用户显式指定了 .env 文件路径
 		if err := loadEnvFile(*envFile); err != nil {
-			log.Printf("Warning: failed to load .env file: %v", err)
+			log.Printf("Warning: failed to load .env file (%s): %v", *envFile, err)
+		}
+	} else {
+		// 未指定 --env 时自动查找项目根目录的 .env.local / .env
+		// 从当前工作目录向上逐级查找，最多上溯 5 级
+		found := false
+		for i := 0; i <= 5; i++ {
+			dir := "."
+			for j := 0; j < i; j++ {
+				dir = filepath.Join(dir, "..")
+			}
+
+			// 优先查找 .env.local（本地开发环境）
+			localPath := filepath.Join(dir, ".env.local")
+			if _, err := os.Stat(localPath); err == nil {
+				if err := loadEnvFile(localPath); err != nil {
+					log.Printf("Warning: failed to load .env.local (%s): %v", localPath, err)
+				} else {
+					log.Printf("Loaded env file: %s", localPath)
+					found = true
+				}
+				break
+			}
+
+			// 其次查找 .env（备用）
+			envPath := filepath.Join(dir, ".env")
+			if _, err := os.Stat(envPath); err == nil {
+				if err := loadEnvFile(envPath); err != nil {
+					log.Printf("Warning: failed to load .env (%s): %v", envPath, err)
+				} else {
+					log.Printf("Loaded env file: %s", envPath)
+					found = true
+				}
+				break
+			}
+		}
+		if !found {
+			log.Printf("Warning: no .env.local or .env file found, using default config values")
+			log.Printf("  Hint: specify with --env /path/to/.env.local or run from project root")
 		}
 	}
 
@@ -71,6 +112,7 @@ func main() {
 	log.Printf("  Gate: %s:%d", cfg.GateHost, cfg.GatePort)
 	log.Printf("  AI Backend: %s", cfg.AIBaseURL())
 	log.Printf("  Mode: %s", cfg.GateMode)
+	log.Printf("  JWT Secret: %s", maskSecret(cfg.JWTSecret))
 	log.Printf("  Log file: %s", logFile)
 
 	// 初始化反向代理
@@ -103,6 +145,20 @@ func main() {
 
 	log.Println("NexusGate shutting down...")
 	log.Println("NexusGate stopped")
+}
+
+// maskSecret 脱敏显示密钥，仅显示前 4 位和后 4 位，中间用 * 代替。
+// 用于启动日志中打印 JWT 密钥，方便排查双端密钥不一致问题。
+//
+// 参数:
+//   - s: 原始密钥字符串
+//
+// 返回值: 脱敏后的字符串（如 "nexu****2026"）
+func maskSecret(s string) string {
+	if len(s) <= 8 {
+		return "****"
+	}
+	return s[:4] + "****" + s[len(s)-4:]
 }
 
 // loadEnvFile 加载 .env 文件到环境变量

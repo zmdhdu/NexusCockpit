@@ -147,7 +147,7 @@ curl http://localhost:9091/healthz
 # 预期: OK
 
 # Prometheus 验证
-# 打开 http://localhost:9090/targets
+# 打开 http://localhost:9200/targets
 
 # Grafana 验证
 # 打开 http://localhost:3001 (admin/admin)
@@ -509,7 +509,7 @@ curl http://localhost:8000/admin/cache/stats
    - [ ] 查看 LLM 调用详情
 
 2. **Prometheus + Grafana**:
-   - [ ] 打开 http://localhost:9090/targets
+   - [ ] 打开 http://localhost:9200/targets
    - [ ] 确认 nexus target 正常
    - [ ] 打开 http://localhost:3001
    - [ ] 查看 NexusCockpit Dashboard

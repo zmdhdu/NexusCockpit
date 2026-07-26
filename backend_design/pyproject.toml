@@ -33,7 +33,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
 
     # --- Observability ---
-    "langfuse>=2.27.0",
+    "langfuse>=3.0.0",
     "prometheus-client>=0.20.0",
     "structlog>=24.1.0",
 

@@ -7,17 +7,20 @@
 /**
  * 全局音频管理器 — 跨路由持久化的 Audio 单例
  *
- * 核心问题:
- *   VehiclePanel 组件在路由切换（如 /cockpit → /chat）时被卸载，
- *   useEffect cleanup 会执行 audio.pause() + audio = null，
- *   导致音乐播放中断。用户切回 /cockpit 后需要重新点击播放。
+ * 核心设计原则:
+ *   1. HTMLAudioElement 提升到模块级别（单例），生命周期独立于 React 组件。
+ *      VehiclePanel 卸载时不会暂停播放，切回后音乐继续。
  *
- * 解决方案:
- *   将 HTMLAudioElement 提升到模块级别（单例），生命周期独立于 React 组件。
- *   VehiclePanel 只负责「同步后端媒体状态到音频管理器」，
- *   不再持有 Audio 对象，卸载时不会暂停播放。
+ *   2. 分离关注点: 轨道 URL / 播放状态 / 音量 三者独立同步。
+ *      - 只有轨道 URL 变化时才重设 audio.src（避免从头播放）
+ *      - 只有播放状态变化时才 play/pause（避免重复调用 play() 导致中断）
+ *      - 音量始终非破坏性更新（不触发 src 重载或 play/pause）
  *
- * 设计模式: 与 auth-store.ts 一致的模块级单例 + 监听器模式
+ *   3. TTS 语音播报时自动暂停音乐，播报结束后断点续播。
+ *      用户在 TTS 期间手动暂停音乐则不会自动恢复。
+ *
+ *   4. 座舱切换时只有 cockpitId 真正变化才重置同步缓存，
+ *      避免组件 remount（路由切换回来）时误重置导致音乐重启。
  */
 
 // ============================================================
@@ -49,8 +52,23 @@ let _playMode: string = "sequential";
 /** 音频结束回调 */
 let _onTrackEnded: TrackEndedCallback | null = null;
 
-/** 上次同步的媒体状态指纹（避免重复同步） */
-let _lastMediaKey: string = "";
+/** 当前已加载的轨道 URL — 只有变化时才重设 audio.src */
+let _currentTrackUrl: string = "";
+
+/** 上次同步的播放+轨道指纹（不含音量，避免音量变化触发完整重同步） */
+let _lastSyncKey: string = "";
+
+/** 当前座舱 ID — 用于判断座舱是否真正切换 */
+let _currentCockpitId: string = "";
+
+/** 后端最近的播放状态 — TTS 恢复时参考此值决定是否续播 */
+let _backendPlaying: boolean = false;
+
+/** TTS 暂停标志 — 为 true 时 syncAudioFromMedia 不改变播放状态 */
+let _pausedByTTS: boolean = false;
+
+/** TTS 暂停计数器 — 支持多次 speak() 嵌套调用 */
+let _ttsPauseCount: number = 0;
 
 /** API 基础地址（与 lib/api.ts 保持一致，默认 Go 网关 8080） */
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
@@ -76,6 +94,17 @@ function getAudio(): HTMLAudioElement | null {
   return _audio;
 }
 
+/**
+ * 根据媒体状态构建轨道 URL
+ */
+function buildTrackUrl(media: MediaSyncState): string {
+  const trackObj = media.track as any;
+  if (trackObj?.url) {
+    return `${API_BASE}${trackObj.url}`;
+  }
+  return `${API_BASE}/audio/music/track_${String((media.track_index ?? 0) + 1).padStart(2, "0")}.wav`;
+}
+
 // ============================================================
 // 公开 API
 // ============================================================
@@ -83,8 +112,10 @@ function getAudio(): HTMLAudioElement | null {
 /**
  * 同步后端媒体状态到音频管理器
  *
- * 使用 JSON.stringify 做深度比较，如果媒体关键状态没变化则跳过，
- * 避免组件重渲染时重复操作音频导致中断。
+ * 分层同步策略（避免不必要的音频中断）:
+ *   1. 音量 — 始终非破坏性更新（只设 audio.volume，不影响 src/play）
+ *   2. 播放模式 — 始终更新（audio.loop 是非破坏性属性）
+ *   3. 轨道 + 播放状态 — 仅在指纹变化时才操作 src/play
  *
  * @param media - 后端返回的媒体状态
  */
@@ -94,36 +125,60 @@ export function syncAudioFromMedia(media: MediaSyncState | undefined | null) {
   const audio = getAudio();
   if (!audio) return;
 
-  // 计算媒体状态指纹，与上次比较
-  const mediaKey = JSON.stringify({
-    playing: media.playing,
-    track: media.track,
-    track_index: media.track_index,
-    volume: media.volume,
-  });
+  // 记录后端播放状态（TTS 恢复时参考）
+  _backendPlaying = !!media.playing;
 
-  if (mediaKey === _lastMediaKey) return;
-  _lastMediaKey = mediaKey;
-
-  // 同步播放模式
+  // ── 层 1: 播放模式（非破坏性，始终更新）──
   if (media.play_mode) {
     _playMode = media.play_mode;
     audio.loop = (media.play_mode === "single");
   }
 
-  // 构建音频 URL
-  const trackUrl = (media.track as any)?.url
-    ? `${API_BASE}${(media.track as any).url}`
-    : `${API_BASE}/audio/music/track_${String((media.track_index ?? 0) + 1).padStart(2, "0")}.wav`;
+  // ── 层 2: 音量（非破坏性，始终更新）──
+  audio.volume = Math.min(1, (media.volume || 18) / 30);
 
-  if (media.playing) {
-    if (audio.src !== trackUrl) {
+  // 构建轨道 URL
+  const trackUrl = buildTrackUrl(media);
+
+  // ── TTS 暂停期间: 只更新轨道 URL，不改变播放状态 ──
+  if (_pausedByTTS) {
+    if (trackUrl !== _currentTrackUrl) {
+      _currentTrackUrl = trackUrl;
       audio.src = trackUrl;
     }
-    audio.volume = Math.min(1, (media.volume || 18) / 30);
-    audio.play().catch(() => {
-      // 浏览器自动播放策略可能阻止，静默处理
+    // 更新指纹，避免 TTS 结束后重复同步
+    _lastSyncKey = JSON.stringify({
+      playing: media.playing,
+      track: media.track,
+      track_index: media.track_index,
     });
+    return;
+  }
+
+  // ── 层 3: 轨道 + 播放状态（仅在指纹变化时操作）──
+  const syncKey = JSON.stringify({
+    playing: media.playing,
+    track: media.track,
+    track_index: media.track_index,
+  });
+
+  if (syncKey === _lastSyncKey) return; // 播放+轨道未变，跳过
+  _lastSyncKey = syncKey;
+
+  if (media.playing) {
+    if (trackUrl !== _currentTrackUrl) {
+      // 轨道变化 — 设置新 src 并播放
+      _currentTrackUrl = trackUrl;
+      audio.src = trackUrl;
+      audio.play().catch(() => {
+        // 浏览器自动播放策略可能阻止，静默处理
+      });
+    } else {
+      // 同一轨道 — 仅在暂停状态下恢复播放，已在播放则不干预
+      if (audio.paused) {
+        audio.play().catch(() => {});
+      }
+    }
   } else {
     audio.pause();
   }
@@ -175,10 +230,68 @@ export function setAudioVolume(volume: number) {
 }
 
 /**
- * 重置媒体状态指纹
+ * 重置媒体同步缓存
  *
- * 当座舱切换或强制刷新状态时调用，确保下次 syncAudioFromMedia 能正常同步。
+ * 当座舱真正切换时调用，确保新座舱的媒体状态被强制同步。
+ * 内部通过 cockpitId 判断：只有座舱 ID 真正变化才执行重置，
+ * 避免组件 remount（路由切回）时误重置导致音乐从头播放。
+ *
+ * @param cockpitId - 当前座舱 ID，传入后会与上次比较
  */
-export function resetAudioSyncKey() {
-  _lastMediaKey = "";
+export function resetAudioSyncKey(cockpitId?: string) {
+  // 只有座舱真正切换才重置
+  if (cockpitId !== undefined && cockpitId === _currentCockpitId) return;
+  _currentCockpitId = cockpitId || "";
+  _lastSyncKey = "";
+  _currentTrackUrl = "";
+}
+
+// ============================================================
+// TTS 语音播报集成 — 自动暂停/断点续播
+// ============================================================
+
+/**
+ * TTS 开始播报前调用 — 暂停音乐播放
+ *
+ * 使用计数器支持多次 speak() 嵌套调用:
+ *   - 第一次调用: 暂停音乐，设置 _pausedByTTS 标志
+ *   - 后续调用: 仅增加计数，不重复暂停
+ *
+ * 音乐恢复时机由 resumeAfterTTS() 的计数器归零决定。
+ */
+export function pauseForTTS() {
+  const audio = getAudio();
+  if (!audio) return;
+
+  if (_ttsPauseCount === 0) {
+    _pausedByTTS = true;
+    if (!audio.paused) {
+      audio.pause(); // 断点暂停，currentTime 保留
+    }
+  }
+  _ttsPauseCount++;
+}
+
+/**
+ * TTS 播报结束后调用 — 断点续播音乐
+ *
+ * 计数器归零时恢复播放，条件:
+ *   1. 没有更多 TTS 在排队（_ttsPauseCount === 0）
+ *   2. 后端状态仍为 playing（用户没在 TTS 期间手动暂停）
+ *
+ * 这样实现了「语音播报时音乐自动暂停，播报结束后从断点继续」。
+ */
+export function resumeAfterTTS() {
+  _ttsPauseCount = Math.max(0, _ttsPauseCount - 1);
+  if (_ttsPauseCount > 0) return; // 还有 TTS 在播报
+
+  _pausedByTTS = false;
+
+  // 只有后端仍认为在播放时才恢复（用户可能在 TTS 期间手动暂停了）
+  if (_backendPlaying) {
+    const audio = getAudio();
+    if (audio && audio.paused) {
+      audio.play().catch(() => {});
+    }
+  }
 }

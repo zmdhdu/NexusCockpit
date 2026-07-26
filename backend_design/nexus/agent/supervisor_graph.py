@@ -60,6 +60,7 @@ from nexus.intent.constants import VEHICLE_INTENT_KEYS
 from nexus.intent.router import IntentRouterService
 from nexus.memory.manager import MemoryManager
 from nexus.models.state import SupervisorState
+from nexus.observability.langfuse import observe, update_current_span
 from nexus.observability.metrics import (
     AGENT_INVOCATIONS,
     AGENT_LATENCY,
@@ -187,6 +188,7 @@ class SupervisorGraph:
             return "responder"
         return "dispatch"
 
+    @observe(name="supervisor-node")
     async def _supervisor_node(self, state: SupervisorState) -> dict[str, Any]:
         """Supervisor 节点：记忆召回 + 用户画像加载 + 意图路由 + 专家分派决策。
 
@@ -421,6 +423,7 @@ class SupervisorGraph:
 
         return experts
 
+    @observe(name="expert-dispatch", as_type="agent")
     async def _dispatch_node(self, state: SupervisorState) -> dict[str, Any]:
         """专家并行分派节点：同时执行所有活跃专家。
 
@@ -499,6 +502,7 @@ class SupervisorGraph:
         )
         return merged
 
+    @observe(name="responder-node")
     async def _responder_node(self, state: SupervisorState) -> dict[str, Any]:
         """Responder 节点：汇总专家输出，生成最终回复。
 
@@ -565,6 +569,7 @@ class SupervisorGraph:
 
         return result
 
+    @observe(name="llm-tool-synthesis", as_type="generation")
     async def _synthesize_tool_response(self, state: SupervisorState) -> str:
         """Tool→LLM 合成：将工具调用结果回传 LLM，生成自然语言回复。
 
@@ -662,6 +667,17 @@ class SupervisorGraph:
             LLM_CALLS.labels(model=get_config().llm.llm_model, status="success").inc()
             LLM_LATENCY.observe(_llm_latency / 1000)
             synthesized = response.choices[0].message.content.strip()
+            # Langfuse: 记录 LLM 模型名和 Token 用量
+            _usage = getattr(response, "usage", None)
+            update_current_span(
+                metadata={
+                    "model": get_config().llm.llm_model,
+                    "temperature": 0.3,
+                    "token_input": getattr(_usage, "prompt_tokens", None),
+                    "token_output": getattr(_usage, "completion_tokens", None),
+                    "latency_ms": round(_llm_latency, 2),
+                }
+            )
             logger.info(
                 f"Tool synthesis done: tool={tool_name}, "
                 f"raw_len={len(tool_message)}, synth_len={len(synthesized)}, "
@@ -673,6 +689,7 @@ class SupervisorGraph:
             logger.error(f"Tool response synthesis failed: {e}, falling back to raw message")
             return tool_message  # 降级：返回原始工具消息
 
+    @observe(name="reflection-node")
     async def _reflection_node(self, state: SupervisorState) -> dict[str, Any]:
         """反思校验节点：对 LLM 输出做事实性、一致性、无幻觉检查。
 
@@ -1465,6 +1482,7 @@ class SupervisorGraph:
 
         return None
 
+    @observe(name="llm-chat-generation", as_type="generation")
     async def _generate_llm_response(self, state: SupervisorState) -> str:
         """调用 LLM 生成回复（非流式）。
 
@@ -1511,6 +1529,17 @@ class SupervisorGraph:
             LLM_CALLS.labels(model=get_config().llm.llm_model, status="success").inc()
             LLM_LATENCY.observe(_llm_latency / 1000)
             result = response.choices[0].message.content.strip()
+            # Langfuse: 记录 LLM 模型名和 Token 用量
+            _usage = getattr(response, "usage", None)
+            update_current_span(
+                metadata={
+                    "model": get_config().llm.llm_model,
+                    "temperature": 0.7,
+                    "token_input": getattr(_usage, "prompt_tokens", None),
+                    "token_output": getattr(_usage, "completion_tokens", None),
+                    "latency_ms": round(_llm_latency, 2),
+                }
+            )
 
             # 后校验 — 检测 LLM 是否编造了对话历史
             post_check = self._post_check_chat_response(state, result)
@@ -1572,6 +1601,7 @@ class SupervisorGraph:
             logger.error(f"LLM streaming failed: {e}")
             yield f"抱歉，连接模型出错: {e}"
 
+    @observe(name="reviewer-node")
     async def _reviewer_node(self, state: SupervisorState) -> dict[str, Any]:
         """Reviewer 节点：质量检查 + 记忆存储 + 对话向量化 + 延迟统计。
 
@@ -1672,6 +1702,7 @@ class SupervisorGraph:
 
     # ---- 公共接口 ----
 
+    @observe(name="supervisor-invoke", as_type="agent")
     async def invoke(self, state: SupervisorState) -> SupervisorState:
         """同步执行整个工作流（等待全部完成）。
 
@@ -1808,6 +1839,7 @@ class SupervisorGraph:
         except Exception as e:
             logger.error(f"Background reviewer task failed: {e}")
 
+    @observe(name="supervisor-stream-with-events")
     async def stream_with_events(self, state: SupervisorState) -> AsyncGenerator[dict, None]:
         """流式执行工作流，输出结构化事件。
 

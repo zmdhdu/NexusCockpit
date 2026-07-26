@@ -8,12 +8,20 @@
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
 - [backend_design/nexus/config.py](file://backend_design/nexus/config.py)
 - [backend_design/nexus/main.py](file://backend_design/nexus/main.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - [backend_design/nexus_gate/internal/auth/jwt.go](file://backend_design/nexus_gate/internal/auth/jwt.go)
 - [backend_design/nexus_gate/internal/handlers/handlers.go](file://backend_design/nexus_gate/internal/handlers/handlers.go)
 - [backend_design/nexus_gate/internal/proxy/proxy.go](file://backend_design/nexus_gate/internal/proxy/proxy.go)
 - [backend_design/nexus_gate/internal/router/router.go](file://backend_design/nexus_gate/internal/router/router.go)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
 </cite>
+
+## 更新摘要
+**变更内容**   
+- 新增WebSocket安全机制章节，详细说明CORS白名单验证替代CheckOrigin实现的安全改进
+- 更新API安全防护措施章节，增加跨站WebSocket劫持攻击防护说明
+- 完善异常处理机制，说明内部日志记录与用户信息隔离策略
+- 增强WebSocket连接建立流程的安全控制描述
 
 ## 目录
 1. [简介](#简介)
@@ -31,7 +39,7 @@
 本文件面向NexusCockpit系统的API安全与认证，聚焦以下目标：
 - 身份认证机制：用户登录、令牌签发、令牌刷新与撤销流程
 - 权限控制模型：基于角色的访问控制（RBAC）、资源权限与操作权限管理
-- API安全防护：请求签名验证、防重放攻击、SQL注入防护、XSS防护
+- API安全防护：请求签名验证、防重放攻击、SQL注入防护、XSS防护、WebSocket CORS白名单验证
 - 敏感数据处理：密码加密存储、传输加密、日志脱敏
 - 安全最佳实践：输入验证、输出编码、安全头设置
 - 安全监控与审计：登录日志记录、异常行为检测与告警通知
@@ -40,6 +48,7 @@
 与认证和安全相关的后端代码主要分布在Python服务与Go网关两个子系统中：
 - Python服务（业务层）
   - 认证路由与鉴权中间件：auth路由、核心鉴权逻辑、会话存储、限流中间件
+  - WebSocket安全控制：CORS白名单验证、连接建立安全校验
   - 配置与主入口：全局配置、应用启动与中间件注册
 - Go网关（边缘层）
   - JWT校验、反向代理、路由与处理器
@@ -48,10 +57,13 @@
 ```mermaid
 graph TB
 Client["客户端"] --> Gateway["Go网关<br/>JWT校验/路由/代理"]
-Gateway --> PyService["Python服务<br/>认证路由/鉴权/会话/限流"]
+Gateway --> PyService["Python服务<br/>认证路由/鉴权/会话/限流/WebSocket安全"]
+PyService --> WSHandler["WebSocket处理器<br/>CORS白名单验证"]
 PyService --> SessionStore["会话存储(Redis等)"]
 PyService --> DB["数据库"]
 PyService --> Metrics["可观测性/指标"]
+WSHandler --> SecurityCheck["安全校验<br/>来源域名验证"]
+SecurityCheck --> InternalLog["内部日志记录<br/>异常详情隔离"]
 ```
 
 图表来源
@@ -60,6 +72,7 @@ PyService --> Metrics["可观测性/指标"]
 - [backend_design/nexus_gate/internal/proxy/proxy.go](file://backend_design/nexus_gate/internal/proxy/proxy.go)
 - [backend_design/nexus/main.py](file://backend_design/nexus/main.py)
 - [backend_design/nexus/middleware/session_store.py](file://backend_design/nexus/middleware/session_store.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
 
 章节来源
@@ -79,6 +92,10 @@ PyService --> Metrics["可观测性/指标"]
 - 速率限制
   - 防止暴力破解与重放滥用
   - 参考路径：[backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
+- WebSocket安全控制
+  - CORS白名单验证替代CheckOrigin，防止跨站WebSocket劫持攻击
+  - 异常详情内部记录，不向用户暴露敏感信息
+  - 参考路径：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - 网关JWT校验与代理
   - 在网关层完成JWT校验与转发，统一入口安全策略
   - 参考路径：
@@ -97,6 +114,7 @@ PyService --> Metrics["可观测性/指标"]
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/middleware/session_store.py](file://backend_design/nexus/middleware/session_store.py)
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - [backend_design/nexus_gate/internal/auth/jwt.go](file://backend_design/nexus_gate/internal/auth/jwt.go)
 - [backend_design/nexus_gate/internal/handlers/handlers.go](file://backend_design/nexus_gate/internal/handlers/handlers.go)
 - [backend_design/nexus_gate/internal/proxy/proxy.go](file://backend_design/nexus_gate/internal/proxy/proxy.go)
@@ -105,7 +123,7 @@ PyService --> Metrics["可观测性/指标"]
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
 
 ## 架构总览
-整体采用“网关前置校验 + 业务层细粒度鉴权”的分层安全架构。Go网关负责JWT校验、路由分发与反代；Python服务负责业务鉴权、会话管理与安全中间件。
+整体采用"网关前置校验 + 业务层细粒度鉴权"的分层安全架构。Go网关负责JWT校验、路由分发与反代；Python服务负责业务鉴权、会话管理与安全中间件。WebSocket连接通过CORS白名单验证确保来源可信。
 
 ```mermaid
 sequenceDiagram
@@ -113,6 +131,7 @@ participant C as "客户端"
 participant GW as "Go网关"
 participant AUTH as "认证路由(auth.py)"
 participant CORE as "核心鉴权(core/auth.py)"
+participant WS as "WebSocket处理器(websocket.py)"
 participant SESS as "会话存储(session_store.py)"
 participant MET as "指标(metris.py)"
 C->>GW : "POST /login"
@@ -126,6 +145,10 @@ GW->>GW : "JWT校验(过期/签名/黑名单)"
 GW->>CORE : "透传已认证上下文"
 CORE->>CORE : "RBAC/资源/操作权限检查"
 CORE-->>C : "授权结果"
+C->>WS : "WebSocket连接请求"
+WS->>WS : "CORS白名单验证"
+WS->>SESS : "验证会话有效性"
+WS-->>C : "建立安全连接"
 CORE->>MET : "上报认证/鉴权指标"
 ```
 
@@ -133,6 +156,7 @@ CORE->>MET : "上报认证/鉴权指标"
 - [backend_design/nexus/api/routes/auth.py](file://backend_design/nexus/api/routes/auth.py)
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/middleware/session_store.py](file://backend_design/nexus/middleware/session_store.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
 - [backend_design/nexus_gate/internal/auth/jwt.go](file://backend_design/nexus_gate/internal/auth/jwt.go)
 - [backend_design/nexus_gate/internal/handlers/handlers.go](file://backend_design/nexus_gate/internal/handlers/handlers.go)
@@ -237,6 +261,11 @@ AuthMiddleware --> TokenContext : "解析"
 - XSS防护
   - 对所有输出进行HTML转义，设置安全响应头（如Content-Type、X-Content-Type-Options）
   - 参考路径：[backend_design/nexus/main.py](file://backend_design/nexus/main.py)
+- **WebSocket CORS白名单验证**
+  - **更新** 采用严格的CORS白名单验证替代原有的CheckOrigin实现，有效防止跨站WebSocket劫持攻击
+  - 仅允许配置的白名单域名建立WebSocket连接
+  - 所有连接尝试都会经过来源域名验证，非法来源将被拒绝
+  - 参考路径：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 章节来源
 - [backend_design/nexus_gate/internal/handlers/handlers.go](file://backend_design/nexus_gate/internal/handlers/handlers.go)
@@ -244,6 +273,7 @@ AuthMiddleware --> TokenContext : "解析"
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/main.py](file://backend_design/nexus/main.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 ### 敏感数据处理
 - 密码加密存储
@@ -255,11 +285,16 @@ AuthMiddleware --> TokenContext : "解析"
 - 日志脱敏
   - 对敏感字段（密码、令牌、手机号等）进行掩码或移除
   - 参考路径：[backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
+- **异常信息隔离**
+  - **更新** WebSocket连接异常详情仅在内部日志中记录，不向用户暴露敏感错误信息
+  - 用户端仅接收通用的安全错误提示，防止信息泄露
+  - 参考路径：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 章节来源
 - [backend_design/nexus/api/routes/auth.py](file://backend_design/nexus/api/routes/auth.py)
 - [backend_design/nexus/config.py](file://backend_design/nexus/config.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 ### 安全最佳实践
 - 输入验证
@@ -271,10 +306,15 @@ AuthMiddleware --> TokenContext : "解析"
 - 安全头设置
   - 设置HSTS、CSP、X-Frame-Options、Referrer-Policy等
   - 参考路径：[backend_design/nexus/main.py](file://backend_design/nexus/main.py)
+- **WebSocket安全配置**
+  - **更新** 实施严格的CORS白名单策略，仅允许可信域名建立WebSocket连接
+  - 定期审查和更新白名单配置，及时移除不再信任的域名
+  - 参考路径：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 章节来源
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/main.py](file://backend_design/nexus/main.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 ### 安全监控与审计
 - 登录日志记录
@@ -286,11 +326,60 @@ AuthMiddleware --> TokenContext : "解析"
 - 告警通知
   - 将指标与事件上报到监控系统，配置告警规则
   - 参考路径：[backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
+- **WebSocket连接审计**
+  - **更新** 记录所有WebSocket连接尝试，包括来源域名、时间戳、验证结果
+  - 对失败的连接尝试进行详细审计，便于安全分析和威胁检测
+  - 参考路径：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 章节来源
 - [backend_design/nexus/api/routes/auth.py](file://backend_design/nexus/api/routes/auth.py)
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
+
+### WebSocket安全机制（新增）
+- **CORS白名单验证**
+  - 采用严格的白名单机制替代原有的CheckOrigin实现
+  - 仅允许预配置的域名列表建立WebSocket连接
+  - 每次连接请求都会验证来源域名的合法性
+- **跨站WebSocket劫持攻击防护**
+  - 通过域名白名单验证有效防止CSRF类型的WebSocket劫持攻击
+  - 阻止恶意网站利用用户的浏览器建立WebSocket连接
+- **异常处理与信息隔离**
+  - 连接失败时的详细错误信息仅在服务器端日志中记录
+  - 客户端仅接收标准化的安全错误响应，避免敏感信息泄露
+- **连接建立流程**
+  - 客户端发起WebSocket连接请求
+  - 服务器验证来源域名是否在白名单中
+  - 检查会话有效性和用户权限
+  - 建立安全的双向通信通道
+
+```mermaid
+sequenceDiagram
+participant Client as "客户端"
+participant WS as "WebSocket处理器"
+participant Validator as "CORS白名单验证器"
+participant Session as "会话验证器"
+participant Logger as "内部日志系统"
+Client->>WS : "WebSocket连接请求"
+WS->>Validator : "验证来源域名"
+Validator->>Validator : "检查白名单配置"
+alt 域名在白名单中
+Validator-->>WS : "验证通过"
+WS->>Session : "验证会话有效性"
+Session-->>WS : "会话有效"
+WS-->>Client : "建立连接"
+else 域名不在白名单中
+Validator-->>Logger : "记录安全事件"
+Validator-->>Client : "拒绝连接"
+end
+```
+
+图表来源
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
+
+章节来源
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 ## 依赖关系分析
 - 网关与业务层解耦
@@ -298,8 +387,12 @@ AuthMiddleware --> TokenContext : "解析"
 - 中间件依赖
   - 会话存储为令牌撤销与防重放提供状态能力
   - 速率限制为暴力破解与重放提供防护
+- WebSocket安全依赖
+  - CORS白名单验证器为WebSocket连接提供来源验证
+  - 会话验证器确保连接建立前的用户身份有效性
 - 可观测性耦合
   - 认证与鉴权过程上报指标，便于审计与告警
+  - WebSocket连接事件纳入安全监控体系
 
 ```mermaid
 graph LR
@@ -310,6 +403,10 @@ Proxy --> AuthService["auth.py"]
 AuthService --> CoreAuth["core/auth.py"]
 CoreAuth --> Session["session_store.py"]
 CoreAuth --> RateLimit["rate_limiter.py"]
+AuthService --> WSHandler["websocket.py"]
+WSHandler --> CORSValidator["CORS白名单验证器"]
+WSHandler --> SessionValidator["会话验证器"]
+WSHandler --> InternalLogger["内部日志系统"]
 CoreAuth --> Metrics["metrics.py"]
 ```
 
@@ -322,6 +419,7 @@ CoreAuth --> Metrics["metrics.py"]
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/middleware/session_store.py](file://backend_design/nexus/middleware/session_store.py)
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
 
 章节来源
@@ -333,6 +431,7 @@ CoreAuth --> Metrics["metrics.py"]
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/middleware/session_store.py](file://backend_design/nexus/middleware/session_store.py)
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
 
 ## 性能与安全权衡
@@ -344,8 +443,10 @@ CoreAuth --> Metrics["metrics.py"]
   - 使用高性能键值存储（如Redis）承载会话与黑名单，注意连接池与超时配置
 - 速率限制策略
   - 针对登录与刷新接口实施更严格的限制，平衡安全性与可用性
-
-[本节为通用指导，不直接分析具体文件]
+- **WebSocket连接性能优化**
+  - **更新** CORS白名单验证采用内存缓存机制，减少配置读取开销
+  - 连接建立过程中的验证步骤并行执行，提升响应速度
+  - 合理的连接池配置，避免过多并发连接导致资源耗尽
 
 ## 故障排查指南
 - 登录失败
@@ -365,6 +466,11 @@ CoreAuth --> Metrics["metrics.py"]
 - 指标缺失
   - 检查指标上报链路
   - 参考路径：[backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
+- **WebSocket连接问题**
+  - **更新** 检查CORS白名单配置是否包含正确的域名
+  - 查看内部日志中的连接验证失败原因
+  - 确认会话验证器正常工作且会话数据完整
+  - 参考路径：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 章节来源
 - [backend_design/nexus/api/routes/auth.py](file://backend_design/nexus/api/routes/auth.py)
@@ -373,22 +479,24 @@ CoreAuth --> Metrics["metrics.py"]
 - [backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
 - [backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
 - [backend_design/nexus/observability/metrics.py](file://backend_design/nexus/observability/metrics.py)
+- [backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
 
 ## 结论
-NexusCockpit采用网关前置校验与业务层细粒度鉴权的分层安全架构，结合JWT、RBAC、会话存储与速率限制，形成较为完整的认证与授权体系。通过输入验证、输出编码、安全头与日志脱敏等措施，进一步提升系统安全性。建议在生产环境持续完善签名校验、防重放与异常检测，并建立完善的监控与告警机制。
-
-[本节为总结性内容，不直接分析具体文件]
+NexusCockpit采用网关前置校验与业务层细粒度鉴权的分层安全架构，结合JWT、RBAC、会话存储与速率限制，形成较为完整的认证与授权体系。通过引入严格的CORS白名单验证机制，显著提升了WebSocket连接的安全性，有效防止跨站WebSocket劫持攻击。同时，异常信息的内部化处理进一步增强了系统的安全性。建议在生产环境持续完善签名校验、防重放与异常检测，并建立完善的监控与告警机制。
 
 ## 附录
 - 术语
   - JWT：JSON Web Token，用于无状态身份认证
   - RBAC：基于角色的访问控制
   - 会话存储：用于保存会话状态、黑名单等临时数据
+  - CORS：跨域资源共享，用于控制跨域访问权限
+  - CSRF：跨站请求伪造，一种恶意攻击方式
 - 参考实现路径
   - 认证路由：[backend_design/nexus/api/routes/auth.py](file://backend_design/nexus/api/routes/auth.py)
   - 核心鉴权：[backend_design/nexus/core/auth.py](file://backend_design/nexus/core/auth.py)
   - 会话存储：[backend_design/nexus/middleware/session_store.py](file://backend_design/nexus/middleware/session_store.py)
   - 速率限制：[backend_design/nexus/middleware/rate_limiter.py](file://backend_design/nexus/middleware/rate_limiter.py)
+  - WebSocket安全：[backend_design/nexus/api/websocket.py](file://backend_design/nexus/api/websocket.py)
   - 网关JWT：[backend_design/nexus_gate/internal/auth/jwt.go](file://backend_design/nexus_gate/internal/auth/jwt.go)
   - 网关处理器与代理：[backend_design/nexus_gate/internal/handlers/handlers.go](file://backend_design/nexus_gate/internal/handlers/handlers.go)、[backend_design/nexus_gate/internal/proxy/proxy.go](file://backend_design/nexus_gate/internal/proxy/proxy.go)
   - 网关路由：[backend_design/nexus_gate/internal/router/router.go](file://backend_design/nexus_gate/internal/router/router.go)
