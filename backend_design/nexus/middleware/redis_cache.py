@@ -94,20 +94,53 @@ class SemanticCache:
                 )
             await self._redis.ping()
 
-            # 双模式: 云 Redis 通常无 RediSearch 模块, 跳过 VECTOR 索引走 scan 降级
-            cache_provider = get_config().providers.normalized()["cache"]
-            if cache_provider == "cloud":
-                logger.info(
-                    "Cloud Redis detected, semantic cache using scan fallback "
-                    "(no RediSearch VECTOR index)"
+            # 检查 Redis 是否加载了 RediSearch 模块
+            # 非 Stack 版 Redis（如裸 redis:7.2）不含 RediSearch，FT.CREATE 会报 unknown command
+            has_redisearch = await self._check_redisearch_module()
+
+            if has_redisearch:
+                await self._ensure_index()
+                if self._index_ready:
+                    logger.info("Redis Stack semantic cache connected (RediSearch KNN index)")
+                else:
+                    logger.warning(
+                        "Redis connected but RediSearch index creation failed, "
+                        "falling back to scan mode (O(n) search)"
+                    )
+            else:
+                logger.warning(
+                    "Redis connected but RediSearch module NOT found "
+                    "(not a Redis Stack image?). "
+                    "Semantic cache falling back to scan mode (O(n) search). "
+                    "Fix: use redis/redis-stack-server image instead of redis."
                 )
                 self._index_ready = False
-            else:
-                await self._ensure_index()
-                logger.info("Redis Stack semantic cache connected (VECTOR index)")
         except Exception as e:
             logger.warning(f"Redis connection failed, cache disabled: {e}")
             self._enabled = False
+
+    async def _check_redisearch_module(self) -> bool:
+        """检查 Redis 是否加载了 RediSearch 模块。
+
+        RediSearch 模块提供 FT.CREATE / FT.SEARCH 等命令，
+        只有 redis-stack-server 镜像才内置此模块。
+        裸 Redis（如 redis:7.2）不含此模块。
+        """
+        try:
+            modules = await self._redis.module_list()
+            for m in modules:
+                if hasattr(m, "name") and "search" in m.name.lower():
+                    return True
+                if isinstance(m, dict) and "search" in str(m.get("name", "")).lower():
+                    return True
+            return False
+        except Exception:
+            # module_list 命令不可用（老版本 Redis），尝试 FT.INFO 探测
+            try:
+                await self._redis.ft(_INDEX_NAME).info()
+                return True  # FT 命令可用说明模块存在
+            except Exception:
+                return False
 
     async def _ensure_index(self) -> None:
         """确保 RediSearch VECTOR 索引存在。"""
