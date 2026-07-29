@@ -198,6 +198,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- Langfuse (LLM Tracing, self-hosted) ---
+  # 本地化降级: 从 cloud.langfuse.com 迁移到本地 Docker 部署
+  # 访问地址: http://localhost:3101
+  # 首次使用需要在 Web 控制台创建项目并获取 Public Key + Secret Key
+  langfuse-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:2
+    environment:
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3101
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-langfuse-secret}
+      SALT: ${LANGFUSE_SALT:-changeme-langfuse-salt}
+      TELEMETRY_ENABLED: "false"
+      # 禁用 ClickHouse (可选分析组件，本地化降级暂不需要)
+      CLICKHOUSE_URL: ""
+    ports:
+      - "3101:3000"
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/publichealth"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   # --- Loki (Log Aggregation) ---
   loki:
     image: grafana/loki:2.9.5
@@ -246,3 +286,5 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  # 本地化降级: Langfuse 数据卷
+  langfuse_db_data:

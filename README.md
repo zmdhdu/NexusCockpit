@@ -232,14 +232,12 @@ EMBEDDING_DIM=2560
 # === 本地/云端模式切换 (local=本地Docker, cloud=云端托管) ===
 VECTOR_STORE_PROVIDER=local    # local=Milvus Docker, cloud=Zilliz Cloud
 GRAPH_STORE_PROVIDER=local     # local=Neo4j Docker, cloud=Neo4j AuraDB
-CACHE_PROVIDER=local           # local=Redis Docker, cloud=云Redis
-RERANKER_PROVIDER=local        # local=BGE本地, cloud=硅基流动API
+VECTOR_STORE_PROVIDER=local      # 固定本地 Milvus
+GRAPH_STORE_PROVIDER=local       # 固定本地 Neo4j
+CACHE_PROVIDER=local             # 固定本地 Redis Stack
+RERANKER_PROVIDER=local          # local=本地BGE | none=跳过
 
-# 如果使用云端模式，还需填入云端凭据：
-# MILVUS_URI=https://<your-cluster>.zillizcloud.com
-# MILVUS_TOKEN=<zilliz api key>
-# NEO4J_URI=neo4j+s://<your-db-id>.databases.neo4j.io
-# NEO4J_PASSWORD=<aura password>
+# 本地化降级: 云端模式已移除，固定使用本地 Docker 中间件
 ```
 
 > 完整环境变量说明请查看 [.env.example](.env.example)

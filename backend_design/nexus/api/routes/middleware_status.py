@@ -103,7 +103,7 @@ async def _get_milvus_status() -> dict[str, Any]:
     config = get_config().milvus
     try:
         from pymilvus import connections, utility
-        connections.connect(alias=config.alias, uri=config.uri, token=config.token)
+        connections.connect(alias=config.alias, uri=config.uri, token="")  # token 已移除（Zilliz Cloud 专用）
         collections = utility.list_collections(using=config.alias)
         return {
             "name": "Milvus",

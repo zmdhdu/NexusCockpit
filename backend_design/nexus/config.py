@@ -167,12 +167,13 @@ class MilvusConfig(BaseSettings):
     """Milvus 向量数据库配置。
 
     Milvus 用于存储和检索语义向量，支持食物知识库搜索和用户记忆召回。
+    本地化降级后固定使用本地 Docker 部署的 Milvus，已移除 Zilliz 云端 token。
     """
 
     host: str = Field(default="127.0.0.1", validation_alias="MILVUS_HOST")
     port: int = Field(default=19530, validation_alias="MILVUS_PORT")
     uri: str = Field(default="http://127.0.0.1:19530", validation_alias="MILVUS_URI")
-    token: str = Field(default="", validation_alias="MILVUS_TOKEN")
+    # token 字段已移除（Zilliz Cloud 专用，本地化后不再需要）
     # 食物知识库的 collection 名称
     collection_food: str = Field(
         default="Food_List", validation_alias="MILVUS_COLLECTION_FOOD"
@@ -391,13 +392,14 @@ class LangfuseConfig(BaseSettings):
     """Langfuse 可观测性配置。
 
     Langfuse 是专为 LLM 应用设计的追踪平台，记录每次 Agent 调用的完整链路。
+    本地化降级后默认指向本地 Docker 部署的 Langfuse (http://127.0.0.1:3101)。
     仅当 public_key 和 secret_key 都配置时才启用。
     """
 
     public_key: str = Field(default="", validation_alias="LANGFUSE_PUBLIC_KEY")
     secret_key: str = Field(default="", validation_alias="LANGFUSE_SECRET_KEY")
     host: str = Field(
-        default="https://cloud.langfuse.com", validation_alias="LANGFUSE_HOST"
+        default="http://127.0.0.1:3101", validation_alias="LANGFUSE_HOST"
     )
     enabled: bool = False  # 自动计算，无需手动配置
 
@@ -451,24 +453,24 @@ class AmapConfig(BaseSettings):
 
 
 class ProvidersConfig(BaseSettings):
-    """双模式部署开关 — 控制各组件使用本地中间件还是云端托管。
+    """部署模式开关 — 本地化降级后固定使用本地中间件。
 
-    每个开关取值:
-        - local:  使用本地 Docker 部署的中间件/模型 (开发默认)
-        - cloud:  使用云端托管服务 (Zilliz/AuraDB/云Redis/硅基流动)
-        - none:   仅 RERANKER_PROVIDER 支持，跳过重排省成本
+    本地化降级改造后，所有云端实现 (Zilliz/AuraDB/云Redis/硅基流动 Reranker) 已删除。
+    provider 字段保留向后兼容，但 cloud 取值将被工厂函数忽略并自动降级为 local。
 
-    切换线上时，把对应开关改为 cloud 并在下方各组件配置中填入云端 AK/SK，
-    代码无需改动。详见 docs/deployment/SETUP.md 双模式部署章节。
+    取值说明:
+        - local:  使用本地 Docker 部署的中间件/模型 (固定默认)
+        - cloud:  已废弃，工厂函数会自动降级为 local 并输出警告
+        - none:   仅 RERANKER_PROVIDER 支持，跳过重排省资源
     """
 
-    # 向量库: local=本地 Milvus | cloud=Zilliz Cloud
+    # 向量库: 固定 local (本地 Milvus)
     vector_store: str = Field(default="local", validation_alias="VECTOR_STORE_PROVIDER")
-    # 图谱: local=本地 Neo4j | cloud=Neo4j AuraDB
+    # 图谱: 固定 local (本地 Neo4j)
     graph_store: str = Field(default="local", validation_alias="GRAPH_STORE_PROVIDER")
-    # 语义缓存: local=本地 Redis Stack | cloud=云 Redis (无 RediSearch 时自动降级 scan)
+    # 语义缓存: 固定 local (本地 Redis Stack)
     cache: str = Field(default="local", validation_alias="CACHE_PROVIDER")
-    # 重排: local=本地 BGE | cloud=硅基流动 Rerank | none=跳过
+    # 重排: local=本地 BGE | none=跳过 (cloud 已废弃)
     reranker: str = Field(default="local", validation_alias="RERANKER_PROVIDER")
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
@@ -486,11 +488,11 @@ class ProvidersConfig(BaseSettings):
 class RerankerConfig(BaseSettings):
     """Rerank 重排配置。
 
-    RERANKER_PROVIDER=cloud 时使用硅基流动 Rerank API (复用 ARK_API_KEY/ARK_BASE_URL)。
-    本地模式 (RERANKER_PROVIDER=local) 加载 ./models/reranker/bge-reranker-v2-m3 模型。
+    本地化降级后仅使用本地 BGE CrossEncoder 模型 (./models/reranker/bge-reranker-v2-m3)。
+    云端硅基流动 Reranker 实现已删除，model 字段保留供本地模型路径配置使用。
     """
 
-    # 硅基流动 Rerank 模型 ID (云端模式)
+    # 本地 Reranker 模型名称 (保留供日志/路径配置使用)
     model: str = Field(
         default="BAAI/bge-reranker-v2-m3", validation_alias="RERANK_MODEL"
     )

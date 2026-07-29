@@ -5,16 +5,13 @@
 """
 Graph Store Factory — 图谱存储工厂
 
-根据 .env 的 GRAPH_STORE_PROVIDER 选择图谱后端:
-  - local: 本地 Neo4j (Docker)
-  - cloud: Neo4j AuraDB (官方云托管)
+本地化降级改造后固定使用本地 Neo4j (Docker)。
+云端 AuraDB 实现已删除，provider 字段保留向后兼容但忽略 cloud 取值。
 """
 
 from __future__ import annotations
 
-from nexus.config import get_config
 from nexus.core.logger import get_logger
-from nexus.rag.aura_graph_store import AuraGraphStore
 from nexus.rag.graph_base import BaseGraphStore
 from nexus.rag.graph_store import Neo4jGraphStore
 
@@ -22,17 +19,10 @@ logger = get_logger(__name__)
 
 
 def build_graph_store() -> BaseGraphStore:
-    """根据 GRAPH_STORE_PROVIDER 配置选择图谱存储后端。
+    """构建图谱存储实例（固定本地 Neo4j）。
 
     Returns:
-        BaseGraphStore 实例 (Neo4jGraphStore / AuraGraphStore)
+        BaseGraphStore 实例 (Neo4jGraphStore)
     """
-    provider = get_config().providers.normalized()["graph_store"]
-
-    if provider == "cloud":
-        logger.info("GraphStore provider: Neo4j AuraDB")
-        return AuraGraphStore()
-
-    # 默认 local
-    logger.info("GraphStore provider: local Neo4j")
+    logger.info("GraphStore provider: local Neo4j (固定本地)")
     return Neo4jGraphStore()

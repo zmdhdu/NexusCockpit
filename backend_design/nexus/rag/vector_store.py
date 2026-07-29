@@ -55,7 +55,7 @@ class MilvusVectorStore(BaseVectorStore):
             connections.connect(
                 alias=self.config.alias,
                 uri=self.config.uri,
-                token=self.config.token or "",
+                token="",  # token 字段已移除（Zilliz Cloud 专用）
             )
             self._connected = True
             logger.info(
