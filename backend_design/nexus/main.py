@@ -20,6 +20,7 @@ NexusCockpit FastAPI 应用入口
 
 from __future__ import annotations
 
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -53,6 +54,7 @@ from nexus.observability.cockpit_metrics import CockpitMetrics
 from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import REQUEST_COUNT, REQUEST_LATENCY, init_metrics
 from nexus.rag.embedding import EmbeddingService
+from nexus.rag.embedding_factory import build_embedding_service
 from nexus.rag.graph_factory import build_graph_store
 from nexus.rag.vector_factory import build_vector_store
 from nexus.vehicle.factory import build_vehicle_adapter
@@ -92,10 +94,11 @@ async def lifespan(app: FastAPI):
         logger.error("LLM API Key is EMPTY! Please check .env.local -> ARK_API_KEY")
 
     # --- 1. 初始化 Embedding 服务 (将文本转为向量) ---
-    embedding_service = EmbeddingService()
+    # 本地化降级: 通过工厂选择本地 bge-m3 或云端 API
+    embedding_service = build_embedding_service()
     app.state.embedding_service = embedding_service
 
-    # --- 2. 初始化向量存储 (本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定) ---
+    # --- 2. 初始化向量存储 (本地 Milvus, 本地化降级后固定) ---
     vector_store = build_vector_store(embedding_service)
     try:
         vector_store.connect()
@@ -104,7 +107,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Milvus connection failed (will continue): {e}")
     app.state.vector_store = vector_store
 
-    # --- 3. 初始化图谱存储 (本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定) ---
+    # --- 3. 初始化图谱存储 (本地 Neo4j, 本地化降级后固定) ---
     graph_store = build_graph_store()
     try:
         graph_store.connect()
@@ -273,6 +276,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"DataRetentionManager startup failed (non-fatal): {e}")
 
+    # --- 0.5. llama.cpp 子进程管理 (本地 LLM 降级) ---
+    if config.llm.fallback_enabled and os.getenv("LLAMA_CPP_SUBPROCESS", "true").lower() == "true":
+        try:
+            from nexus.core.llama_cpp_manager import LlamaCppProcessManager
+            llama_manager = LlamaCppProcessManager()
+            started = await llama_manager.start()
+            if started:
+                app.state.llama_manager = llama_manager
+                logger.info(f"llama.cpp subprocess running at {llama_manager.base_url}")
+            else:
+                logger.warning("llama.cpp subprocess failed to start, using external LLM")
+                app.state.llama_manager = None
+        except Exception as e:
+            logger.warning(f"llama.cpp subprocess init failed (non-fatal): {e}")
+            app.state.llama_manager = None
+    else:
+        app.state.llama_manager = None
+
     logger.info("NexusCockpit ready!")
     yield  # ← 应用运行期间在此暂停
 
@@ -280,6 +301,10 @@ async def lifespan(app: FastAPI):
 
     logger.info("NexusCockpit shutting down...")
 
+    # 停止 llama.cpp 子进程
+    if hasattr(app.state, "llama_manager") and app.state.llama_manager:
+        await app.state.llama_manager.stop()
+        logger.info("llama.cpp subprocess stopped")
     # 停止数据保留管理器
     if hasattr(app.state, "retention_manager"):
         await app.state.retention_manager.stop()

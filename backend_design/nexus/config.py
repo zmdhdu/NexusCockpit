@@ -109,11 +109,14 @@ class LLMConfig(BaseSettings):
     # 对话使用的 LLM 模型名称
     llm_model: str = Field(default="deepseek-ai/DeepSeek-V3", validation_alias="LLM_MODEL")
     # Embedding 向量化使用的模型
+    # 本地化降级: 本地模式使用 bge-m3, 云端模式使用硅基流动 API 模型
     embedding_model: str = Field(
-        default="Qwen/Qwen3-Embedding-4B", validation_alias="EMBEDDING_MODEL"
+        default="BAAI/bge-m3", validation_alias="EMBEDDING_MODEL"
     )
     # Embedding 向量维度 (必须与模型匹配)
-    embedding_dim: int = Field(default=2560, validation_alias="EMBEDDING_DIM")
+    # 本地化降级: bge-m3 = 1024 维 (原云端 Qwen3-Embedding-4B = 2560 维)
+    # ⚠️ 切换 embedding 模型时必须同步修改, 并重建 Milvus collection
+    embedding_dim: int = Field(default=1024, validation_alias="EMBEDDING_DIM")
     # LLM 生成温度: 越高越随机，越低越确定
     temperature: float = Field(default=0.7)
     # 单次生成的最大 token 数
@@ -472,6 +475,8 @@ class ProvidersConfig(BaseSettings):
     cache: str = Field(default="local", validation_alias="CACHE_PROVIDER")
     # 重排: local=本地 BGE | none=跳过 (cloud 已废弃)
     reranker: str = Field(default="local", validation_alias="RERANKER_PROVIDER")
+    # Embedding: local=本地 bge-m3 | cloud=硅基流动 API (过渡阶段保留)
+    embedding: str = Field(default="local", validation_alias="EMBEDDING_PROVIDER")
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
@@ -482,6 +487,7 @@ class ProvidersConfig(BaseSettings):
             "graph_store": (self.graph_store or "local").strip().lower(),
             "cache": (self.cache or "local").strip().lower(),
             "reranker": (self.reranker or "local").strip().lower(),
+            "embedding": (self.embedding or "local").strip().lower(),
         }
 
 
