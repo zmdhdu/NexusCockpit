@@ -15,31 +15,40 @@ python-multipart==0.0.21
 websockets==12.0
 starlette==0.50.0
 
-# --- LLM / Agent ---
-openai==2.15.0
-langgraph==1.0.6
-langgraph-checkpoint==4.0.0
-langgraph-checkpoint-sqlite>=2.0.0
-langgraph-prebuilt==1.0.6
-langgraph-sdk>=1.0.0
-langchain==1.2.3
-langchain-core==1.2.7
-langchain-openai>=1.0.0
-langchain-text-splitters>=1.0.0
+# --- LLM / Agent (LangChain + LangGraph 全栈) ---
+# 核心编排: LangGraph StateGraph + checkpoint 持久化
+# LLM 客户端: langchain-openai ChatOpenAI (替代 openai SDK 直接调用)
+# 工具集成: langgraph-prebuilt ToolNode + create_react_agent
+# 消息管理: langchain-core trim_messages + BaseMessage
+langchain-openai>=1.1.0          # ChatOpenAI + OpenAIEmbeddings (替代 openai SDK)
+langchain-core>=1.2.0           # trim_messages, SystemMessage, StructuredTool
+langchain-text-splitters>=1.0.0 # RecursiveCharacterTextSplitter
+langgraph>=1.0.6                # StateGraph 工作流编排
+langgraph-prebuilt>=1.0.0       # ToolNode, create_react_agent
+langgraph-checkpoint-sqlite>=2.0.0  # SQLite checkpoint 持久化
+# openai 作为 langchain-openai 的传递依赖自动安装，无需显式声明
 
-# --- RAG / Vector Store ---
-pymilvus==2.6.6
-neo4j>=5.18.0
-rank-bm25>=0.2.2
-jieba>=0.42.1
-sentence-transformers>=2.7.0
+# --- RAG / Vector Store (LangChain 集成) ---
+# 向量存储: langchain-milvus Milvus (替代手写 pymilvus 操作)
+# 图谱存储: langchain-neo4j Neo4jGraph (替代手写 neo4j driver)
+# 检索器: langchain-community BM25Retriever (替代手写 rank_bm25)
+# Rerank: sentence-transformers bge-reranker-v2-m3
+langchain-milvus>=0.4.0         # LangChain Milvus 向量存储集成
+langchain-neo4j>=0.10.0         # LangChain Neo4j 图谱存储集成
+langchain-community>=0.4.0      # BM25Retriever, Neo4jGraph (社区集成包)
+pymilvus>=3.0.0                 # Milvus Python SDK (langchain-milvus 依赖)
+neo4j>=5.18.0                   # Neo4j Python Driver (langchain-neo4j 依赖)
+sentence-transformers>=2.7.0   # 本地 Embedding (bge-m3) + Reranker (bge-reranker)
 
 # --- Middleware ---
 redis==5.0.0
-# v2.2 简化: celery/kombu 已移除（任务队列改为 asyncio.create_task）
 
-# --- Database (MySQL async driver) ---
-aiomysql>=0.2.0
+# --- Database (MySQL async + ORM) ---
+aiomysql>=0.2.0                 # MySQL 异步驱动
+sqlalchemy>=2.0.0               # ORM (后续 db_manager 迁移用)
+
+# --- MCP (Model Context Protocol) ---
+mcp>=2.0.0                      # MCP SDK (车控服务标准协议)
 
 # --- Config / Validation ---
 pydantic==2.12.5
@@ -53,7 +62,7 @@ prometheus-client==0.23.1
 structlog>=24.1.0
 
 # --- Auth ---
-PyJWT==2.8.0
+PyJWT>=2.10.0
 passlib[bcrypt]>=1.7.4
 
 # --- Audio / ASR / TTS ---
@@ -69,13 +78,11 @@ httpx==0.28.1
 requests==2.32.5
 aiohttp==3.13.3
 
-# v2.2 简化: oss2 已移除（OSS 对象存储未集成，过度设计）
-
 # --- Utils ---
 orjson==3.11.5
-tenacity==9.1.2
-tiktoken==0.12.0
+tiktoken==0.12.0                # token 计数 (langchain-core trim_messages 依赖)
 PyYAML==6.0.3
+
 # --- Search ---
 tavily==1.1.0
 duckduckgo-search>=4.0.0
@@ -90,7 +97,7 @@ sentencepiece==0.2.1
 transformers==4.45.2
 tokenizers==0.20.3
 
-# --- Dev Tools (optional but included for convenience) ---
+# --- Dev Tools ---
 pytest==9.0.2
 pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
