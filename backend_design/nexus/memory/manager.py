@@ -390,6 +390,68 @@ class MemoryManager:
     def get_user_profile(self, user_id: str) -> dict[str, Any]:
         """获取用户完整画像（从 Neo4j 图谱）。"""
         return self.graph_store.get_user_profile(user_id)
+    
+    def get_default_user_profile(self) -> dict[str, Any]:
+        """获取默认用户画像 (首次登录时使用).
+        
+        Returns:
+            默认用户画像字典，包含音乐/食物/位置/气候/导航偏好
+        """
+        import json
+        from pathlib import Path
+        
+        default_file = Path("data/preferences/default_user.json")
+        if not default_file.exists():
+            logger.warning(f"Default user profile file not found: {default_file}")
+            return {}
+        
+        try:
+            with open(default_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load default user profile: {e}")
+            return {}
+    
+    def load_cockpit_config(self, cockpit_id: str | None = None) -> dict[str, Any]:
+        """加载座舱配置 (从 MySQL 或默认文件).
+        
+        Args:
+            cockpit_id: 座舱 ID，默认为 None(使用默认座舱)
+        
+        Returns:
+            座舱配置字典
+        """
+        import json
+        from pathlib import Path
+        
+        # 优先尝试从数据库加载
+        if cockpit_id is None:
+            cockpit_id = "default_cockpit_001"
+        
+        # 先从数据库查询
+        try:
+            result = self.get_cockpit_config(cockpit_id)
+            if result:
+                logger.info(f"Loaded cockpit config from DB: {cockpit_id}")
+                return result
+        except Exception as e:
+            logger.warning(f"Failed to load cockpit config from DB ({cockpit_id}): {e}, falling back to default file")
+        
+        # 兜底：加载默认配置文件
+        default_file = Path("data/preferences/default_cockpit.json")
+        if not default_file.exists():
+            logger.warning(f"Default cockpit config file not found: {default_file}")
+            return {}
+        
+        try:
+            with open(default_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                # 确保 cockid 匹配
+                config['cockpit_id'] = cockpit_id
+                return config
+        except Exception as e:
+            logger.error(f"Failed to load cockpit config from default file: {e}")
+            return {}
 
     def close(self) -> None:
         """关闭所有连接。"""

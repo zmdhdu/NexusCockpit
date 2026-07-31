@@ -237,8 +237,33 @@ class SkillRegistry:
             SKILL_EXECUTIONS.labels(skill_name=tool_name, status="error").inc()
             return SkillResult(
                 status="error",
-                message=f"技能执行失败: {e}",
+                message=f"技能执行失败：{e}",
                 error=str(e),
                 action=tool_name,
                 handled=False,
             )
+        
+    def load_skills_from_yaml(self, yaml_file: str = "nexus/skills/default.yaml") -> int:
+        """从 YAML 文件动态加载技能配置.
+            
+        Args:
+            yaml_file: YAML 配置文件路径
+            
+        Returns:
+            成功加载的技能数量
+        """
+        import json
+        from pathlib import Path
+            
+        try:
+            # TODO: 在 Python 中解析 YAML 并注册技能
+            # 这需要引入 PyYAML 库或手动解析
+            # 目前仅作为文档说明，实际使用装饰器方式注册技能
+            logger.info(f"Load skills from YAML: {yaml_file} (not implemented yet)")
+            return 0
+        except ImportError:
+            logger.warning("PyYAML not installed, skipping YAML-based skill loading")
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to load skills from YAML: {e}")
+            return 0

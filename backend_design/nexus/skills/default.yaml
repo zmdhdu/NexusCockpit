@@ -1,0 +1,313 @@
+# NexusCockpit Skills Default Configuration
+# ============================================
+# This file defines the default skill catalog for new installations.
+# Each skill includes metadata, parameters, and example usages.
+
+version: "1.0"
+last_updated: "2026-07-31T00:00:00Z"
+
+skills:
+  # ==================== Vehicle Control Skills ====================
+  
+  - name: vehicle_control
+    category: vehicle
+    description: "控制车辆相关功能（车窗/车门/空调等）"
+    version: "1.0"
+    
+    parameters:
+      - name: action
+        type: string
+        required: true
+        description: "要执行的动作"
+        enum: ["open", "close", "toggle", "set"]
+        
+      - name: component
+        type: string
+        required: true
+        description: "目标组件"
+        enum: ["window", "door", "seat", "ac", "light"]
+        
+      - name: target
+        type: string
+        required: false
+        description: "具体目标位置或状态"
+        
+    examples:
+      - input: "打开左前窗"
+        parsed: {action: "open", component: "window", target: "left_front"}
+      - input: "关闭所有车门"
+        parsed: {action: "close", component: "door", target: "all"}
+      - input: "空调调到 24 度"
+        parsed: {action: "set", component: "ac", target: {"temp": 24}}
+
+  - name: navigation
+    category: vehicle
+    description: "导航和路线规划"
+    version: "1.0"
+    
+    parameters:
+      - name: destination
+        type: string
+        required: true
+        description: "目的地地址或名称"
+        
+      - name: preference
+        type: string
+        required: false
+        description: "路线偏好"
+        enum: ["fastest", "shortest", "eco", "avoid_tolls", "avoid_ferries"]
+        
+    examples:
+      - input: "导航到公司"
+        parsed: {destination: "公司", preference: "fastest"}
+      - input: "避开高速去机场"
+        parsed: {destination: "机场", preference: "avoid_tolls"}
+
+  - name: seat_control
+    category: vehicle
+    description: "座椅调节功能"
+    version: "1.0"
+    
+    parameters:
+      - name: seat
+        type: string
+        required: true
+        description: "目标座椅"
+        enum: ["driver", "front_passenger", "rear_left", "rear_right"]
+        
+      - name: adjustment
+        type: string
+        required: true
+        description: "调节项"
+        enum: ["position", "recline", "heating", "ventilation", "massage"]
+        
+      - name: level
+        type: integer
+        required: false
+        description: "调节级别 (1-5)"
+        
+    examples:
+      - input: "打开座椅加热"
+        parsed: {seat: "driver", adjustment: "heating", level: 3}
+      - input: "按摩座椅调到最高档"
+        parsed: {seat: "driver", adjustment: "massage", level: 5}
+
+  # ==================== Entertainment Skills ====================
+  
+  - name: music_control
+    category: entertainment
+    description: "音乐播放控制"
+    version: "1.0"
+    
+    parameters:
+      - name: action
+        type: string
+        required: true
+        description: "播放动作"
+        enum: ["play", "pause", "next", "prev", "shuffle", "repeat"]
+        
+      - name: source
+        type: string
+        required: false
+        description: "音乐来源"
+        enum: ["local", "online", "radio", "bluetooth", "usb"]
+        
+      - name: artist_or_song
+        type: string
+        required: false
+        description: "艺术家或歌曲名"
+        
+    examples:
+      - input: "播放周杰伦的歌"
+        parsed: {action: "play", source: "online", artist_or_song: "周杰伦"}
+      - input: "下一首"
+        parsed: {action: "next"}
+
+  - name: voice_assistant
+    category: entertainment
+    description: "语音助手交互"
+    version: "1.0"
+    
+    parameters:
+      - name: command
+        type: string
+        required: true
+        description: "给助手的命令"
+        
+    examples:
+      - input: "你好小纳"
+        parsed: {command: "wake_up"}
+      - input: "静音"
+        parsed: {command: "mute"}
+
+  # ==================== Information Query Skills ====================
+  
+  - name: weather_query
+    category: information
+    description: "天气查询"
+    version: "1.0"
+    
+    parameters:
+      - name: location
+        type: string
+        required: false
+        description: "地点，默认为当前位置"
+        
+    examples:
+      - input: "今天天气怎么样"
+        parsed: {location: "current"}
+      - input: "北京的天气"
+        parsed: {location: "北京"}
+
+  - name: traffic_info
+    category: information
+    description: "交通信息查询"
+    version: "1.0"
+    
+    parameters:
+      - name: query_type
+        type: string
+        required: false
+        description: "查询类型"
+        enum: ["congestion", "accident", "construction", "speed_limit"]
+        
+    examples:
+      - input: "前面堵不堵"
+        parsed: {query_type: "congestion"}
+
+  # ==================== Lifestyle Skills ====================
+  
+  - name: food_recommendation
+    category: lifestyle
+    description: "餐饮推荐"
+    version: "1.0"
+    
+    parameters:
+      - name: cuisine
+        type: string
+        required: false
+        description: "菜系偏好"
+        
+      - name: price_range
+        type: string
+        required: false
+        description: "价格区间"
+        enum: ["economy", "mid_range", "fine_dining"]
+        
+      - name: distance
+        type: float
+        required: false
+        description: "最大距离 (公里)"
+        
+    examples:
+      - input: "附近有什么好吃的川菜"
+        parsed: {cuisine: "川菜", distance: 5}
+      - input: "推荐一家便宜点的西餐厅"
+        parsed: {cuisine: "西餐", price_range: "economy"}
+
+  - name: charging_station
+    category: lifestyle
+    description: "充电桩查找"
+    version: "1.0"
+    
+    parameters:
+      - name: charger_type
+        type: string
+        required: false
+        description: "充电类型"
+        enum: ["fast", "slow", "any"]
+        
+      - name: prefernce
+        type: string
+        required: false
+        description: "偏好条件"
+        enum: ["nearest", "cheapest", "fastest"]
+        
+    examples:
+      - input: "找最近的快充桩"
+        parsed: {charger_type: "fast", preference: "nearest"}
+
+  # ==================== Communication Skills ====================
+  
+  - name: message_compose
+    category: communication
+    description: "消息发送"
+    version: "1.0"
+    
+    parameters:
+      - name: recipient
+        type: string
+        required: true
+        description: "收件人"
+        
+      - name: content
+        type: string
+        required: true
+        description: "消息内容"
+        
+    examples:
+      - input: "发给老婆说我快到家了"
+        parsed: {recipient: "老婆", content: "我快到家了"}
+
+  - name: phone_call
+    category: communication
+    description: "电话拨打"
+    version: "1.0"
+    
+    parameters:
+      - name: contact
+        type: string
+        required: true
+        description: "联系人"
+        
+    examples:
+      - input: "打电话给妈妈"
+        parsed: {contact: "妈妈"}
+
+  # ==================== System Settings Skills ====================
+  
+  - name: ambient_lighting
+    category: system
+    description: "氛围灯控制"
+    version: "1.0"
+    
+    parameters:
+      - name: color
+        type: string
+        required: false
+        description: "灯光颜色"
+        
+      - name: brightness
+        type: integer
+        required: false
+        description: "亮度 (0-100)"
+        
+    examples:
+      - input: "调成红色氛围灯"
+        parsed: {color: "red"}
+      - input: "调暗一点"
+        parsed: {brightness: 30}
+
+  - name: voice_change
+    category: system
+    description: "语音助手音色切换"
+    version: "1.0"
+    
+    parameters:
+      - name: voice_type
+        type: string
+        required: true
+        description: "音色类型"
+        enum: ["male", "female", "child"]
+        
+    examples:
+      - input: "换成女声"
+        parsed: {voice_type: "female"}
+
+# ============================================
+# Skill Usage Notes:
+# 1. Each skill can be invoked via natural language commands
+# 2. Parameters are extracted using NLU models
+# 3. Skills return structured responses for LLM processing
+# 4. Example usages show typical user inputs and parsed outputs
+# ============================================
