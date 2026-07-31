@@ -17,7 +17,7 @@ from time import perf_counter
 
 from nexus.core.logger import get_logger
 from nexus.memory.manager import MemoryManager
-from nexus.models.state import AgentState
+from nexus.models.state import SupervisorState
 
 logger = get_logger(__name__)
 
@@ -32,7 +32,7 @@ class ReviewerAgent:
     def __init__(self, memory_manager: MemoryManager | None = None):
         self.memory_manager = memory_manager
 
-    async def review(self, state: AgentState) -> AgentState:
+    async def review(self, state: SupervisorState) -> SupervisorState:
         """审查并后处理: 质量检查 → 记忆存储 → 延迟统计。
 
         Args:

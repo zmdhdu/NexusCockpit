@@ -10,7 +10,7 @@
 - **任务队列** — asyncio.create_task 进程内异步任务 (v2.2: Celery/RabbitMQ 已移除)
 - **会话存储** — Redis 持久化会话历史（降级内存回退）
 
-## 语义缓存 (redis_cache.py) — v2.0 Redis Stack KNN
+## 语义缓存 (redis_cache.py) — v2.0 Redis 8 KNN
 
 v2.0 从 O(n) 遍历升级为 RediSearch VECTOR KNN 向量检索 O(log n)。
 
@@ -53,8 +53,8 @@ Fallback: RediSearch 不可用时自动回退到 O(n) 遍历模式
 - **按用户分片**: `user_id` TAG 字段隔离
 - **TTL 分级**: 闲聊 1h、知识库 24h、车控永不上缓存
 - **副作用隔离**: `has_side_effect=True` 的响应永不写入缓存
-- **降级模式**: Redis Stack 不可用时自动回退到 O(n) 遍历
-- **双模式支持**: `CACHE_PROVIDER=cloud` 时自动跳过 RediSearch 索引初始化，使用 scan 降级模式，兼容无 RediSearch 模块的云 Redis
+- **降级模式**: RediSearch 不可用时自动回退到 O(n) 遍历
+- **兼容性**: Redis 8+ 内置 Query Engine 原生支持 FT.* 命令；Redis 7 需 redis-stack-server 镜像；裸 Redis 7 自动降级为 scan 遍历模式
 
 ### 配置
 

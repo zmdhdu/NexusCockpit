@@ -91,7 +91,7 @@ const CLIMATE_MODES = [
  * 后端将 media.track 从字符串改为对象
  * `{ title, filename, url, format }`，直接渲染对象会触发 React 错误：
  * "Objects are not valid as a React child"。
- * 此函数兼容三种形态：对象、字符串、空值。
+ * 此函数处理三种形态：对象、字符串、空值。
  */
 function getTrackTitle(track: unknown): string {
   if (!track) return "未播放";
@@ -661,7 +661,7 @@ useEffect(() => {
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 <p className="text-xs text-muted-foreground">播放列表</p>
                 {((status.media as any).playlist as any[]).map((track, idx) => {
-                  // 兼容 dict 格式（含 title/url）和旧版字符串格式
+                  // 支持 dict 格式（含 title/url）和字符串格式
                   const trackTitle = typeof track === 'object' ? track.title : track;
                   return (
                   <Tooltip key={idx} content={`播放: ${trackTitle}`} side="right" className="w-full">

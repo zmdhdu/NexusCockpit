@@ -563,7 +563,7 @@ export async function getCacheTrend(): Promise<{ time: string; hits: number; mis
 
 /** 获取所有中间件状态
  *
- * 兼容两种后端响应格式:
+ * 适配两种后端响应格式:
  *   1. Go 网关原生: { total, online, offline, middlewares: { redis: {status:"online"}, ... }, check_time }
  *   2. Python 后端: { redis: {status:"connected", name:"Redis", ...}, milvus: {...}, ... }
  *

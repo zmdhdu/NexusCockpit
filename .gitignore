@@ -198,3 +198,9 @@ backend_design/nexus_gate/*.exe
 # Analysis report (local working document)
 # ============================================================
 分析报告.md
+
+# ============================================================
+# llama.cpp pre-built binaries (not for GitHub)
+# 下载的预编译二进制文件，不应提交到仓库
+# ============================================================
+models/llm/llama.cpp/

@@ -59,6 +59,61 @@ return 1
 """
 
 
+# ============================================================
+# Lua 脚本: 原子性令牌桶限流 (Phase 5: 分布式令牌桶)
+# ============================================================
+# 令牌桶算法特点:
+#   - 允许突发流量 (桶满时一次性消耗多个令牌)
+#   - 平均速率受令牌生成速率控制
+#   - 适合 LLM API 调用限流 (突发 + 稳定速率)
+#
+# 参数:
+#   KEYS[1] = 令牌桶 key (如 nexus:tokenbucket:user1:chat)
+#   ARGV[1] = 当前时间戳 (秒，浮点)
+#   ARGV[2] = 桶容量 (burst)
+#   ARGV[3] = 令牌生成速率 (tokens/秒)
+#   ARGV[4] = 请求消耗的令牌数 (通常为 1)
+# 返回:
+#   1 = 允许通过 (有足够令牌)
+#   0 = 被限流 (令牌不足)
+_TOKEN_BUCKET_LUA = """
+-- 获取当前桶状态: [剩余令牌数, 上次补充时间]
+local bucket = redis.call('HMGET', KEYS[1], 'tokens', 'last_refill')
+local tokens = tonumber(bucket[1])
+local last_refill = tonumber(bucket[2])
+
+-- 初始化桶 (首次请求)
+if tokens == nil then
+    tokens = tonumber(ARGV[2])  -- 桶满
+    last_refill = tonumber(ARGV[1])
+end
+
+-- 计算需要补充的令牌 (基于时间差)
+local now = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local rate = tonumber(ARGV[3])
+local elapsed = math.max(0, now - last_refill)
+local refill = elapsed * rate
+
+-- 补充令牌 (不超过容量)
+tokens = math.min(capacity, tokens + refill)
+
+-- 检查是否有足够令牌
+local needed = tonumber(ARGV[4])
+if tokens >= needed then
+    tokens = tokens - needed
+    redis.call('HMSET', KEYS[1], 'tokens', tokens, 'last_refill', now)
+    redis.call('EXPIRE', KEYS[1], 3600)  -- 1小时过期
+    return 1
+else
+    -- 令牌不足，更新最后补充时间但不消耗令牌
+    redis.call('HMSET', KEYS[1], 'tokens', tokens, 'last_refill', now)
+    redis.call('EXPIRE', KEYS[1], 3600)
+    return 0
+end
+"""
+
+
 class RateLimiter:
     """Redis 原子滑动窗口限流器。
 
@@ -82,6 +137,7 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._lua_script: str | None = None
+        self._token_bucket_script: str | None = None
 
     async def connect(self) -> None:
         """连接 Redis 并加载 Lua 脚本"""
@@ -92,7 +148,8 @@ class RateLimiter:
             await self._redis.ping()
             # 预加载 Lua 脚本 (SCRIPT LOAD)，后续用 EVALSHA 调用更高效
             self._lua_script = await self._redis.script_load(_RATE_LIMIT_LUA)
-            logger.info("RateLimiter connected to Redis (Lua script loaded)")
+            self._token_bucket_script = await self._redis.script_load(_TOKEN_BUCKET_LUA)
+            logger.info("RateLimiter connected to Redis (Lua scripts loaded: sliding window + token bucket)")
         except Exception as e:
             logger.warning(f"RateLimiter Redis connection failed: {e}")
 
@@ -151,6 +208,73 @@ class RateLimiter:
             raise RateLimitError(
                 f"请求频率超限: {self.max_requests}次/{self.window_seconds}秒"
             )
+
+    async def check_token_bucket(
+        self,
+        user_id: str,
+        endpoint: str = "default",
+        capacity: int = 10,
+        rate: float = 1.0,
+        cost: int = 1,
+    ) -> bool:
+        """令牌桶限流检查 (Phase 5: 分布式令牌桶)。
+
+        与滑动窗口不同，令牌桶允许突发流量:
+          - 桶容量 (capacity) 控制最大突发量
+          - 生成速率 (rate) 控制平均速率
+          - 每次请求消耗 cost 个令牌
+
+        适用场景: LLM API 调用限流
+          (允许短时间内集中调用，但长期速率受限)
+
+        Args:
+            user_id: 用户 ID
+            endpoint: 接口标识
+            capacity: 桶容量 (最大突发量)
+            rate: 令牌生成速率 (tokens/秒)
+            cost: 请求消耗的令牌数
+
+        Returns:
+            True 表示允许，False 表示被限流
+        """
+        if not self._redis:
+            return True  # Redis 不可用时放行
+
+        key = f"nexus:tokenbucket:{user_id}:{endpoint}"
+        now = time.time()
+
+        try:
+            if self._token_bucket_script:
+                result = await self._redis.evalsha(
+                    self._token_bucket_script,
+                    1,
+                    key,
+                    str(now),
+                    str(capacity),
+                    str(rate),
+                    str(cost),
+                )
+            else:
+                result = await self._redis.eval(
+                    _TOKEN_BUCKET_LUA,
+                    1,
+                    key,
+                    str(now),
+                    str(capacity),
+                    str(rate),
+                    str(cost),
+                )
+
+            if result == 0:
+                logger.warning(
+                    f"Token bucket rate limit exceeded: user={user_id}, "
+                    f"endpoint={endpoint}, capacity={capacity}, rate={rate}/s"
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Token bucket check failed: {e}")
+            return True  # 出错时放行 (降级策略)
 
     async def get_remaining(self, user_id: str, endpoint: str = "default") -> int:
         """获取剩余请求次数"""

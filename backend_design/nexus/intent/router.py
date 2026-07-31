@@ -19,8 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from openai import AsyncOpenAI
-
+from nexus.agent.llm_client_factory import get_llm_client
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.intent.heuristic import HeuristicRouter
@@ -52,19 +51,15 @@ class IntentRouterService:
 
     def __init__(
         self,
-        llm_client: AsyncOpenAI | None = None,
+        llm_client: Any = None,
         llm_model: str = "",
         tool_catalog: list[dict] | None = None,
         llm_enabled: bool = True,
         min_confidence: float = 0.55,
     ):
         self.config = get_config().llm
-        self.client = llm_client or AsyncOpenAI(
-            api_key=self.config.ark_api_key,
-            base_url=self.config.ark_base_url,
-        )
+        self.client = llm_client or get_llm_client()
         self.llm_model = llm_model or self.config.llm_model
-        # 注: bert_router 参数已移除（始终为 None，从未实现）
         self.llm_enabled = llm_enabled and self.client is not None and bool(tool_catalog)
         self.min_confidence = min_confidence
         self.heuristic = HeuristicRouter()
@@ -164,11 +159,11 @@ class IntentRouterService:
                 default["Route_Confidence"] = confidence
             return default if default["Need_Clarification"] else {}
 
-        return IntentRouterService._tool_to_legacy_intent(tool_name, arguments, confidence)
+        return IntentRouterService._tool_to_intent(tool_name, arguments, confidence)
 
     @staticmethod
-    def _tool_to_legacy_intent(tool_name: str, arguments: dict[str, Any], confidence: float = 0.0) -> dict[str, Any]:
-        """工具名 → 遗留意图格式"""
+    def _tool_to_intent(tool_name: str, arguments: dict[str, Any], confidence: float = 0.0) -> dict[str, Any]:
+        """工具名 → 标准意图格式"""
         default = IntentRouterService()._build_default_intent()
         tool_name = tool_name.strip()
 

@@ -33,7 +33,7 @@
 > - Supervisor 统一调度，5 个专家并行执行
 > - 19 个业务技能
 > - RAG 三路融合检索 + Rerank 重排
-> - Redis Stack KNN 语义缓存
+> - Redis 8 KNN 语义缓存
 > - 前端 HUD 科幻风升级（3D 车型 + 实时图表 + 动效）
 >
 
@@ -278,12 +278,12 @@ NexusCockpit/
 │   │   ├── config.py               # 配置中心 (自动定位 .env)
 │   │   ├── main.py                 # FastAPI 入口
 │   │   ├── api/                    # REST API + WebSocket
-│   │   ├── agent/                  # v2.0: Supervisor + 5 Expert Agents
-│   │   │   ├── supervisor_graph.py # v2.0 编排核心
-│   │   │   ├── experts/            # v2.0 专家 Agent (vehicle/nav/lifestyle/health/chat)
-│   │   │   ├── responder.py       # v1.0 复用 (仅 ContextCompressor 被 SupervisorGraph 使用)
-│   │   │   └── reviewer.py        # v1.0 复用 (逻辑已内联到 SupervisorGraph._reviewer_node)
-│   │   ├── prompts/                # v2.0: 外置 Prompt 模板
+│   │   ├── agent/                  # Agent 系统 (Supervisor + Expert Agents)
+│   │   │   ├── supervisor_graph.py # 编排核心
+│   │   │   ├── experts/            # 专家 Agent 模块 (vehicle/nav/lifestyle/health/chat)
+│   │   │   ├── responder.py       # 回复代理 (仅 ContextCompressor 被 SupervisorGraph 使用)
+│   │   │   └── reviewer.py        # Reviewer 代理 (逻辑已内联到 SupervisorGraph._reviewer_node)
+│   │   ├── prompts/                # Prompt 模板管理
 │   │   ├── asr/                    # 语音识别引擎
 │   │   ├── tts/                    # 语音合成引擎
 │   │   ├── core/                   #   核心组件 (日志/异常/熔断/个性化)
@@ -293,8 +293,8 @@ NexusCockpit/
 │   │   ├── middleware/             # 中间件 (缓存/限流/队列)
 │   │   ├── models/                 # 数据模型
 │   │   ├── observability/          # 可观测性
-│   │   ├── rag/                    # v2.0: 三路融合检索 + Rerank + CherryKB + 双模式(本地/云端)
-│   │   ├── skills/                 # v2.0: 19 个技能 + 装饰器注册
+│   │   ├── rag/                    # 三路融合检索 + Rerank + CherryKB + 双模式 (本地/云端)
+│   │   ├── skills/                 # 技能注册中心 + 装饰器自动注册
 │   │   └── vehicle/                # 车控适配器
 │   ├── tests/                      # 测试用例
 │   ├── scripts/                    # 初始化脚本

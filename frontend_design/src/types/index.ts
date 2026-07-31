@@ -94,7 +94,7 @@ export interface VehicleStatus {
     playing: boolean;
     volume: number;
     source: string;
-    /** 当前曲目，对象格式，兼容旧版字符串格式 */
+    /** 当前曲目，支持字符串和对象两种格式 */
     track: string | TrackInfo | null;
     track_index?: number;            // 当前曲目在播放列表中的索引
     /** 播放模式: sequential(列表循环) / single(单曲循环) / shuffle(随机播放) */

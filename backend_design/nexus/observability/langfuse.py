@@ -42,7 +42,7 @@ except ImportError:
 
 
 def observe(name: str | None = None, as_type: str | None = None, **kwargs: Any) -> Callable:
-    """Langfuse observe 装饰器（兼容包装）。
+    """Langfuse observe 装饰器（降级包装）。
 
     当 Langfuse SDK 可用且已配置时，使用真实装饰器进行追踪；
     否则返回透传装饰器，函数正常执行但不做追踪。

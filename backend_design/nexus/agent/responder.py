@@ -20,12 +20,13 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from time import perf_counter
 
-from openai import AsyncOpenAI
+from typing import Any
 
+from nexus.agent.llm_client_factory import get_chat_model, get_llm_client, get_fallback_client
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.memory.compressor import ContextCompressor
-from nexus.models.state import AgentState
+from nexus.models.state import SupervisorState
 
 logger = get_logger(__name__)
 
@@ -42,28 +43,19 @@ class ResponderAgent:
 
     def __init__(
         self,
-        llm_client: AsyncOpenAI | None = None,
+        llm_client: Any = None,
         compressor: ContextCompressor | None = None,
     ):
         self.config = get_config().llm
-        self.client = llm_client or AsyncOpenAI(
-            api_key=self.config.ark_api_key,
-            base_url=self.config.ark_base_url,
-        )
+        # ChatOpenAI 主 LLM (LangChain 生态)
+        self._chat_model = get_chat_model()
+        # AsyncOpenAI 客户端（供降级调用使用）
+        self.client = llm_client or get_llm_client()
         self.compressor = compressor or ContextCompressor(self.client)
-        # 本地 LLM 降级客户端
-        self._fallback_client: AsyncOpenAI | None = None
-        if self.config.fallback_enabled:
-            self._fallback_client = AsyncOpenAI(
-                api_key=self.config.fallback_api_key or "dummy",
-                base_url=self.config.fallback_base_url,
-                timeout=self.config.fallback_timeout,
-            )
-            logger.info(
-                f"LLM fallback enabled: {self.config.fallback_base_url}"
-            )
+        # 降级客户端
+        self._fallback_client = get_fallback_client()
 
-    async def respond(self, state: AgentState) -> AgentState:
+    async def respond(self, state: SupervisorState) -> SupervisorState:
         """生成最终响应 (非流式，等待全部完成)。
 
         Args:
@@ -108,7 +100,7 @@ class ResponderAgent:
         )
         return state
 
-    async def stream_respond(self, state: AgentState) -> AsyncGenerator[str, None]:
+    async def stream_respond(self, state: SupervisorState) -> AsyncGenerator[str, None]:
         """流式生成最终响应，逐块输出。
 
         用于 SSE / WebSocket 场景，用户能看到文字逐步出现。
@@ -149,7 +141,7 @@ class ResponderAgent:
         state["history"].append({"role": "assistant", "content": full_response})
 
     async def _generate_llm_response(
-        self, state: AgentState, search_ctx: str = ""
+        self, state: SupervisorState, search_ctx: str = ""
     ) -> str:
         """非流式 LLM 回复"""
         # 搜索类技能使用专用提示词
@@ -177,13 +169,8 @@ class ResponderAgent:
         state["running_summary"] = new_summary
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=msgs,
-                temperature=0.7,
-                max_tokens=self.config.max_tokens,
-            )
-            return response.choices[0].message.content.strip()
+            response = await self._chat_model.ainvoke(msgs)
+            return response.content.strip()
         except Exception as e:
             logger.error(f"LLM response failed: {e}")
             # 云端 LLM 失败时降级到本地 LLM
@@ -203,7 +190,7 @@ class ResponderAgent:
             return "抱歉，我现在有点忙不过来，请稍后再试。"
 
     async def _stream_llm_response(
-        self, state: AgentState, search_ctx: str = ""
+        self, state: SupervisorState, search_ctx: str = ""
     ) -> AsyncGenerator[str, None]:
         """流式 LLM 回复"""
         # 搜索类技能使用专用提示词
@@ -231,15 +218,9 @@ class ResponderAgent:
         state["running_summary"] = new_summary
 
         try:
-            response = await self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=msgs,
-                stream=True,
-                temperature=0.7,
-                max_tokens=self.config.max_tokens,
-            )
+            response = await self._chat_model.astream(msgs)
             async for chunk in response:
-                content = chunk.choices[0].delta.content
+                content = chunk.content
                 if content:
                     yield content
         except Exception as e:

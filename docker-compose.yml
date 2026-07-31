@@ -156,21 +156,24 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      # 宿主机端口避让 Windows Hyper-V 保留范围 (7406-7505, 7681-7780)
+      - "17474:7474"
+      - "17687:7687"
 
-  # --- Redis Stack (Cache + Vector Search + Rate Limit + PubSub) ---
-  # v2.0: redis-stack-server 支持 RediSearch + VECTOR 向量索引
+  # --- Redis 8 (Cache + Vector Search + Rate Limit + PubSub) ---
+  # Redis 8 内置 Query Engine（含 RediSearch FT.*命令 + VECTOR 索引）,
+  # 无需像 Redis 7 那样使用单独的 redis-stack-server 镜像。
   # v2.1: 多座舱 DB 分区隔离 (cockpit-01→DB1, cockpit-02→DB2, cockpit-03→DB3)
-  # 本地化降级: 升级到 7.4.0-v3, maxmemory 1gb, io-threads 加速
+  # Security: Enable password authentication and protected mode
   redis:
-    image: redis/redis-stack-server:7.4.0-v3
+    image: redis:8-alpine
     command: >
       redis-server
+      --requirepass ${REDIS_PASSWORD:-redis_secure_password_2026}
       --appendonly yes
       --maxmemory 1gb
       --maxmemory-policy allkeys-lru
-      --protected-mode no
+      --protected-mode yes
       --io-threads 4
       --io-threads-do-reads yes
     volumes:
@@ -179,7 +182,7 @@ services:
       # 宿主机 16379 → 容器 6379 (避开 Windows Hyper-V 6349-6448 端口保留范围)
       - "16379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--passwd", "${REDIS_PASSWORD:-redis_secure_password_2026}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3

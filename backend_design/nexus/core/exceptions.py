@@ -114,10 +114,3 @@ class RateLimitError(NexusError):
 
     def __init__(self, message: str = "Rate limit exceeded"):
         super().__init__(message, code="RATE_LIMIT_ERROR")
-
-
-class CircuitBreakerError(NexusError):
-    """熔断器错误 — 熔断器处于开启状态时抛出。"""
-
-    def __init__(self, message: str = "Circuit breaker is open"):
-        super().__init__(message, code="CIRCUIT_BREAKER_OPEN")

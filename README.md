@@ -22,7 +22,7 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 | **语音交互** | ASR (SenseVoice) + TTS (CosyVoice) + 声纹识别 (CAM++) + 个性化服务 |
 | **Go 并发网关** | Gin + JWT 鉴权 + 优先级限流 + WebSocket Hub |
 | **GraphRAG** | Milvus (向量) + Neo4j (图谱) + BM25 (全文) 三路 RRF 融合 + Rerank 重排 |
-| **语义缓存** | Redis Stack RediSearch KNN 向量缓存 + 副作用隔离 |
+| **语义缓存** | Redis 8 RediSearch KNN 向量缓存 + 副作用隔离 |
 | **双模式部署** | 本地 Docker ⇄ 云端 API/AK·SK 一键切换 (Zilliz/AuraDB/云Redis/硅基流动) |
 | **LLM 降级** | 云端 DeepSeek-V3 → 本地 Qwen3.5-4B (llama.cpp) 自动降级 |
 | **限流** | Redis 滑动窗口限流 |
@@ -234,7 +234,7 @@ VECTOR_STORE_PROVIDER=local    # local=Milvus Docker, cloud=Zilliz Cloud
 GRAPH_STORE_PROVIDER=local     # local=Neo4j Docker, cloud=Neo4j AuraDB
 VECTOR_STORE_PROVIDER=local      # 固定本地 Milvus
 GRAPH_STORE_PROVIDER=local       # 固定本地 Neo4j
-CACHE_PROVIDER=local             # 固定本地 Redis Stack
+CACHE_PROVIDER=local             # 固定本地 Redis 8
 RERANKER_PROVIDER=local          # local=本地BGE | none=跳过
 
 # 本地化降级: 云端模式已移除，固定使用本地 Docker 中间件

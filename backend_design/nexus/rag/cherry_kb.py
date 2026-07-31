@@ -21,6 +21,7 @@ Cherry Knowledge Base — 文档型知识库
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -107,11 +108,13 @@ class CherryKnowledgeBase:
                 return
 
             # 定义集合 schema
+            # content_hash: 文档内容哈希，用于增量更新（检测文档是否变更）
             fields = [
                 FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=64, is_primary=True),
                 FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=4096),
                 FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=256),
                 FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=64),
+                FieldSchema(name="content_hash", dtype=DataType.VARCHAR, max_length=64),  # P4: 增量更新
                 FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=get_config().llm.embedding_dim),
             ]
             schema = CollectionSchema(fields, description="NexusCockpit Knowledge Base Docs")
@@ -136,7 +139,14 @@ class CherryKnowledgeBase:
         source: str = "unknown",
         category: str = "general",
     ) -> int:
-        """添加文档到知识库（分块 + 向量化 + 入库）。
+        """添加文档到知识库（增量更新: 分块 + 向量化 + 入库）。
+
+        增量更新逻辑 (P4 修复):
+            1. 计算文档内容的 MD5 哈希
+            2. 查询该 source 下是否已有相同 hash 的文档
+            3. 如果 hash 相同 → 文档未变更，跳过入库
+            4. 如果 hash 不同 → 先删除旧文档，再入库新文档
+            5. 如果 source 不存在 → 直接入库
 
         Args:
             text: 文档全文
@@ -144,11 +154,24 @@ class CherryKnowledgeBase:
             category: 文档类别（manual/dtc/faq/maintenance）
 
         Returns:
-            入库的文档块数量
+            入库的文档块数量（0 表示跳过或失败）
         """
         if not self._connected or not self._client:
             logger.warning("KB not connected, document not added")
             return 0
+
+        # 计算文档内容哈希（用于增量更新检测）
+        content_hash = hashlib.md5(text.encode("utf-8")).hexdigest()
+
+        # 增量检查: 查询该 source 是否已有相同 hash 的文档
+        if self._has_same_hash(source, content_hash):
+            logger.info(f"KB document '{source}' unchanged (hash={content_hash[:8]}), skipping")
+            return 0
+
+        # hash 不同 → 先删除该 source 的旧文档（幂等更新）
+        if self._source_exists(source):
+            deleted = self.delete_by_source(source)
+            logger.info(f"KB incremental update: deleted {deleted} old chunks from '{source}'")
 
         # 分块（使用 langchain_text_splitters RecursiveCharacterTextSplitter）
         chunks = self._chunk_text(text)
@@ -169,16 +192,102 @@ class CherryKnowledgeBase:
                 chunks,                                 # text
                 [source] * len(chunks),                 # source
                 [category] * len(chunks),               # category
+                [content_hash] * len(chunks),           # content_hash (P4: 增量更新)
                 embeddings,                             # vector
             ]
 
             collection.insert(data)
             collection.flush()
-            logger.info(f"KB document added: {len(chunks)} chunks from '{source}'")
+            logger.info(f"KB document added: {len(chunks)} chunks from '{source}' (hash={content_hash[:8]})")
             return len(chunks)
         except Exception as e:
             logger.error(f"KB add document failed: {e}")
             return 0
+
+    def delete_by_source(self, source: str) -> int:
+        """删除指定来源的所有文档块（增量更新的幂等删除）。
+
+        Args:
+            source: 文档来源（文件名）
+
+        Returns:
+            删除的文档块数量
+        """
+        if not self._connected or not self._client:
+            return 0
+
+        try:
+            from pymilvus import Collection
+
+            collection = Collection(_COLLECTION_NAME, using=self._milvus_alias)
+            collection.load()
+
+            # 查询该 source 下的文档数量
+            result = collection.query(
+                expr=f'source == "{source}"',
+                output_fields=["id"],
+            )
+            count = len(result) if result else 0
+
+            # 删除匹配的文档
+            if count > 0:
+                collection.delete(expr=f'source == "{source}"')
+                collection.flush()
+                logger.info(f"KB deleted {count} chunks from source='{source}'")
+
+            return count
+        except Exception as e:
+            logger.error(f"KB delete_by_source failed: {e}")
+            return 0
+
+    def _has_same_hash(self, source: str, content_hash: str) -> bool:
+        """检查该 source 下是否已存在相同 content_hash 的文档（增量更新检测）。
+
+        Args:
+            source: 文档来源
+            content_hash: 文档内容哈希
+
+        Returns:
+            True 表示文档未变更（已存在相同 hash），False 表示需要更新
+        """
+        if not self._connected or not self._client:
+            return False
+
+        try:
+            from pymilvus import Collection
+
+            collection = Collection(_COLLECTION_NAME, using=self._milvus_alias)
+            collection.load()
+
+            result = collection.query(
+                expr=f'source == "{source}" and content_hash == "{content_hash}"',
+                output_fields=["id"],
+                limit=1,
+            )
+            return bool(result)
+        except Exception:
+            # 查询失败时返回 False，允许重新入库
+            return False
+
+    def _source_exists(self, source: str) -> bool:
+        """检查该 source 是否已有文档入库。"""
+        if not self._connected or not self._client:
+            return False
+
+        try:
+            from pymilvus import Collection
+
+            collection = Collection(_COLLECTION_NAME, using=self._milvus_alias)
+            collection.load()
+
+            result = collection.query(
+                expr=f'source == "{source}"',
+                output_fields=["id"],
+                limit=1,
+            )
+            return bool(result)
+        except Exception:
+            return False
 
     def _chunk_text(self, text: str, chunk_size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> list[str]:
         """文本分块。

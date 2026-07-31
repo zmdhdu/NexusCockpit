@@ -5,12 +5,13 @@
 """
 Embedding Factory — 向量化服务工厂
 
-本地化降级改造后默认使用本地 sentence-transformers + bge-m3。
-provider=cloud 时仍可使用云端硅基流动 Embedding API（过渡阶段保留）。
+框架优先策略:
+  1. 优先使用 langchain_openai.OpenAIEmbeddings（自带连接池+重试+回调）
+  2. 降级使用手写 LocalEmbeddingService (sentence-transformers)
 
 配置:
   EMBEDDING_PROVIDER=local  (默认, 本地 bge-m3)
-  EMBEDDING_PROVIDER=cloud  (云端硅基流动, 过渡阶段)
+  EMBEDDING_PROVIDER=cloud  (云端硅基流动 API)
 """
 
 from __future__ import annotations
@@ -26,8 +27,7 @@ logger = get_logger(__name__)
 def build_embedding_service() -> EmbeddingService | LocalEmbeddingService:
     """根据 EMBEDDING_PROVIDER 配置选择 Embedding 后端。
 
-    Returns:
-        EmbeddingService (cloud) 或 LocalEmbeddingService (local)
+    根据 EMBEDDING_PROVIDER 配置选择 Embedding 后端。
     """
     provider = get_config().providers.normalized().get("embedding", "local")
 
@@ -38,3 +38,22 @@ def build_embedding_service() -> EmbeddingService | LocalEmbeddingService:
     # 默认 local
     logger.info("Embedding provider: local bge-m3 (sentence-transformers)")
     return LocalEmbeddingService()
+
+
+def get_langchain_embeddings():
+    """获取 LangChain OpenAIEmbeddings 实例（推荐）。
+
+    替代手写 EmbeddingService (144行)。
+    自带连接池管理 + 自动重试 + 异步支持 + 批量向量化。
+
+    使用方式:
+        from nexus.rag.embedding_factory import get_langchain_embeddings
+        embeddings = get_langchain_embeddings()
+        vec = await embeddings.aembed_query("你好")
+        vecs = await embeddings.aembed_documents(["文本1", "文本2"])
+
+    Returns:
+        OpenAIEmbeddings 实例
+    """
+    from nexus.rag.framework_adapters import get_langchain_embeddings as _get
+    return _get()

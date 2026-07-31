@@ -359,10 +359,20 @@ async def chat_stream(request: Request, body: ChatRequest):
     cockpit_id = get_cockpit_id()
 
     async def event_generator():
+        """SSE 事件生成器 — 含心跳保活机制。
+
+        SSE 规范中，以 ':' 开头的行是注释，浏览器不触发事件但保持连接。
+        每 15 秒发送 ': heartbeat\\n\\n' 防止代理/防火墙超时断连。
+        前端 EventSource 在收到 heartbeat 时自动重置超时计时器。
+        """
         agent_graph = app.state.agent_graph
         # session_id 为空时生成唯一临时 ID，禁止回退到 user_id
         session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
         start = time.perf_counter()
+
+        # 心跳保活: 15 秒发送一次 SSE 注释行，防止连接超时断开
+        _HEARTBEAT_INTERVAL = 15.0
+        _last_heartbeat = time.monotonic()
 
         # 语义缓存检查 — 车控指令跳过缓存，确保每次都实际执行
         # 旧缓存可能存储了车控响应（has_side_effect 修复前写入），
@@ -438,6 +448,13 @@ async def chat_stream(request: Request, body: ChatRequest):
                     if event.get("type") == "done":
                         full_response = event.get("data", {}).get("response", "")
                         skill_action = event.get("data", {}).get("action", "")
+
+                    # 心跳保活: 超过间隔时间时先发送 SSE 注释行
+                    _now = time.monotonic()
+                    if _now - _last_heartbeat >= _HEARTBEAT_INTERVAL:
+                        yield ": heartbeat\n\n"
+                        _last_heartbeat = _now
+
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
                 # 更新会话历史
@@ -505,5 +522,6 @@ async def chat_stream(request: Request, body: ChatRequest):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            "X-Heartbeat-Interval": "15",
         },
     )

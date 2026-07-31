@@ -23,8 +23,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from openai import AsyncOpenAI
-
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.memory.conflict import ConflictDetector, MemoryExtractor
@@ -62,16 +60,15 @@ class MemoryManager:
         self,
         vector_store: MilvusVectorStore | None = None,
         graph_store: Neo4jGraphStore | None = None,
-        llm_client: AsyncOpenAI | None = None,
+        llm_client: Any = None,
         reranker: BaseReranker | None = None,
     ):
         self.config = get_config().llm
         self.vector_store = vector_store or MilvusVectorStore()
         self.graph_store = graph_store or Neo4jGraphStore()
-        self.llm_client = llm_client or AsyncOpenAI(
-            api_key=self.config.ark_api_key,
-            base_url=self.config.ark_base_url,
-        )
+        from nexus.agent.llm_client_factory import get_chat_model
+        self._chat_model = get_chat_model()
+        self.llm_client = llm_client  # AsyncOpenAI，供记忆提取等直接调用
         self.extractor = MemoryExtractor(self.llm_client)
         self.conflict_detector = ConflictDetector(self.llm_client)
 

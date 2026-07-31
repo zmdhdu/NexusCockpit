@@ -6,7 +6,7 @@
 Skill Registry — 技能注册中心
 
 核心特性:
-  - 装饰器自动发现 + 手动注册兼容
+  - 装饰器自动发现 + 手动注册
   - 按 SkillGroup 分组查询接口（供专家 Agent 使用）
   - has_side_effect / cache_ttl 查询接口（供缓存层使用）
 
@@ -55,8 +55,8 @@ class SkillRegistry:
         # 1. 自动扫描装饰器注册的技能
         self._auto_discover()
 
-        # 2. 注册未被装饰器标记的技能
-        self._register_legacy_skills()
+        # 2. 注册未被装饰器标记的技能（需依赖注入）
+        self._register_manual_skills()
 
         logger.info(f"SkillRegistry initialized with {len(self._skills)} skills: {list(self._skills.keys())}")
 
@@ -94,10 +94,14 @@ class SkillRegistry:
 
         return cls(**kwargs)
 
-    def _register_legacy_skills(self) -> None:
-        """注册未被 @register_skill 标记的旧技能。"""
+    def _register_manual_skills(self) -> None:
+        """注册未被 @register_skill 标记、需要手动依赖注入的技能。
+
+        车载技能需要 vehicle_adapter，点餐技能需要 graph_store，
+        这些技能通过参数名匹配注入依赖，不适合用装饰器自动注册。
+        """
         # 如果已经用 @register_skill 标记，_auto_discover 已处理
-        # 这里只处理未标记的旧技能（通过检查 _SKILL_REGISTRY 是否覆盖了它们）
+        # 这里处理未标记装饰器的技能（需要手动依赖注入）
         from nexus.skills.special import AmapPoiSearchSkill, FoodDeliverySkill, RegisterVoiceSkill, WebSearchSkill
         from nexus.skills.vehicle.climate import ClimateControlSkill
         from nexus.skills.vehicle.media import MediaControlSkill
@@ -106,7 +110,7 @@ class SkillRegistry:
         from nexus.skills.vehicle.status import VehicleStatusSkill
         from nexus.skills.vehicle.window import WindowControlSkill
 
-        legacy_map = {
+        manual_map = {
             "web_search": (WebSearchSkill, {}),
             "order_food": (FoodDeliverySkill, {"graph_store": self._deps["graph_store"]}),
             "amap_poi_search": (AmapPoiSearchSkill, {}),
@@ -137,13 +141,13 @@ class SkillRegistry:
             ),
         }
 
-        for name, (cls, kwargs) in legacy_map.items():
+        for name, (cls, kwargs) in manual_map.items():
             if name not in self._skills:
                 try:
                     # 过滤 None 值
                     clean_kwargs = {k: v for k, v in kwargs.items() if v is not None}
                     self._skills[name] = cls(**clean_kwargs) if clean_kwargs else cls()
-                    # 设置分组（旧技能未标记装饰器的，手动设置）
+                    # 设置分组（未标记装饰器的技能手动设置）
                     skill = self._skills[name]
                     no_group = not hasattr(skill, "_skill_group")
                     chat_group = getattr(skill, "_skill_group", None) == SkillGroup.CHAT
@@ -157,7 +161,7 @@ class SkillRegistry:
                         elif name == "register_voice":
                             self._skills[name]._skill_group = SkillGroup.CHAT
                 except Exception as e:
-                    logger.error(f"Failed to register legacy skill '{name}': {e}")
+                    logger.error(f"Failed to register skill '{name}': {e}")
 
     def register(self, name: str, skill: BaseSkill) -> None:
         """手动注册技能。"""
@@ -174,6 +178,25 @@ class SkillRegistry:
     def get_all_tools(self) -> list[dict]:
         """获取所有技能的 Tool Schema。"""
         return [skill.get_tool_schema() for skill in self._skills.values()]
+
+    def get_langchain_tools(self) -> list:
+        """获取所有技能的 LangChain Tool 对象列表。
+
+        使用 langchain-core 的 StructuredTool 封装，
+        可直接传入 langgraph.prebuilt.ToolNode 或 create_react_agent。
+
+        Returns:
+            list[StructuredTool]: LangChain Tool 对象列表
+        """
+        tools = []
+        for skill in self._skills.values():
+            try:
+                tool = skill.to_langchain_tool()
+                tools.append(tool)
+            except Exception as e:
+                logger.error(f"Failed to convert skill '{skill.name}' to LangChain tool: {e}")
+        logger.info(f"Converted {len(tools)} skills to LangChain tools")
+        return tools
 
     def get_skills_by_group(self, group: SkillGroup) -> dict[str, BaseSkill]:
         """按专家分组获取技能（供专家 Agent 使用）。"""

@@ -13,8 +13,9 @@ import json
 import re
 from typing import Any
 
-from openai import AsyncOpenAI
+from typing import Any
 
+from nexus.agent.llm_client_factory import get_chat_model
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 
@@ -26,16 +27,13 @@ class LLMIntentRouter:
 
     def __init__(
         self,
-        llm_client: AsyncOpenAI | None = None,
+        llm_client: Any = None,
         llm_model: str = "",
         tool_catalog: list[dict] | None = None,
         min_confidence: float = 0.55,
     ):
         self.config = get_config().llm
-        self.client = llm_client or AsyncOpenAI(
-            api_key=self.config.ark_api_key,
-            base_url=self.config.ark_base_url,
-        )
+        self._chat_model = get_chat_model()
         self.llm_model = llm_model or self.config.llm_model
         self.tool_catalog = tool_catalog or []
         self.min_confidence = min_confidence
@@ -50,12 +48,8 @@ class LLMIntentRouter:
 
         prompt = self._build_prompt(text)
         try:
-            response = await self.client.chat.completions.create(
-                model=self.llm_model,
-                messages=prompt,
-                temperature=0.0,
-            )
-            content = (response.choices[0].message.content or "").strip()
+            response = await self._chat_model.ainvoke(prompt)
+            content = (response.content or "").strip()
             if not content:
                 return None
             return self._parse_json(content)

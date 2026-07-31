@@ -10,7 +10,7 @@
   2. query_reminder:  查询用户全部待办提醒
   3. cancel_reminder: 删除指定提醒
 
-存储: Redis Sorted Set（按时间戳排序），后台 Celery 定时扫描到期推送
+存储: Redis Sorted Set（按时间戳排序），后台 asyncio 定时扫描到期推送
 依赖: Redis 连接（通过 redis_client 依赖注入）
 """
 

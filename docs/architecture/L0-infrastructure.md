@@ -22,7 +22,7 @@
 | etcd | quay.io/coreos/etcd:v3.5.5 | 2379 | Milvus 元数据 |
 | MinIO | minio/minio | 9000, 9001 | Milvus 对象存储 |
 | Neo4j | neo4j:5.19.0 | 7474, 7687 | 知识图谱 |
-| Redis | redis/redis-stack-server:7.2.0-v4 | 16379 | 缓存/限流/PubSub |
+| Redis | redis:8-alpine | 16379 | 缓存/限流/PubSub |
 | MySQL | mysql:8.0 | 13306 | 用户数据/审计日志 |
 | Prometheus | prom/prometheus:v2.51.0 | 9200 | 指标采集 |
 | Grafana | grafana/grafana:10.4.0 | 3001 | 可视化面板 |

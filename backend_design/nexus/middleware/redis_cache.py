@@ -3,10 +3,10 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Redis Semantic Cache — 基于 Redis Stack VECTOR 向量索引
+Redis Semantic Cache — 基于 Redis 8 Query Engine 的 VECTOR 向量索引
 
 核心特性:
-  - Redis Stack RediSearch KNN 向量检索 O(log n)
+  - Redis 8 内置 RediSearch KNN 向量检索 O(log n)
   - 按用户分片索引（user_id 隔离）
   - 车控指令不缓存（has_side_effect 检查）
   - TTL 分级：闲聊 1h、知识库 24h、车控永不上缓存
@@ -21,7 +21,8 @@ Redis Semantic Cache — 基于 Redis Stack VECTOR 向量索引
   2. 写入：query 向量化 → 存入 HASH → FT.ADD 到索引
   3. 查询：query 向量化 → FT.SEARCH KNN 找最近邻 → 检查相似度阈值
 
-依赖: Redis Stack（redis/redis-stack-server:7.2.0-v4）
+依赖: Redis 8+（内置 Query Engine，FT.* 命令原生可用）
+      Redis 7 需使用 redis-stack-server 镜像加载 RediSearch 模块
 """
 
 from __future__ import annotations
@@ -53,10 +54,15 @@ def _get_vector_dim() -> int:
 
 
 class SemanticCache:
-    """Redis Stack 语义缓存。
+    """Redis 语义缓存。
 
     使用 RediSearch + VECTOR 索引实现 KNN 向量检索，O(log n) 复杂度。
     支持按 user_id 分片、TTL 分级、车控指令跳过缓存。
+
+    Redis 版本适配:
+      - Redis 8+: Query Engine 内置，FT.* 命令原生可用
+      - Redis 7 + redis-stack-server: RediSearch 模块提供 FT.* 命令
+      - Redis 7 裸镜像: 不含 FT.* 命令，自动降级为 O(n) scan 遍历
 
     安全设计 (from main L5 fix):
       - has_side_effect=True 的响应永不写入缓存，避免车控指令被缓存后不执行
@@ -81,7 +87,7 @@ class SemanticCache:
         self._index_ready = False
 
     async def connect(self) -> None:
-        """连接 Redis Stack 并确保 VECTOR 索引存在。"""
+        """连接 Redis 并确保 VECTOR 索引存在。"""
         if not self._enabled:
             logger.info("Semantic cache disabled")
             return
@@ -94,14 +100,14 @@ class SemanticCache:
                 )
             await self._redis.ping()
 
-            # 检查 Redis 是否加载了 RediSearch 模块
-            # 非 Stack 版 Redis（如裸 redis:7.2）不含 RediSearch，FT.CREATE 会报 unknown command
-            has_redisearch = await self._check_redisearch_module()
+            # 检查 Redis 是否支持 FT.* 搜索命令
+            # Redis 8+ 内置 Query Engine；Redis 7 需 redis-stack-server 镜像
+            has_ft = await self._check_search_capability()
 
-            if has_redisearch:
+            if has_ft:
                 await self._ensure_index()
                 if self._index_ready:
-                    logger.info("Redis Stack semantic cache connected (RediSearch KNN index)")
+                    logger.info("Redis semantic cache connected (RediSearch KNN index)")
                 else:
                     logger.warning(
                         "Redis connected but RediSearch index creation failed, "
@@ -109,38 +115,50 @@ class SemanticCache:
                     )
             else:
                 logger.warning(
-                    "Redis connected but RediSearch module NOT found "
-                    "(not a Redis Stack image?). "
+                    "Redis connected but FT.* search commands NOT available. "
                     "Semantic cache falling back to scan mode (O(n) search). "
-                    "Fix: use redis/redis-stack-server image instead of redis."
+                    "Fix: upgrade to Redis 8+ (built-in Query Engine), "
+                    "or use redis/redis-stack-server image for Redis 7."
                 )
                 self._index_ready = False
         except Exception as e:
             logger.warning(f"Redis connection failed, cache disabled: {e}")
             self._enabled = False
 
-    async def _check_redisearch_module(self) -> bool:
-        """检查 Redis 是否加载了 RediSearch 模块。
+    async def _check_search_capability(self) -> bool:
+        """检查 Redis 是否支持 FT.* 搜索命令。
 
-        RediSearch 模块提供 FT.CREATE / FT.SEARCH 等命令，
-        只有 redis-stack-server 镜像才内置此模块。
-        裸 Redis（如 redis:7.2）不含此模块。
+        检测策略（双重探测）：
+
+        1. MODULE LIST 检查：Redis 7 + redis-stack-server 镜像会加载
+           RediSearch 模块，MODULE LIST 输出中包含 "search"。
+
+        2. FT.* 命令探测：Redis 8+ 内置 Query Engine，搜索功能不再是
+           独立模块，MODULE LIST 不显示 "search"，但 FT.* 命令原生可用。
+           通过执行 FT._LIST 命令探测功能是否存在。
+
+        Returns:
+            True 如果 FT.* 搜索命令可用
         """
+        # 方法 1: MODULE LIST 检查（Redis 7 + redis-stack-server）
         try:
             modules = await self._redis.module_list()
             for m in modules:
-                if hasattr(m, "name") and "search" in m.name.lower():
+                name = m.name if hasattr(m, "name") else str(m.get("name", ""))
+                if "search" in name.lower():
                     return True
-                if isinstance(m, dict) and "search" in str(m.get("name", "")).lower():
-                    return True
-            return False
         except Exception:
-            # module_list 命令不可用（老版本 Redis），尝试 FT.INFO 探测
-            try:
-                await self._redis.ft(_INDEX_NAME).info()
-                return True  # FT 命令可用说明模块存在
-            except Exception:
-                return False
+            pass
+
+        # 方法 2: FT.* 命令探测（Redis 8+ 内置 Query Engine）
+        # Redis 8 的搜索功能内置在核心中，MODULE LIST 不显示 search 模块，
+        # 但 FT._LIST 等命令可用。FT._LIST 返回所有索引名称列表，
+        # 无索引时返回空列表，不会抛异常。
+        try:
+            await self._redis.execute_command("FT._LIST")
+            return True
+        except Exception:
+            return False
 
     async def _ensure_index(self) -> None:
         """确保 RediSearch VECTOR 索引存在。"""
@@ -206,7 +224,7 @@ class SemanticCache:
             if self._index_ready:
                 return await self._knn_search(query_vec, user_id, query)
             else:
-                # Fallback: 遍历模式（兼容非 Redis Stack 环境）
+                # Fallback: 遍历模式（兼容不支持 FT.* 命令的 Redis）
                 return await self._scan_search(query_vec, user_id)
         except Exception as e:
             logger.error(f"Cache get failed: {e}")
@@ -284,7 +302,7 @@ class SemanticCache:
     async def _scan_search(
         self, query_vec: list[float], user_id: str
     ) -> dict[str, Any] | None:
-        """Fallback: O(n) 遍历搜索（兼容非 Redis Stack 环境）。"""
+        """Fallback: O(n) 遍历搜索（兼容不支持 FT.* 命令的 Redis）。"""
         try:
             # 扫描所有缓存 key
             keys = []

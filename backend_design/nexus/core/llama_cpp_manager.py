@@ -14,7 +14,7 @@ LlamaCpp Process Manager — llama.cpp 子进程生命周期管理
 依赖: 需预编译 llama.cpp 或下载预编译二进制
   - Windows: llama-server.exe
   - Linux: llama-server
-  - 路径: ./bin/llama-server (或通过 .env LLAMA_CPP_BINARY 配置)
+  - 路径: ./models/llm/llama.cpp/llama-server (或通过 .env LLAMA_CPP_BINARY 配置)
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class LlamaCppProcessManager:
             "LLAMA_CPP_MODEL_PATH",
             os.path.join(
                 _PROJECT_ROOT,
-                "models", "llm", "qwen", "qwen2.5-7b-instruct-q4_k_m.gguf",
+                "models", "llm", "qwen", "Qwen3.5-4B-Q4_K_M.gguf",
             ),
         )
         self._port = int(os.getenv("LLAMA_CPP_PORT", "8082"))
@@ -83,8 +83,8 @@ class LlamaCppProcessManager:
     def _default_binary_path() -> str:
         """根据操作系统返回默认二进制路径。"""
         if sys.platform == "win32":
-            return os.path.join(_PROJECT_ROOT, "bin", "llama-server.exe")
-        return os.path.join(_PROJECT_ROOT, "bin", "llama-server")
+            return os.path.join(_PROJECT_ROOT, "models", "llm", "llama.cpp", "llama-server.exe")
+        return os.path.join(_PROJECT_ROOT, "models", "llm", "llama.cpp", "llama-server")
 
     async def start(self) -> bool:
         """启动 llama-server 子进程。

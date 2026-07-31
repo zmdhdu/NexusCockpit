@@ -96,17 +96,31 @@ def _resolve_path(relative_path: str) -> str:
 class LLMConfig(BaseSettings):
     """大语言模型 (LLM) 配置。
 
-    管理与 LLM 供应商 (硅基流动 / 火山方舟) 的连接参数，两者均为 OpenAI 兼容 API。
+    管理与 LLM 供应商的连接参数。支持本地/云端一键切换:
+      - LLM_PROVIDER=cloud: 使用云端 API (硅基流动/火山方舟)
+      - LLM_PROVIDER=local: 使用本地 llama.cpp 子进程 (Qwen3.5-4B)
+
+    切换原理: 当 LLM_PROVIDER=local 时，model_post_init 自动将
+    ark_base_url/ark_api_key/llm_model 重定向到本地 llama-server，
+    所有 7 处 AsyncOpenAI 调用点无需修改即可生效。
     """
 
+    # === LLM 模式切换 (本地/云端一键开关) ===
+    # cloud: 使用云端 API (硅基流动/火山方舟)
+    # local: 使用本地 llama.cpp 子进程 (需先下载 GGUF 模型)
+    provider: str = Field(default="cloud", validation_alias="LLM_PROVIDER")
+
     # LLM API Key (硅基流动 / 火山方舟均兼容)，从 .env 的 ARK_API_KEY 读取
+    # LLM_PROVIDER=local 时自动覆盖为 "not-needed"
     ark_api_key: str = Field(default="", validation_alias="ARK_API_KEY")
     # API 基础地址 (默认硅基流动，可切换为火山方舟)
+    # LLM_PROVIDER=local 时自动覆盖为 llama-server 地址
     ark_base_url: str = Field(
         default="https://api.siliconflow.cn/v1",
         validation_alias="ARK_BASE_URL",
     )
     # 对话使用的 LLM 模型名称
+    # LLM_PROVIDER=local 时自动覆盖为本地模型别名
     llm_model: str = Field(default="deepseek-ai/DeepSeek-V3", validation_alias="LLM_MODEL")
     # Embedding 向量化使用的模型
     # 本地化降级: 本地模式使用 bge-m3, 云端模式使用硅基流动 API 模型
@@ -130,8 +144,16 @@ class LLMConfig(BaseSettings):
     # LLM 并发限流 (同时最多发起的 chat/completions 请求数，0=不限)
     llm_concurrency_limit: int = Field(default=0, validation_alias="LLM_CONCURRENCY_LIMIT")
 
-    # 本地 LLM 降级配置（llama.cpp OpenAI 兼容接口）
-    # 云端 LLM 不可用时自动降级到本地 Qwen3.5-4B 模型
+    # === 本地 LLM 配置 (llama.cpp OpenAI 兼容接口) ===
+    # 对应 GGUF 文件: models/llm/qwen/Qwen3.5-4B-Q4_K_M.gguf
+    #
+    # 当 LLM_PROVIDER=local 时，以下值自动注入 ark_* 字段:
+    #   ark_base_url  ← fallback_base_url  (http://127.0.0.1:8082/v1)
+    #   ark_api_key   ← fallback_api_key   (not-needed)
+    #   llm_model     ← fallback_model     (qwen3.5-4b-local)
+    #
+    # 当 LLM_PROVIDER=cloud 且 LLM_FALLBACK_ENABLED=true 时:
+    #   云端 LLM 调用失败后自动降级到本地 (需同时启动 llama-server)
     fallback_enabled: bool = Field(default=False, validation_alias="LLM_FALLBACK_ENABLED")
     fallback_base_url: str = Field(
         default="http://127.0.0.1:8082/v1",  # llama.cpp 默认地址
@@ -142,7 +164,7 @@ class LLMConfig(BaseSettings):
         validation_alias="LLM_FALLBACK_MODEL",
     )
     fallback_api_key: str = Field(
-        default="",  # llama.cpp 默认无需 API Key
+        default="not-needed",  # llama.cpp 默认无需 API Key
         validation_alias="LLM_FALLBACK_API_KEY",
     )
     fallback_timeout: float = Field(default=60.0, validation_alias="LLM_FALLBACK_TIMEOUT")
@@ -159,11 +181,29 @@ class LLMConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
+    def model_post_init(self, __context) -> None:
+        """模型初始化后，根据 LLM_PROVIDER 自动切换 LLM 连接参数。
+
+        当 LLM_PROVIDER=local 时，将 ark_* 字段重定向到本地 llama-server，
+        使所有 AsyncOpenAI 调用点无需修改即可使用本地 LLM。
+        """
+        if (self.provider or "cloud").strip().lower() == "local":
+            self.ark_base_url = self.fallback_base_url
+            self.ark_api_key = self.fallback_api_key or "not-needed"
+            self.llm_model = self.fallback_model
+            self.timeout = self.fallback_timeout
+
     @computed_field
     @property
     def embedding_url(self) -> str:
         """Embedding API 的完整 URL (base_url + /embeddings)"""
         return f"{self.ark_base_url}/embeddings"
+
+    @computed_field
+    @property
+    def is_local(self) -> bool:
+        """当前是否使用本地 LLM (llama.cpp)"""
+        return (self.provider or "cloud").strip().lower() == "local"
 
 
 class MilvusConfig(BaseSettings):
@@ -224,6 +264,7 @@ class RedisConfig(BaseSettings):
 
     host: str = Field(default="127.0.0.1", validation_alias="REDIS_HOST")
     port: int = Field(default=6379, validation_alias="REDIS_PORT")
+    # Security: 生产环境必须设置强密码
     password: str = Field(default="", validation_alias="REDIS_PASSWORD")
     db: int = Field(default=0, validation_alias="REDIS_DB")
 
@@ -458,12 +499,8 @@ class AmapConfig(BaseSettings):
 class ProvidersConfig(BaseSettings):
     """部署模式开关 — 本地化降级后固定使用本地中间件。
 
-    本地化降级改造后，所有云端实现 (Zilliz/AuraDB/云Redis/硅基流动 Reranker) 已删除。
-    provider 字段保留向后兼容，但 cloud 取值将被工厂函数忽略并自动降级为 local。
-
     取值说明:
-        - local:  使用本地 Docker 部署的中间件/模型 (固定默认)
-        - cloud:  已废弃，工厂函数会自动降级为 local 并输出警告
+        - local:  使用本地 Docker 部署的中间件/模型 (默认)
         - none:   仅 RERANKER_PROVIDER 支持，跳过重排省资源
     """
 
@@ -471,9 +508,9 @@ class ProvidersConfig(BaseSettings):
     vector_store: str = Field(default="local", validation_alias="VECTOR_STORE_PROVIDER")
     # 图谱: 固定 local (本地 Neo4j)
     graph_store: str = Field(default="local", validation_alias="GRAPH_STORE_PROVIDER")
-    # 语义缓存: 固定 local (本地 Redis Stack)
+    # 语义缓存: 固定 local (本地 Redis 8)
     cache: str = Field(default="local", validation_alias="CACHE_PROVIDER")
-    # 重排: local=本地 BGE | none=跳过 (cloud 已废弃)
+    # 重排: local=本地 BGE | none=跳过
     reranker: str = Field(default="local", validation_alias="RERANKER_PROVIDER")
     # Embedding: local=本地 bge-m3 | cloud=硅基流动 API (过渡阶段保留)
     embedding: str = Field(default="local", validation_alias="EMBEDDING_PROVIDER")
@@ -701,6 +738,9 @@ class AppConfig(BaseSettings):
             warnings.append("MYSQL_PASSWORD 仍为默认密码")
         if self.neo4j.password == "nexuscockpit":
             warnings.append("NEO4J_PASSWORD 仍为默认密码")
+        # Redis 密码在 docker-compose 中已通过环境变量注入，此处仅提示开发环境风险
+        if _APP_ENV == "prod" and self.redis.password == "":
+            warnings.append("REDIS_PASSWORD 为空，Redis 服务无密码保护！建议设置强密码")
         if warnings:
             import sys
             msg = "\n".join(f"  ⚠️ {w}" for w in warnings)

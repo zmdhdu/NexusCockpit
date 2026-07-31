@@ -6,7 +6,6 @@
 Graph Store Factory — 图谱存储工厂
 
 本地化降级改造后固定使用本地 Neo4j (Docker)。
-云端 AuraDB 实现已删除，provider 字段保留向后兼容但忽略 cloud 取值。
 """
 
 from __future__ import annotations

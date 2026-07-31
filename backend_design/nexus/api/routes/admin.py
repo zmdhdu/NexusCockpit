@@ -66,7 +66,7 @@ async def cache_stats(request: Request, user_id: str = Depends(get_current_user)
         if isinstance(result, dict):
             return result
 
-    # 手动计算统计（兼容无 stats 方法的缓存实现）
+    # 手动计算统计（缓存实现无 stats 方法时降级）
     hits = getattr(cache, "hit_count", 0) or 0
     misses = getattr(cache, "miss_count", 0) or 0
     total = hits + misses
@@ -167,3 +167,105 @@ async def kb_stats(request: Request):
         return {"connected": False, "total_docs": 0}
 
     return app.state.cherry_kb.get_stats()
+
+
+@router.post("/config/reload")
+async def reload_config(request: Request, _: str = Depends(get_current_user)):
+    """配置热更新 — 重新加载 .env.local 并重置 LLM 客户端单例。
+
+    Phase 5 改进: 无需重启服务即可切换 LLM 模式/降级配置。
+
+    流程:
+      1. 清除 get_config() 的 lru_cache（强制下次调用重新读取 .env.local）
+      2. 调用 reset_clients() 清除 AsyncOpenAI / ChatOpenAI 单例
+      3. 返回新配置状态（敏感值脱敏）
+
+    Returns:
+        包含新配置状态的字典
+    """
+    from nexus.agent.llm_client_factory import reset_clients
+    from nexus.config import get_config
+
+    # 1. 清除配置缓存（lru_cache），下次 get_config() 会重新读取 .env.local
+    get_config.cache_clear()
+
+    # 2. 重置 LLM 客户端单例（AsyncOpenAI + ChatOpenAI）
+    reset_clients()
+
+    # 3. 重置框架适配器单例（OpenAIEmbeddings + Milvus + Neo4jGraph）
+    try:
+        from nexus.rag.framework_adapters import reset_framework_adapters
+        reset_framework_adapters()
+    except ImportError:
+        pass  # 框架适配器未安装时跳过
+
+    # 3. 重新加载配置并返回状态
+    config = get_config()
+    llm_config = config.llm
+
+    return {
+        "status": "reloaded",
+        "llm": {
+            "provider": llm_config.provider,
+            "model": llm_config.llm_model,
+            "base_url": llm_config.ark_base_url,
+            "is_local": llm_config.is_local,
+            "fallback_enabled": llm_config.fallback_enabled,
+            "api_key_loaded": bool(llm_config.ark_api_key),
+        },
+        "embedding": {
+            "model": llm_config.embedding_model,
+            "dim": llm_config.embedding_dim,
+        },
+        "message": "Config reloaded, LLM clients reset. New settings will take effect on next request.",
+    }
+
+
+@router.get("/config")
+async def get_current_config(request: Request, _: str = Depends(get_current_user)):
+    """查看当前配置状态（敏感值脱敏）。"""
+    from nexus.config import get_config
+
+    config = get_config()
+    llm_config = config.llm
+
+    return {
+        "llm": {
+            "provider": llm_config.provider,
+            "model": llm_config.llm_model,
+            "base_url": llm_config.ark_base_url,
+            "is_local": llm_config.is_local,
+            "fallback_enabled": llm_config.fallback_enabled,
+            "fallback_model": llm_config.fallback_model,
+            "api_key_masked": f"***{llm_config.ark_api_key[-4:]}" if llm_config.ark_api_key else "(empty)",
+            "timeout": llm_config.timeout,
+            "max_tokens": llm_config.max_tokens,
+            "reflection_enabled": llm_config.reflection_enabled,
+            "memory_extraction_enabled": llm_config.memory_extraction_enabled,
+        },
+        "embedding": {
+            "model": llm_config.embedding_model,
+            "dim": llm_config.embedding_dim,
+        },
+        "milvus": {
+            "host": config.milvus.host,
+            "port": config.milvus.port,
+            "collection_food": config.milvus.collection_food,
+            "collection_memory": config.milvus.collection_memory,
+        },
+        "redis": {
+            "host": config.redis.host,
+            "port": config.redis.port,
+            "cache_enabled": config.redis.cache_enabled,
+            "cache_similarity_threshold": config.redis.cache_similarity_threshold,
+        },
+        "neo4j": {
+            "uri": config.neo4j.uri,
+            "user": config.neo4j.user,
+        },
+        "mysql": {
+            "host": config.mysql.host,
+            "port": config.mysql.port,
+            "database": config.mysql.database,
+        },
+    }

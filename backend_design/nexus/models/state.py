@@ -105,14 +105,6 @@ class SupervisorState(TypedDict, total=False):
     span_ids: Annotated[dict[str, str], merge_dict]
     latency_ms: float
 
-
-# ---- 向后兼容 ----
-# chat.py 等旧代码用 AgentState(user_input=..., ...) 构造，
-# 改为直接用 dict，但保留别名避免大规模改键
-
-AgentState = SupervisorState
-
-
 def create_initial_state(
     user_input: str,
     user_id: str = "default",

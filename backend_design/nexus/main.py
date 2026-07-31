@@ -20,6 +20,7 @@ NexusCockpit FastAPI 应用入口
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
@@ -146,7 +147,7 @@ async def lifespan(app: FastAPI):
     session_store = SessionStore()
     await session_store.connect()
     app.state.session_store = session_store
-    # 保留内存 dict 作为兼容 (部分代码仍直接引用)
+    # 内存会话历史 dict（部分接口的降级数据源，Redis 不可用时回退使用）
     app.state.session_histories: dict[str, list] = {}
 
     # --- 7.6. 初始化 Langfuse 追踪监控器 ---
@@ -181,15 +182,15 @@ async def lifespan(app: FastAPI):
             tool_catalog=skill_registry.get_all_tools(),
         )
 
-        # SqliteSaver checkpoint 持久化
+        # SQLite 本地 checkpoint 持久化 (单节点)
         checkpoint_saver = None
         try:
-            import os
-
             import aiosqlite
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+                    
             db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                    
             # 使用 aiosqlite 异步连接执行 setup
             setup_conn = await aiosqlite.connect(db_path)
             try:
@@ -197,13 +198,14 @@ async def lifespan(app: FastAPI):
                 await checkpoint_saver.setup()
             finally:
                 await setup_conn.close()
+                    
             # 创建运行时持久连接（保持打开直到应用关闭）
             runtime_conn = await aiosqlite.connect(db_path)
             checkpoint_saver = AsyncSqliteSaver(runtime_conn)
             app.state._checkpoint_conn = runtime_conn  # 保持强引用防止 GC
             logger.info(f"AsyncSqliteSaver checkpoint initialized at {db_path}")
-        except ImportError:
-            logger.warning("langgraph-checkpoint-sqlite or aiosqlite not installed, checkpoint disabled")
+        except ImportError as e:
+            logger.warning(f"SQLite checkpoint not available ({e}), checkpoint disabled")
         except Exception as e:
             logger.warning(f"Checkpoint initialization failed (non-fatal): {e}")
             checkpoint_saver = None
@@ -237,7 +239,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Agent graph initialization failed: {e}")
         app.state.agent_graph = None
 
-    # --- 会话历史存储 (内存兼容层，实际数据走 SessionStore) ---
+    # --- 会话历史存储 (内存降级层，实际数据走 SessionStore) ---
     # 已在上方初始化 session_store 和 session_histories
 
     # --- 8.5. 初始化 MySQL 数据库管理器（日志持久化 + 用户管理）---
@@ -276,8 +278,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"DataRetentionManager startup failed (non-fatal): {e}")
 
-    # --- 0.5. llama.cpp 子进程管理 (本地 LLM 降级) ---
-    if config.llm.fallback_enabled and os.getenv("LLAMA_CPP_SUBPROCESS", "true").lower() == "true":
+    # --- 0.5. llama.cpp 子进程管理 (本地 LLM) ---
+    # LLM_PROVIDER=local 时：启动 llama-server 作为主 LLM
+    # LLM_PROVIDER=cloud 且 LLM_FALLBACK_ENABLED=true 时：启动作为降级备份
+    _need_llama = config.llm.is_local or config.llm.fallback_enabled
+    if _need_llama and os.getenv("LLAMA_CPP_SUBPROCESS", "true").lower() == "true":
         try:
             from nexus.core.llama_cpp_manager import LlamaCppProcessManager
             llama_manager = LlamaCppProcessManager()
@@ -295,6 +300,29 @@ async def lifespan(app: FastAPI):
         app.state.llama_manager = None
 
     logger.info("NexusCockpit ready!")
+
+    # --- 11. ASR/TTS 模型后台预加载 (P4 修复: 不阻塞启动) ---
+    # ASR (FunASR SenseVoice) 和 TTS (CosyVoice) 模型体积大，
+    # 同步加载会阻塞 FastAPI 启动 10-30 秒。
+    # 改为 asyncio.create_task 后台预加载，服务先就绪，模型在后台加载完成。
+    # 首次 ASR 请求到达时如果模型已加载完毕则直接使用，否则按需加载。
+    async def _preload_asr_model():
+        """后台预加载 ASR 模型，不阻塞 FastAPI 启动。"""
+        try:
+            from nexus.asr.engine import ASREngine
+            asr_engine = ASREngine()
+            # 在线程池中执行模型加载（避免阻塞事件循环）
+            await asyncio.to_thread(asr_engine.load)
+            app.state.asr_engine = asr_engine
+            logger.info("ASR model preloaded in background (SenseVoice)")
+        except Exception as e:
+            logger.warning(f"ASR background preload failed (non-fatal): {e}")
+            app.state.asr_engine = None
+
+    # 启动后台预加载任务
+    _asr_preload_task = asyncio.create_task(_preload_asr_model())
+    app.state._asr_preload_task = _asr_preload_task  # 保持强引用防止 GC
+
     yield  # ← 应用运行期间在此暂停
 
     # ==================== 以下为关闭清理逻辑 ====================
