@@ -15,8 +15,9 @@ from typing import Any
 
 from nexus.agent.experts.base import BaseExpertAgent
 from nexus.core.logger import get_logger
+from nexus.core.sandbox import get_sandbox
 from nexus.models.state import SupervisorState
-from nexus.skills.base import SkillGroup
+from nexus.skills.base import SkillGroup, SkillResult
 
 logger = get_logger(__name__)
 
@@ -44,11 +45,47 @@ class VehicleExpert(BaseExpertAgent):
             if action_data:
                 # 过滤 None 值
                 cleaned = {k: v for k, v in action_data.items() if v is not None}
+
+                # 高危车控指令沙箱安全审查（事前拦截）
+                sandbox = get_sandbox()
+                check = sandbox.inspect(tool_name, cleaned)
+                if not check.approved:
+                    # 沙箱拦截：指令被拒绝（频率限制 / 参数异常 / 危险组合）
+                    logger.warning(
+                        f"Sandbox blocked vehicle command: tool={tool_name}, "
+                        f"reason={check.reason}"
+                    )
+                    expert_result = self._build_expert_result(
+                        action=tool_name,
+                        reply=check.reason,
+                        handled=True,
+                        skill_status="error",
+                        skill_data={"sandbox_blocked": True, "reason": check.reason},
+                        skip_synthesis=True,
+                    )
+                    expert_result["has_side_effect"] = False  # 被拦截，未执行
+                    return expert_result
+
+                # 沙箱审查通过 → 正常执行技能
                 result = await self.registry.execute(tool_name, cleaned)
+
+                # 记录到沙箱审计日志
+                sandbox.log_result(tool_name, cleaned, result)
 
                 # 车控指令执行后验证结果
                 # 确保命令确实改变了车辆状态，而非空返回 success
                 verified = self._verify_result(tool_name, result, cleaned)
+
+                # 如果沙箱有参数警告，附加到回复中
+                if check.warnings:
+                    verified = SkillResult(
+                        status=verified.status,
+                        message=f"{verified.message}（注意: {'; '.join(check.warnings)}）",
+                        data=verified.data,
+                        error=verified.error,
+                        action=verified.action,
+                        handled=verified.handled,
+                    )
 
                 expert_result = self._build_expert_result(
                     action=tool_name,

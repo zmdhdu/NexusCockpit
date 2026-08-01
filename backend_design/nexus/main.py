@@ -381,7 +381,7 @@ def create_app() -> FastAPI:
     # CORS 跨域配置 — 允许前端 (localhost:3000) 访问后端 (localhost:8000)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.server.cors_origins,
+        allow_origins=config.server.cors_origins_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

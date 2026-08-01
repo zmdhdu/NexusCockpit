@@ -37,9 +37,13 @@ class LLMIntentRouter:
         self.min_confidence = min_confidence
 
     async def route(self, text: str) -> dict[str, Any] | None:
-        """
-        使用 LLM 路由意图
-        返回: {"selected_tool": "...", "arguments": {...}, "confidence": 0.x, ...}
+        """使用 LLM 路由意图（带重试机制）。
+
+        改进: JSON 解析失败时自动重试一次，使用更明确的提示词要求 LLM 输出纯 JSON。
+        原实现解析失败时静默返回 None，无重试，导致误降级到默认闲聊。
+
+        Returns:
+            {"selected_tool": "...", "arguments": {...}, "confidence": 0.x, ...} 或 None
         """
         if not text.strip() or not self.tool_catalog:
             return None
@@ -50,9 +54,50 @@ class LLMIntentRouter:
             content = (response.content or "").strip()
             if not content:
                 return None
-            return self._parse_json(content)
+
+            parsed = self._parse_json(content)
+            if parsed is not None:
+                return parsed
+
+            # 首次解析失败 — 重试一次，使用更明确的提示词
+            logger.warning(
+                f"LLM router JSON parse failed on first attempt, retrying. "
+                f"Raw content (first 200 chars): {content[:200]}"
+            )
+            return await self._retry_parse(text)
+
         except Exception as e:
             logger.error(f"LLM routing failed: {e}")
+            return None
+
+    async def _retry_parse(self, text: str) -> dict[str, Any] | None:
+        """重试: 使用更强的约束提示词要求 LLM 输出纯 JSON。"""
+        retry_prompt = [
+            {"role": "system", "content": (
+                "你是车载语音技能路由器。上一次输出无法解析为 JSON，请重新输出。\n"
+                "严格要求: 只输出一个 JSON 对象，不要输出任何其他文字、Markdown 或解释。\n"
+                "JSON 格式: {\"selected_tool\": \"...\", \"arguments\": {...}, "
+                "\"confidence\": 0.0, \"need_clarification\": false, "
+                "\"clarification_question\": \"\", \"reason\": \"...\"}"
+            )},
+            {"role": "user", "content": f"用户输入: {text}\n\n请只输出 JSON:"},
+        ]
+        try:
+            response = await self._chat_model.ainvoke(retry_prompt)
+            content = (response.content or "").strip()
+            if not content:
+                return None
+            parsed = self._parse_json(content)
+            if parsed is not None:
+                logger.info("LLM router JSON parse succeeded on retry")
+                return parsed
+            logger.error(
+                f"LLM router JSON parse failed on retry too. "
+                f"Raw content (first 300 chars): {content[:300]}"
+            )
+            return None
+        except Exception as e:
+            logger.error(f"LLM router retry failed: {e}")
             return None
 
     def _build_prompt(self, text: str) -> list[dict[str, str]]:

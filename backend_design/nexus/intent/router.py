@@ -49,6 +49,25 @@ class IntentRouterService:
         "Poi_Search_Action",  # 高德 POI 周边搜索
     )
 
+    # 类级默认意图模板 — 静态方法直接引用，无需创建实例
+    _DEFAULT_INTENT_TEMPLATE: dict[str, Any] = {
+        "Call_elm": False,
+        "Food_candidate": "",
+        "Need_Search": "",
+        "Register_Action": "",
+        "Climate_Action": {},
+        "Window_Action": {},
+        "Seat_Action": {},
+        "Navigation_Action": {},
+        "Media_Action": {},
+        "Vehicle_Status_Action": {},
+        "Poi_Search_Action": {},
+        "Need_Clarification": False,
+        "Clarification_Prompt": "",
+        "Route_Source": "default",
+        "Route_Confidence": 0.0,
+    }
+
     def __init__(
         self,
         llm_client: Any = None,
@@ -110,23 +129,9 @@ class IntentRouterService:
         return default
 
     def _build_default_intent(self) -> dict[str, Any]:
-        return {
-            "Call_elm": False,
-            "Food_candidate": "",
-            "Need_Search": "",
-            "Register_Action": "",
-            "Climate_Action": {},
-            "Window_Action": {},
-            "Seat_Action": {},
-            "Navigation_Action": {},
-            "Media_Action": {},
-            "Vehicle_Status_Action": {},
-            "Poi_Search_Action": {},  # 高德 POI 周边搜索
-            "Need_Clarification": False,
-            "Clarification_Prompt": "",
-            "Route_Source": "default",
-            "Route_Confidence": 0.0,
-        }
+        """构建默认意图字典（实例方法，每次返回深拷贝避免共享引用）。"""
+        import copy
+        return copy.deepcopy(self._DEFAULT_INTENT_TEMPLATE)
 
     def _decision_to_intent(self, decision: dict[str, Any]) -> dict[str, Any]:
         """将 LLM 决策转换为标准意图格式"""
@@ -134,8 +139,13 @@ class IntentRouterService:
 
     @staticmethod
     def _decision_to_intent_static(decision: dict[str, Any], min_confidence: float = 0.55) -> dict[str, Any]:
-        """静态方法: LLM 决策 → 标准意图"""
-        default = IntentRouterService()._build_default_intent()
+        """静态方法: LLM 决策 → 标准意图
+
+        优化: 使用类级常量 _DEFAULT_INTENT_TEMPLATE 替代 IntentRouterService()._build_default_intent()，
+        避免每次调用创建新实例（原实现会触发 get_config() + get_llm_client() + HeuristicRouter() 初始化）。
+        """
+        import copy
+        default = copy.deepcopy(IntentRouterService._DEFAULT_INTENT_TEMPLATE)
         tool_name = str(decision.get("selected_tool") or "").strip()
         arguments = decision.get("arguments") or {}
         if not isinstance(arguments, dict):
@@ -163,8 +173,12 @@ class IntentRouterService:
 
     @staticmethod
     def _tool_to_intent(tool_name: str, arguments: dict[str, Any], confidence: float = 0.0) -> dict[str, Any]:
-        """工具名 → 标准意图格式"""
-        default = IntentRouterService()._build_default_intent()
+        """工具名 → 标准意图格式
+
+        优化: 使用类级常量 _DEFAULT_INTENT_TEMPLATE 替代 IntentRouterService()._build_default_intent()。
+        """
+        import copy
+        default = copy.deepcopy(IntentRouterService._DEFAULT_INTENT_TEMPLATE)
         tool_name = tool_name.strip()
 
         if tool_name == "web_search":

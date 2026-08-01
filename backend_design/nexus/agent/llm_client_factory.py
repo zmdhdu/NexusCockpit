@@ -7,7 +7,8 @@ LLM Client Factory — 统一 LLM 客户端创建
 
 核心组件: langchain-openai ChatOpenAI
   - get_chat_model() 返回 ChatOpenAI 实例（LangChain 生态标准，推荐）
-  - get_llm_client() 返回 AsyncOpenAI 实例（供需要直接调用 OpenAI SDK 的场景使用）
+  - call_llm_with_fallback() 统一 LLM 调用入口（带降级，推荐使用）
+  - get_llm_client() 返回 AsyncOpenAI 实例（已弃用，保留向后兼容）
 
 ChatOpenAI 优势:
   - 连接池管理（自动复用 HTTP 连接）
@@ -17,16 +18,19 @@ ChatOpenAI 优势:
   - 流式输出（astream）
 
 使用方式:
-    # 推荐（LangChain 生态）:
+    # 推荐（统一入口，带降级）:
+    from nexus.agent.llm_client_factory import call_llm_with_fallback
+    content = await call_llm_with_fallback(
+        messages=[{"role": "user", "content": "你好"}],
+        temperature=0.3,
+        max_tokens=300,
+    )
+
+    # 直接使用 ChatOpenAI:
     from nexus.agent.llm_client_factory import get_chat_model
     llm = get_chat_model()
     response = await llm.ainvoke([{"role": "user", "content": "你好"}])
     logger.info(response.content)
-
-    # 直接调用 OpenAI SDK（反思校验等场景）:
-    from nexus.agent.llm_client_factory import get_llm_client
-    client = get_llm_client()
-    response = await client.chat.completions.create(...)
 """
 
 from __future__ import annotations
@@ -74,10 +78,11 @@ def get_chat_model():
 
 
 def get_llm_client():
-    """获取 AsyncOpenAI 实例（全局单例）。
+    """获取 AsyncOpenAI 实例（全局单例，已弃用）。
 
-    供反思校验、流式输出等需要直接调用 OpenAI SDK 的场景使用。
-    新代码推荐使用 get_chat_model() + ainvoke()。
+    ⚠️ 已弃用: 新代码请使用 call_llm_with_fallback() 或 get_chat_model().ainvoke()。
+    保留此函数仅为向后兼容 (memory/manager.py, memory/compressor.py 仍在使用)。
+    supervisor_graph.py 中的 7 处直接调用将在 supervisor_graph.py 拆分阶段统一迁移。
 
     Returns:
         AsyncOpenAI 实例
@@ -141,36 +146,43 @@ async def call_llm_with_fallback(
     max_tokens: int = 512,
     stream: bool = False,
     **kwargs,
-) -> Any:
-    """带自动降级的 LLM 调用（使用 ChatOpenAI）。
+) -> str:
+    """带自动降级的 LLM 调用（统一使用 ChatOpenAI）。
 
-    优先使用 ChatOpenAI.ainvoke()，失败时降级到 fallback LLM。
+    优先使用 ChatOpenAI.ainvoke()，失败时降级到 fallback ChatOpenAI。
+    返回纯文本内容，调用方无需处理响应对象格式差异。
 
     Args:
-        messages: OpenAI 格式消息列表
-        model: 模型名称（可选，默认从配置读取）
+        messages: OpenAI 格式消息列表 [{"role": "...", "content": "..."}, ...]
+        model: 模型名称（可选，已从 ChatOpenAI 单例获取，此参数仅用于日志）
         temperature: 生成温度
         max_tokens: 最大 token 数
-        stream: 是否流式输出
+        stream: 是否流式输出（当前不支持，忽略）
         **kwargs: 其他参数
 
     Returns:
-        AIMessage（ChatOpenAI 响应）或 OpenAI 响应对象（降级时）
+        LLM 生成的文本内容字符串
     """
     config = get_config().llm
 
     try:
         chat_model = get_chat_model()
-        # ChatOpenAI.ainvoke 返回 AIMessage
-        response = await chat_model.ainvoke(messages)
-        return response
+        # ChatOpenAI.ainvoke 返回 AIMessage，取 .content
+        response = await chat_model.ainvoke(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+        return response.content or ""
     except Exception as e:
         logger.warning(f"Primary ChatOpenAI failed: {e}")
         fallback = get_fallback_client()
         if fallback is None:
             raise
         logger.warning("Falling back to local LLM (AsyncOpenAI)")
-        return await fallback.chat.completions.create(
+        # fallback 仍使用 AsyncOpenAI（降级场景，ChatOpenAI 单例可能已损坏）
+        response = await fallback.chat.completions.create(
             model=config.fallback_model,
             messages=messages,
             temperature=temperature,
@@ -178,3 +190,4 @@ async def call_llm_with_fallback(
             stream=stream,
             **kwargs,
         )
+        return response.choices[0].message.content or ""
