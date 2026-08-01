@@ -24,11 +24,9 @@ import os
 import signal
 import subprocess
 import sys
-from typing import Any
 
 import httpx
 
-from nexus.config import get_config
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -69,13 +67,14 @@ class LlamaCppProcessManager:
             ),
         )
         self._port = int(os.getenv("LLAMA_CPP_PORT", "8082"))
-        self._host = "127.0.0.1"
+        self._host = os.getenv("LLAMA_CPP_HOST", "127.0.0.1")
         self._ctx_size = int(os.getenv("LLAMA_CPP_CTX_SIZE", "4096"))
         self._gpu_layers = int(os.getenv("LLAMA_CPP_GPU_LAYERS", "0"))
         self._threads = int(os.getenv("LLAMA_CPP_THREADS", str(os.cpu_count() or 4)))
         self._max_restarts = 3
         self._restart_count = 0
         self._process: subprocess.Popen | None = None
+        self._monitor_task: asyncio.Task | None = None
         self._health_check_url = f"http://{self._host}:{self._port}/health"
         self._shutdown_event = asyncio.Event()
 
@@ -145,8 +144,9 @@ class LlamaCppProcessManager:
             if await self._wait_for_health(timeout=60):
                 logger.info("llama-server healthy, ready to serve")
                 self._restart_count = 0
-                # 启动后台监控任务
-                asyncio.create_task(self._monitor())
+                # 启动后台监控任务（加入强引用集合防止 GC 回收）
+                monitor_task = asyncio.create_task(self._monitor())
+                self._monitor_task = monitor_task
                 return True
             else:
                 logger.error("llama-server failed health check within 60s")

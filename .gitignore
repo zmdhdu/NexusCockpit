@@ -32,14 +32,13 @@ ENV/
 *.swp
 *.swo
 
-# Environment (敏感配置，不提交到 GitHub)
+# Environment
+# .env = 统一默认配置 (提交 GitHub, 开箱即用)
+# .env.local = 本机覆盖配置 (不提交, 含个人密钥)
 .env.local
-.env.prod
 .env.production
-.env.secrets
 .secrets
 *.secrets
-# .env 作为模板文件可提交 (不含真实密钥)
 
 # Docker
 docker-compose.override.yml

@@ -21,7 +21,7 @@ ChatOpenAI 优势:
     from nexus.agent.llm_client_factory import get_chat_model
     llm = get_chat_model()
     response = await llm.ainvoke([{"role": "user", "content": "你好"}])
-    print(response.content)
+    logger.info(response.content)
 
     # 直接调用 OpenAI SDK（反思校验等场景）:
     from nexus.agent.llm_client_factory import get_llm_client

@@ -53,13 +53,26 @@ type Config struct {
 	RateLimitQPS int
 
 	// 座舱
-	CockpitCount     int
-	IsolationMode    string
-	SubAgentCheckMin int
-	SubAgentCheckMax int
+	CockpitCount int
+
+	// 中间件（用于 Go 原生健康检查）
+	MySQLHost string
+	MySQLPort int
+	MilvusHost string
+	MilvusPort int
+	Neo4jHost  string
+	Neo4jPort  int
 
 	// 声纹
 	VoiceprintThreshold float64
+
+	// 可观测性 — Prometheus 查询地址（用于 Go 端查询并发/QPS 等指标）
+	PrometheusURL string
+
+	// 座舱主题色（逗号分隔，按 COCKPIT_COUNT 循环取色）
+	CockpitThemes string
+	// 座舱显示名称（逗号分隔，按 COCKPIT_COUNT 循环取名）
+	CockpitNames string
 }
 
 var cfg *Config
@@ -74,23 +87,31 @@ func Load() *Config {
 		GateMode: getEnv("NEXUS_GATE_MODE", "proxy"),
 		// JWT 密钥：优先 JWT_SECRET，未设置时复用 Python 侧的 JWT_SECRET_KEY，
 		// 确保双端互验 Token（网关签发 → Python 验证，反之亦然）
-		JWTSecret:           getEnv("JWT_SECRET", getEnv("JWT_SECRET_KEY", "nexus-cockpit-secret")),
+		// JWT 密钥: 优先 JWT_SECRET, 未设置时复用 Python 侧的 JWT_SECRET_KEY
+		// 安全: 留空则启动时自动生成随机密钥 (仅开发环境)
+		JWTSecret:           getEnv("JWT_SECRET", getEnv("JWT_SECRET_KEY", "")),
 		JWTExpireHours:      getEnvInt("JWT_EXPIRE_HOURS", 24),
 		RedisHost:           getEnv("REDIS_HOST", "127.0.0.1"),
-		RedisPort:           getEnvInt("REDIS_PORT", 6379),
+		RedisPort:           getEnvInt("REDIS_PORT", 16379),
 		RedisPassword:       getEnv("REDIS_PASSWORD", ""),
 		RedisDB:             getEnvInt("REDIS_DB", 0),
 		DefaultRole:         getEnv("RBAC_DEFAULT_ROLE", "cockpit_user"),
 		AdminUsername:       getEnv("RBAC_ADMIN_USERNAME", "admin"),
-		AdminPassword:       getEnv("RBAC_ADMIN_PASSWORD", "admin123"),
+		AdminPassword:       getEnv("RBAC_ADMIN_PASSWORD", ""),
 		UserPassword:        getEnv("RBAC_USER_PASSWORD", ""),
 		CORSOrigins:         getEnv("CORS_ORIGINS", "*"),
 		RateLimitQPS:        getEnvInt("RATE_LIMIT_QPS", 100),
-		CockpitCount:        getEnvInt("COCKPIT_COUNT", 3),
-		IsolationMode:       getEnv("COCKPIT_ISOLATION_MODE", "shared"),
-		SubAgentCheckMin:    getEnvInt("SUBAGENT_CHECK_MIN", 30),
-		SubAgentCheckMax:    getEnvInt("SUBAGENT_CHECK_MAX", 60),
+		CockpitCount:        getEnvInt("COCKPIT_COUNT", 1),
+		MySQLHost:           getEnv("MYSQL_HOST", "127.0.0.1"),
+		MySQLPort:           getEnvInt("MYSQL_PORT", 13306),
+		MilvusHost:          getEnv("MILVUS_HOST", "127.0.0.1"),
+		MilvusPort:          getEnvInt("MILVUS_PORT", 19530),
+		Neo4jHost:           getEnv("NEO4J_HOST", "127.0.0.1"),
+		Neo4jPort:           getEnvInt("NEO4J_BOLT_PORT", 17687),
 		VoiceprintThreshold: getEnvFloat("VOICEPRINT_THRESHOLD", 0.7),
+		PrometheusURL:      getEnv("PROMETHEUS_URL", "http://127.0.0.1:9200"),
+		CockpitThemes:      getEnv("COCKPIT_THEMES", "#4fc3f7,#66bb6a,#ab47bc"),
+		CockpitNames:       getEnv("COCKPIT_NAMES", "座舱1,座舱2,座舱3"),
 	}
 	validateProdSecurity(cfg)
 	return cfg
@@ -103,10 +124,10 @@ func validateProdSecurity(c *Config) {
 		return
 	}
 	var errs []string
-	if c.JWTSecret == "nexus-cockpit-secret" {
-		errs = append(errs, "JWT_SECRET 仍为默认弱密钥，生产环境必须修改")
+	if c.JWTSecret == "" || c.JWTSecret == "nexus-cockpit-secret" {
+		errs = append(errs, "JWT_SECRET 未设置或为默认弱密钥，生产环境必须设置强随机密钥")
 	}
-	if c.AdminPassword == "admin123" {
+	if c.AdminPassword != "" && c.AdminPassword == "admin123" {
 		errs = append(errs, "RBAC_ADMIN_PASSWORD 仍为默认弱口令，生产环境必须修改")
 	}
 	if c.CORSOrigins == "*" {
@@ -130,6 +151,16 @@ func (c *Config) AllowedOrigins() []string {
 		}
 	}
 	return origins
+}
+
+// CockpitThemeList 返回座舱主题色列表（逗号分隔 → 切片）
+func (c *Config) CockpitThemeList() []string {
+	return splitTrim(c.CockpitThemes)
+}
+
+// CockpitNameList 返回座舱名称列表（逗号分隔 → 切片）
+func (c *Config) CockpitNameList() []string {
+	return splitTrim(c.CockpitNames)
 }
 
 // Get 获取全局配置
@@ -171,4 +202,16 @@ func getEnvFloat(key string, defaultVal float64) float64 {
 		}
 	}
 	return defaultVal
+}
+
+// splitTrim 内部辅助函数：逗号分隔字符串 → 去空格切片
+func splitTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			result = append(result, v)
+		}
+	}
+	return result
 }

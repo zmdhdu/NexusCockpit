@@ -1,0 +1,62 @@
+# ============================================================
+# NexusCockpit 开发调试覆盖配置 (docker-compose.dev.yml)
+# ------------------------------------------------------------
+# 仅用于本地开发自测，交付打包时剔除此文件。
+#
+# 使用方式:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 此文件在 docker-compose.yml 基础上追加:
+#   - 中间件调试端口暴露 (Neo4j Browser, Milvus Metrics, MinIO Console)
+#   - 调试挂载目录 (docs, logs)
+#   - Grafana/Prometheus/Loki 端口暴露
+# ============================================================
+
+services:
+  # --- Milvus: 暴露 metrics 端口 (交付版不暴露) ---
+  milvus:
+    ports:
+      - "9201:9091"
+
+  # --- Neo4j: 暴露 Browser 端口 (交付版不暴露) ---
+  neo4j:
+    ports:
+      - "17474:7474"
+      - "17687:7687"
+
+  # --- MinIO: 暴露 Console 端口 (交付版不暴露) ---
+  minio:
+    ports:
+      - "9001:9001"
+
+  # --- Langfuse: 暴露 Web 端口 ---
+  langfuse:
+    ports:
+      - "3101:3000"
+
+  # --- Loki: 暴露端口 ---
+  loki:
+    ports:
+      - "3100:3100"
+
+  # --- Prometheus: 暴露端口 ---
+  prometheus:
+    ports:
+      - "9200:9090"
+
+  # --- Grafana: 暴露端口 ---
+  grafana:
+    ports:
+      - "3001:3000"
+
+  # --- Python AI: 追加调试挂载 ---
+  nexus_ai:
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./docs:/app/docs
+      - ./logs/backend_logs:/app/logs/backend_logs
+    environment:
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG

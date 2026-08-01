@@ -36,6 +36,7 @@ import redis.asyncio as aioredis
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
+from nexus.intent.constants import VEHICLE_CACHE_KEYWORDS
 from nexus.rag.embedding import EmbeddingService
 
 logger = get_logger(__name__)
@@ -491,14 +492,8 @@ class SemanticCache:
         if not self._enabled or not self._redis:
             return 0
 
-        # 车控关键词 — 用于识别旧的车控缓存条目
-        vehicle_keywords = (
-            "车窗", "天窗", "开窗", "关窗", "升窗",
-            "空调", "车内温度", "风量", "制冷", "制热", "除雾",
-            "座椅", "按摩", "加热", "通风",
-            "播放", "暂停", "下一首", "上一首", "音量", "切歌", "听歌",
-            "车况", "胎压", "续航", "油量", "电量", "保养",
-        )
+        # 车控关键词 — 从 intent.constants 统一管理，用于识别旧的车控缓存条目
+        vehicle_keywords = VEHICLE_CACHE_KEYWORDS
 
         try:
             count = 0

@@ -179,25 +179,6 @@ class SkillRegistry:
         """获取所有技能的 Tool Schema。"""
         return [skill.get_tool_schema() for skill in self._skills.values()]
 
-    def get_langchain_tools(self) -> list:
-        """获取所有技能的 LangChain Tool 对象列表。
-
-        使用 langchain-core 的 StructuredTool 封装，
-        可直接传入 langgraph.prebuilt.ToolNode 或 create_react_agent。
-
-        Returns:
-            list[StructuredTool]: LangChain Tool 对象列表
-        """
-        tools = []
-        for skill in self._skills.values():
-            try:
-                tool = skill.to_langchain_tool()
-                tools.append(tool)
-            except Exception as e:
-                logger.error(f"Failed to convert skill '{skill.name}' to LangChain tool: {e}")
-        logger.info(f"Converted {len(tools)} skills to LangChain tools")
-        return tools
-
     def get_skills_by_group(self, group: SkillGroup) -> dict[str, BaseSkill]:
         """按专家分组获取技能（供专家 Agent 使用）。"""
         return {
@@ -242,28 +223,4 @@ class SkillRegistry:
                 action=tool_name,
                 handled=False,
             )
-        
-    def load_skills_from_yaml(self, yaml_file: str = "nexus/skills/default.yaml") -> int:
-        """从 YAML 文件动态加载技能配置.
-            
-        Args:
-            yaml_file: YAML 配置文件路径
-            
-        Returns:
-            成功加载的技能数量
-        """
-        import json
-        from pathlib import Path
-            
-        try:
-            # TODO: 在 Python 中解析 YAML 并注册技能
-            # 这需要引入 PyYAML 库或手动解析
-            # 目前仅作为文档说明，实际使用装饰器方式注册技能
-            logger.info(f"Load skills from YAML: {yaml_file} (not implemented yet)")
-            return 0
-        except ImportError:
-            logger.warning("PyYAML not installed, skipping YAML-based skill loading")
-            return 0
-        except Exception as e:
-            logger.error(f"Failed to load skills from YAML: {e}")
-            return 0
+

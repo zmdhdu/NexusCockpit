@@ -13,8 +13,6 @@ import json
 import re
 from typing import Any
 
-from typing import Any
-
 from nexus.agent.llm_client_factory import get_chat_model
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -108,7 +106,4 @@ class LLMIntentRouter:
         except Exception:
             return None
 
-    def decision_to_intent(self, decision: dict[str, Any]) -> dict[str, Any]:
-        """将 LLM 决策转换为标准意图格式"""
-        from nexus.intent.router import IntentRouterService
-        return IntentRouterService._decision_to_intent_static(decision, self.min_confidence)
+

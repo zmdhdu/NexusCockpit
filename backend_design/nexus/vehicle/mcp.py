@@ -87,15 +87,15 @@ class StdioJsonRpcTransport:
             if self.process and self.process.poll() is None:
                 try:
                     self.process.terminate()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to terminate MCP subprocess: {e}")
         finally:
             for stream in (self._stdin, self._stdout, self._stderr):
                 try:
                     if stream:
                         stream.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to close MCP stream: {e}")
 
     def _next_id(self) -> int:
         self._message_id += 1
@@ -113,7 +113,8 @@ class StdioJsonRpcTransport:
         while True:
             try:
                 chunk = self._stdout.read(4096)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"MCP stdout read ended: {e}")
                 break
             if not chunk:
                 break
@@ -136,7 +137,8 @@ class StdioJsonRpcTransport:
         while True:
             try:
                 chunk = self._stderr.readline()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"MCP stderr read ended: {e}")
                 break
             if not chunk:
                 break
@@ -213,8 +215,8 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
         )
         try:
             self.transport.notify("notifications/initialized", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"MCP notify initialized failed: {e}")
 
     def _refresh_tools(self) -> None:
         try:

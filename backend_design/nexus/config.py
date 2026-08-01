@@ -21,6 +21,7 @@ NexusCockpit 配置中心 (Configuration Center)
 
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 
@@ -37,31 +38,23 @@ _PROJECT_ROOT = os.path.dirname(
 )
 
 # ============================================================
-# 环境文件加载策略 (local / prod 自动切换)
+# 环境文件加载策略
 # ============================================================
-# 优先级 (从高到低):
-#   1. 环境变量 APP_ENV=prod → 加载 .env.prod
-#   2. 环境变量 APP_ENV=local → 加载 .env.local
-#   3. 默认 (未设置 APP_ENV) → 加载 .env.local (本地开发默认)
-#   4. 如果目标文件不存在 → 回退到 .env (兼容旧逻辑)
+# 加载逻辑:
+#   1. .env.local 存在 → 加载 .env.local (覆盖 .env 默认值, 含个人密钥)
+#   2. .env.local 不存在 → 加载 .env (开箱即用的默认配置)
 #
-# 使用方式:
-#   本地开发: 无需设置，默认加载 .env.local
-#   线上生产: export APP_ENV=prod  (或 docker 环境变量 APP_ENV=prod)
+# .env = 统一默认配置 (提交 GitHub, 开发者克隆即可运行)
+# .env.local = 本机覆盖配置 (不提交, 含个人 API Key 等敏感信息)
 
 _APP_ENV = os.getenv("APP_ENV", "local").strip().lower()
 _ENV_LOCAL = os.path.join(_PROJECT_ROOT, ".env.local")
-_ENV_PROD = os.path.join(_PROJECT_ROOT, ".env.prod")
-_ENV_FALLBACK = os.path.join(_PROJECT_ROOT, ".env")
+_ENV_DEFAULT = os.path.join(_PROJECT_ROOT, ".env")
 
-if _APP_ENV == "prod" and os.path.exists(_ENV_PROD):
-    _ENV_FILE = _ENV_PROD
-elif _APP_ENV == "local" and os.path.exists(_ENV_LOCAL):
-    _ENV_FILE = _ENV_LOCAL
-elif os.path.exists(_ENV_LOCAL):
+if os.path.exists(_ENV_LOCAL):
     _ENV_FILE = _ENV_LOCAL
 else:
-    _ENV_FILE = _ENV_FALLBACK
+    _ENV_FILE = _ENV_DEFAULT
 
 # 显式加载环境文件到 os.environ，确保 .env.local 中的值不会被 .env 中的空值覆盖
 # pydantic-settings 在读取 env_file 时可能会被其他 .env 文件干扰
@@ -247,7 +240,8 @@ class Neo4jConfig(BaseSettings):
     Neo4j 存储用户画像、偏好关系等图结构数据，与 Milvus 向量检索融合 (GraphRAG)。
     """
 
-    uri: str = Field(default="bolt://127.0.0.1:7687", validation_alias="NEO4J_URI")
+    # 默认端口 17687 与 docker-compose.yml 映射 (17687:7687) 对齐
+    uri: str = Field(default="bolt://127.0.0.1:17687", validation_alias="NEO4J_URI")
     user: str = Field(default="neo4j", validation_alias="NEO4J_USER")
     password: str = Field(default="nexuscockpit", validation_alias="NEO4J_PASSWORD")
 
@@ -263,7 +257,8 @@ class RedisConfig(BaseSettings):
     """
 
     host: str = Field(default="127.0.0.1", validation_alias="REDIS_HOST")
-    port: int = Field(default=6379, validation_alias="REDIS_PORT")
+    # 默认端口 16379 与 docker-compose.yml 映射 (16379:6379) 对齐
+    port: int = Field(default=16379, validation_alias="REDIS_PORT")
     # Security: 生产环境必须设置强密码
     password: str = Field(default="", validation_alias="REDIS_PASSWORD")
     db: int = Field(default=0, validation_alias="REDIS_DB")
@@ -290,9 +285,6 @@ class RedisConfig(BaseSettings):
         return f"redis://{auth}{self.host}:{self.port}/{self.db}"
 
 
-# 注: RabbitMQConfig 已移除，任务队列改为 asyncio.create_task()
-
-
 class MySQLConfig(BaseSettings):
     """MySQL 数据库配置。
 
@@ -300,7 +292,8 @@ class MySQLConfig(BaseSettings):
     """
 
     host: str = Field(default="127.0.0.1", validation_alias="MYSQL_HOST")
-    port: int = Field(default=3306, validation_alias="MYSQL_PORT")
+    # 默认端口 13306 与 docker-compose.yml 映射 (13306:3306) 对齐
+    port: int = Field(default=13306, validation_alias="MYSQL_PORT")
     user: str = Field(default="root", validation_alias="MYSQL_USER")
     password: str = Field(default="nexuscockpit", validation_alias="MYSQL_PASSWORD")
     database: str = Field(default="nexus_cockpit", validation_alias="MYSQL_DATABASE")
@@ -323,9 +316,11 @@ class JWTConfig(BaseSettings):
     用于用户登录后的 Token 签发与验证，保护 API 接口安全。
     """
 
-    # JWT 签名密钥 (生产环境必须修改)
+    # JWT 签名密钥 (生产环境必须设置强随机密钥)
+    # 注意: 此默认值必须与 Go 端 config.go 的默认值保持一致，否则双端 Token 互验失败
+    # 安全: 留空则启动时自动生成随机密钥 (仅开发环境)
     secret_key: str = Field(
-        default="change-me-in-production", validation_alias="JWT_SECRET_KEY"
+        default="", validation_alias="JWT_SECRET_KEY"
     )
     # 签名算法
     algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
@@ -465,10 +460,16 @@ class ServerConfig(BaseSettings):
     debug: bool = Field(default=True, validation_alias="DEBUG")
     # 日志级别
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
-    # CORS 允许的来源 (* 表示允许所有)
+    # CORS 允许的来源 (逗号分隔, 生产环境必须指定具体域名)
+    # 默认允许 localhost:3000 (开发环境前端)
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["*"]
+        default_factory=lambda: ["http://localhost:3000"],
+        validation_alias="CORS_ORIGINS",
     )
+    # 会话并发锁最大数量（超过时清理空闲锁防内存泄漏）
+    session_locks_max: int = Field(default=500, validation_alias="SESSION_LOCKS_MAX")
+    # SSE 心跳间隔秒数（防止代理/防火墙超时断连）
+    sse_heartbeat_interval: float = Field(default=15.0, validation_alias="SSE_HEARTBEAT_INTERVAL")
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
@@ -590,9 +591,6 @@ class DataConfig(BaseSettings):
         return _resolve_path(self.preferences_dir)
 
 
-# 注: OSSConfig 已移除（未集成，过度设计）
-
-
 class MemoryConfig(BaseSettings):
     """智能上下文记忆管理配置。
 
@@ -682,7 +680,8 @@ class ObservabilityConfig(BaseSettings):
 
     # Prometheus 查询地址（SubAgent 用于查询 P95 延迟等指标）
     prometheus_url: str = Field(
-        default="http://127.0.0.1:9090", validation_alias="PROMETHEUS_URL"
+        # 默认端口 9200 与 docker-compose.yml 映射 (9200:9090) 对齐
+        default="http://127.0.0.1:9200", validation_alias="PROMETHEUS_URL"
     )
     # Grafana 地址（仅用于日志输出，不影响功能）
     grafana_url: str = Field(
@@ -723,13 +722,21 @@ class AppConfig(BaseSettings):
 
     def model_post_init(self, __context) -> None:
         """初始化后安全检查：生产环境不安全配置直接拒绝启动。"""
+        # --- 开发环境: JWT 密钥为空时自动生成随机密钥 ---
+        if _APP_ENV != "prod" and not self.jwt.secret_key:
+            import secrets as _secrets
+            self.jwt.secret_key = _secrets.token_urlsafe(32)
+            # 同步写入 os.environ, 供 Go 网关子进程读取 (如有)
+            os.environ["JWT_SECRET_KEY"] = self.jwt.secret_key
+            logging.info("[开发环境] JWT_SECRET_KEY 未设置, 已自动生成随机密钥")
+
         if _APP_ENV != "prod":
             return
         errors = []
         warnings = []
         # --- P0: JWT 弱密钥必须阻止启动 ---
-        if self.jwt.secret_key == "change-me-in-production":
-            errors.append("JWT_SECRET_KEY 仍为默认弱密钥，生产环境必须修改！")
+        if not self.jwt.secret_key or self.jwt.secret_key == "nexus-cockpit-secret":
+            errors.append("JWT_SECRET_KEY 未设置或为默认弱密钥，生产环境必须设置强随机密钥！")
         # --- P0: CORS 通配符必须阻止启动 ---
         if self.server.cors_origins == ["*"]:
             errors.append("CORS origins 为 ['*'] (允许所有域)，生产环境必须指定具体域名！")
@@ -742,20 +749,16 @@ class AppConfig(BaseSettings):
         if _APP_ENV == "prod" and self.redis.password == "":
             warnings.append("REDIS_PASSWORD 为空，Redis 服务无密码保护！建议设置强密码")
         if warnings:
-            import sys
             msg = "\n".join(f"  ⚠️ {w}" for w in warnings)
-            print(
-                f"\n⚠️ [生产环境安全警告] 检测到以下不安全配置:\n{msg}\n"
-                f"请在 .env.prod 中修改以上配置。\n",
-                file=sys.stderr,
+            logging.warning(
+                "[生产环境安全警告] 检测到以下不安全配置:\n%s\n请在 .env.prod 中修改以上配置。",
+                msg,
             )
         if errors:
-            import sys
             msg = "\n".join(f"  ❌ {e}" for e in errors)
-            print(
-                f"\n🚨 [生产环境安全拒绝] 检测到以下致命安全配置错误:\n{msg}\n"
-                f"请在 .env.prod 中修改以上配置后再启动！\n",
-                file=sys.stderr,
+            logging.error(
+                "[生产环境安全拒绝] 检测到以下致命安全配置错误:\n%s\n请在 .env.prod 中修改以上配置后再启动！",
+                msg,
             )
             raise ValueError(
                 "生产环境安全检查失败，拒绝启动:\n" +

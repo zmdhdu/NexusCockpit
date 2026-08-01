@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -93,81 +91,40 @@ func checkTCP(host string, port int) (int64, error) {
 	return latency, nil
 }
 
+// middlewareCheckTarget 描述一次 TCP 连通性检查的目标。
+type middlewareCheckTarget struct {
+	name string
+	host string
+	port int
+}
+
 // GetAllMiddlewareStatus 检查所有中间件状态
+//
+// 通过循环遍历中间件列表执行 TCP 拨号，避免逐个手写重复代码。
 func GetAllMiddlewareStatus(c *gin.Context) {
 	cfg := config.Get()
-	statuses := []MiddlewareStatus{}
 
-	// Redis
-	redisLatency, redisErr := checkTCP(cfg.RedisHost, cfg.RedisPort)
-	redisStatus := MiddlewareStatus{
-		Name: "redis", Latency: redisLatency,
+	// 中间件检查列表 — 新增中间件只需在此追加一行
+	checks := []middlewareCheckTarget{
+		{"redis", cfg.RedisHost, cfg.RedisPort},
+		{"mysql", cfg.MySQLHost, cfg.MySQLPort},
+		{"milvus", cfg.MilvusHost, cfg.MilvusPort},
+		{"neo4j", cfg.Neo4jHost, cfg.Neo4jPort},
+		{"python_ai", cfg.AIHost, cfg.AIPort},
 	}
-	if redisErr != nil {
-		redisStatus.Status = "offline"
-		redisStatus.Error = redisErr.Error()
-	} else {
-		redisStatus.Status = "online"
-	}
-	statuses = append(statuses, redisStatus)
 
-	// MySQL
-	mysqlHost := getEnv("MYSQL_HOST", "127.0.0.1")
-	mysqlPort := getEnvInt("MYSQL_PORT", 3306)
-	mysqlLatency, mysqlErr := checkTCP(mysqlHost, mysqlPort)
-	mysqlStatus := MiddlewareStatus{
-		Name: "mysql", Latency: mysqlLatency,
+	statuses := make([]MiddlewareStatus, 0, len(checks))
+	for _, ck := range checks {
+		latency, err := checkTCP(ck.host, ck.port)
+		st := MiddlewareStatus{Name: ck.name, Latency: latency}
+		if err != nil {
+			st.Status = "offline"
+			st.Error = err.Error()
+		} else {
+			st.Status = "online"
+		}
+		statuses = append(statuses, st)
 	}
-	if mysqlErr != nil {
-		mysqlStatus.Status = "offline"
-		mysqlStatus.Error = mysqlErr.Error()
-	} else {
-		mysqlStatus.Status = "online"
-	}
-	statuses = append(statuses, mysqlStatus)
-
-	// Milvus
-	milvusHost := getEnv("MILVUS_HOST", "127.0.0.1")
-	milvusPort := getEnvInt("MILVUS_PORT", 19530)
-	milvusLatency, milvusErr := checkTCP(milvusHost, milvusPort)
-	milvusStatus := MiddlewareStatus{
-		Name: "milvus", Latency: milvusLatency,
-	}
-	if milvusErr != nil {
-		milvusStatus.Status = "offline"
-		milvusStatus.Error = milvusErr.Error()
-	} else {
-		milvusStatus.Status = "online"
-	}
-	statuses = append(statuses, milvusStatus)
-
-	// Neo4j
-	neo4jHost := getEnv("NEO4J_HOST", "127.0.0.1")
-	neo4jPort := getEnvInt("NEO4J_BOLT_PORT", 7687)
-	neo4jLatency, neo4jErr := checkTCP(neo4jHost, neo4jPort)
-	neo4jStatus := MiddlewareStatus{
-		Name: "neo4j", Latency: neo4jLatency,
-	}
-	if neo4jErr != nil {
-		neo4jStatus.Status = "offline"
-		neo4jStatus.Error = neo4jErr.Error()
-	} else {
-		neo4jStatus.Status = "online"
-	}
-	statuses = append(statuses, neo4jStatus)
-
-	// Python AI 服务
-	aiLatency, aiErr := checkTCP(cfg.AIHost, cfg.AIPort)
-	aiStatus := MiddlewareStatus{
-		Name: "python_ai", Latency: aiLatency,
-	}
-	if aiErr != nil {
-		aiStatus.Status = "offline"
-		aiStatus.Error = aiErr.Error()
-	} else {
-		aiStatus.Status = "online"
-	}
-	statuses = append(statuses, aiStatus)
 
 	// 转为 map 便于前端使用
 	result := make(map[string]MiddlewareStatus)
@@ -207,7 +164,7 @@ func GetSingleMiddlewareStatus(c *gin.Context) {
 			status.Status = "online"
 		}
 	case "mysql":
-		latency, err := checkTCP(getEnv("MYSQL_HOST", "127.0.0.1"), getEnvInt("MYSQL_PORT", 3306))
+		latency, err := checkTCP(cfg.MySQLHost, cfg.MySQLPort)
 		status.Latency = latency
 		if err != nil {
 			status.Status = "offline"
@@ -216,7 +173,7 @@ func GetSingleMiddlewareStatus(c *gin.Context) {
 			status.Status = "online"
 		}
 	case "milvus":
-		latency, err := checkTCP(getEnv("MILVUS_HOST", "127.0.0.1"), getEnvInt("MILVUS_PORT", 19530))
+		latency, err := checkTCP(cfg.MilvusHost, cfg.MilvusPort)
 		status.Latency = latency
 		if err != nil {
 			status.Status = "offline"
@@ -225,7 +182,7 @@ func GetSingleMiddlewareStatus(c *gin.Context) {
 			status.Status = "online"
 		}
 	case "neo4j":
-		latency, err := checkTCP(getEnv("NEO4J_HOST", "127.0.0.1"), getEnvInt("NEO4J_BOLT_PORT", 7687))
+		latency, err := checkTCP(cfg.Neo4jHost, cfg.Neo4jPort)
 		status.Latency = latency
 		if err != nil {
 			status.Status = "offline"
@@ -306,24 +263,31 @@ func GetDataPlatformOverview(c *gin.Context) {
 		"avg_latency_ms":       avgLatencyMs,
 		"cockpit_count":        cfg.CockpitCount,
 		"alert_count_24h":      alertCount24h,
-		"current_concurrency":  0, // Demo: 无法从 Go 端获取实时并发
+		"current_concurrency":  int64(queryPrometheus(cfg.PrometheusURL, "nexus_active_connections", 0)),
 		"source":               "go_native",
 	})
 }
 
 // GetDataPlatformConcurrency 返回并发指标
+//
+// 通过 Prometheus HTTP API 查询实时并发连接数和 QPS，
+// 替代原来硬编码返回 0 的占位逻辑。
 func GetDataPlatformConcurrency(c *gin.Context) {
 	cfg := config.Get()
 
-	// Demo: 返回基本的并发信息
-	// 真正的并发指标应从 Prometheus 获取，这里简化处理
+	// 从 Prometheus 查询实时指标
+	currentConcurrency := queryPrometheus(cfg.PrometheusURL, "nexus_active_connections", 0)
+	qps := queryPrometheus(cfg.PrometheusURL, "sum(rate(nexus_requests_total[1m]))", 0)
+	peakConcurrency := queryPrometheus(cfg.PrometheusURL, "max_over_time(nexus_active_connections[24h])", 0)
+
 	c.JSON(200, gin.H{
-		"current_concurrency": 0,
-		"qps":                 0,
-		"peak_concurrency_24h": 0,
+		"current_concurrency":  int64(currentConcurrency),
+		"qps":                 int64(qps),
+		"peak_concurrency_24h": int64(peakConcurrency),
 		"cockpit_count":       cfg.CockpitCount,
-		"per_cockpit":         generateCockpitConcurrency(cfg.CockpitCount),
-		"source":              "go_native",
+		"per_cockpit":         queryPrometheusPerCockpit(cfg.PrometheusURL,
+				"nexus_active_connections{cockpit_id=\"%s\"}", cfg.CockpitCount),
+		"source":              "go_native_prometheus",
 	})
 }
 
@@ -358,36 +322,28 @@ func GetDataPlatformAlerts(c *gin.Context) {
 	})
 }
 
-// generateCockpitConcurrency 生成每个座舱的并发信息列表（Demo 模式）。
-// 当前返回的并发数和 QPS 均为 0，实际指标应从 Prometheus 获取。
-//
-// 参数:
-//   - count: 座舱数量
-//
-// 返回值: 每个座舱的并发信息 map 列表
-func generateCockpitConcurrency(count int) []map[string]interface{} {
-	result := []map[string]interface{}{}
-	for i := 1; i <= count; i++ {
-		result = append(result, map[string]interface{}{
-			"cockpit_id":          fmt.Sprintf("cockpit-0%d", i),
-			"current_concurrency": 0,
-			"qps":                 0,
-		})
-	}
-	return result
-}
 
 // ============================================================
 // 座舱列表（Go 原生返回配置）
 // ============================================================
 
 // ListCockpits 返回座舱列表（Go 原生）
+//
+// 主题色和座舱名称从配置读取（COCKPIT_THEMES / COCKPIT_NAMES 环境变量），
+// 替代原来硬编码的色值和名称。新增座舱只需修改配置，无需改代码。
 func ListCockpits(c *gin.Context) {
 	cfg := config.Get()
 
-	// 生成默认座舱列表（与 Python CockpitManager 的默认配置一致）
-	themes := []string{"#4fc3f7", "#66bb6a", "#ab47bc"}
-	names := []string{"座舱1", "座舱2", "座舱3"}
+	// 从配置读取主题色和名称列表
+	themes := cfg.CockpitThemeList()
+	names := cfg.CockpitNameList()
+	if len(themes) == 0 {
+		themes = []string{"#4fc3f7"}
+	}
+	if len(names) == 0 {
+		names = []string{"座舱1"}
+	}
+
 	cockpits := []CockpitInfo{}
 	for i := 1; i <= cfg.CockpitCount; i++ {
 		themeIdx := (i - 1) % len(themes)
@@ -456,39 +412,6 @@ func HealthCheck(c *gin.Context) {
 // ============================================================
 // 辅助函数
 // ============================================================
-
-// getEnv 从环境变量读取字符串，若不存在则返回默认值。
-//
-// 参数:
-//   - key:        环境变量名
-//   - defaultVal: 默认值（环境变量未设置或为空时使用）
-//
-// 返回值: 环境变量值或默认值
-func getEnv(key, defaultVal string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
-	}
-	return defaultVal
-}
-
-// getEnvInt 从环境变量读取整型值，若不存在或解析失败则返回默认值。
-//
-// 参数:
-//   - key:        环境变量名
-//   - defaultVal: 默认值（环境变量未设置或解析失败时使用）
-//
-// 返回值: 解析后的整型值或默认值
-func getEnvInt(key string, defaultVal int) int {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultVal
-	}
-	n, err := strconv.Atoi(val)
-	if err != nil {
-		return defaultVal
-	}
-	return n
-}
 
 // RespondJSON 向 HTTP 响应写入 JSON 数据，用于非 Gin 场景（如 WebSocket 处理器）。
 //

@@ -18,6 +18,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, redirect_stdout
 
 from nexus.config import get_config
+from nexus.core.device import has_cuda
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -117,7 +118,7 @@ class ASREngine:
                         # 关闭启动时的版本检查（消除 "Check update of funasr" 和
                         # "New version is available" 提示，同时加快启动几秒）
                         disable_update=True,
-                        device="cuda:0" if _has_cuda() else "cpu",
+                        device="cuda:0" if has_cuda() else "cpu",
                     )
                     self._loaded = True
             except ImportError:
@@ -171,34 +172,6 @@ class ASREngine:
             logger.error(f"ASR transcription failed: {e}")
             return ""
 
-    def transcribe_bytes(self, audio_bytes: bytes, sample_rate: int = 16000) -> str:
-        """
-        识别音频字节流为文本
-        (需要先将字节保存为临时文件)
-        """
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(audio_bytes)
-            temp_path = f.name
-
-        try:
-            return self.transcribe(temp_path)
-        finally:
-            try:
-                os.unlink(temp_path)
-            except Exception:
-                pass
-
     @property
     def is_loaded(self) -> bool:
         return self._loaded
-
-
-def _has_cuda() -> bool:
-    """检查是否有 CUDA 可用"""
-    try:
-        import torch
-        return torch.cuda.is_available()
-    except ImportError:
-        return False

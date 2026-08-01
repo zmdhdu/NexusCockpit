@@ -54,7 +54,6 @@ from nexus.middleware.session_store import SessionStore
 from nexus.observability.cockpit_metrics import CockpitMetrics
 from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import REQUEST_COUNT, REQUEST_LATENCY, init_metrics
-from nexus.rag.embedding import EmbeddingService
 from nexus.rag.embedding_factory import build_embedding_service
 from nexus.rag.graph_factory import build_graph_store
 from nexus.rag.vector_factory import build_vector_store
@@ -187,10 +186,10 @@ async def lifespan(app: FastAPI):
         try:
             import aiosqlite
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-                    
-            db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
+        # 使用项目根目录而非 os.getcwd()，确保从任意目录启动路径一致
+            db_path = os.path.join(config.project_root, "data", "checkpoints", "nexus_checkpoints.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
-                    
+
             # 使用 aiosqlite 异步连接执行 setup
             setup_conn = await aiosqlite.connect(db_path)
             try:
@@ -198,7 +197,7 @@ async def lifespan(app: FastAPI):
                 await checkpoint_saver.setup()
             finally:
                 await setup_conn.close()
-                    
+
             # 创建运行时持久连接（保持打开直到应用关闭）
             runtime_conn = await aiosqlite.connect(db_path)
             checkpoint_saver = AsyncSqliteSaver(runtime_conn)
@@ -282,7 +281,8 @@ async def lifespan(app: FastAPI):
     # LLM_PROVIDER=local 时：启动 llama-server 作为主 LLM
     # LLM_PROVIDER=cloud 且 LLM_FALLBACK_ENABLED=true 时：启动作为降级备份
     _need_llama = config.llm.is_local or config.llm.fallback_enabled
-    if _need_llama and os.getenv("LLAMA_CPP_SUBPROCESS", "true").lower() == "true":
+    _llama_subprocess = os.getenv("LLAMA_CPP_SUBPROCESS", "true").strip().lower() in ("true", "1", "yes")
+    if _need_llama and _llama_subprocess:
         try:
             from nexus.core.llama_cpp_manager import LlamaCppProcessManager
             llama_manager = LlamaCppProcessManager()

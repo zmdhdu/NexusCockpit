@@ -43,7 +43,6 @@ class CockpitMetrics:
             latency_ms: 响应延迟（毫秒）
             cache_hit: 是否命中缓存
         """
-        logger.info(f"record_chat called: cockpit_id={cockpit_id}, redis={self._redis is not None}")
         if not self._redis:
             return
 
@@ -160,29 +159,6 @@ class CockpitMetrics:
         except Exception as e:
             logger.error(f"Failed to get cockpit stats: {e}")
             return {}
-
-    async def get_all_cockpit_stats(self, cockpit_ids: list[str]) -> dict[str, dict[str, Any]]:
-        """获取所有座舱的统计指标。
-
-        Args:
-            cockpit_ids: 座舱 ID 列表
-
-        Returns:
-            {cockpit_id: stats_dict}
-        """
-        result = {}
-        for cid in cockpit_ids:
-            result[cid] = await self.get_cockpit_stats(cid)
-        return result
-
-    async def reset_stats(self, cockpit_id: str) -> None:
-        """重置座舱统计（用于测试）。"""
-        if not self._redis:
-            return
-        try:
-            await self._redis.delete(f"{cockpit_id}:stats")
-        except Exception as e:
-            logger.error(f"Failed to reset stats: {e}")
 
 
 # 全局单例

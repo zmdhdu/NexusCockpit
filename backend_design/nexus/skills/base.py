@@ -184,39 +184,4 @@ class BaseSkill(ABC):
     def __repr__(self) -> str:
         return f"<Skill name={self.name} group={self._skill_group.value} risk={self.risk_level}>"
 
-    def to_langchain_tool(self):
-        """转换为 LangChain Tool 对象（与 LangGraph ToolNode 集成）。
 
-        使用 langchain-core 的 StructuredTool.from_function 创建工具，
-        自动从 BaseSkill 的 parameters 生成 args_schema。
-
-        转换后可直接传入:
-          - langgraph.prebuilt.ToolNode(tools=[...])
-          - langgraph.prebuilt.create_react_agent(model, tools=[...])
-
-        Returns:
-            langchain_core.tools.StructuredTool 实例
-        """
-        from langchain_core.tools import StructuredTool
-
-        async def _arun(**kwargs):
-            """异步执行技能，返回 SkillResult.message。"""
-            result = await self.execute(**kwargs)
-            return result.message
-
-        def _run(**kwargs):
-            """同步执行技能（同步包装异步方法）。"""
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            return loop.run_until_complete(_arun(**kwargs))
-
-        return StructuredTool.from_function(
-            func=_run,
-            coroutine=_arun,
-            name=self.name,
-            description=self.description,
-        )

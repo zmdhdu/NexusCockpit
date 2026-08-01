@@ -1,6 +1,6 @@
 [project]
 name = "nexus-cockpit"
-version = "2.0.0"
+version = "2.2.0"
 description = "NexusCockpit — Enterprise-grade Vehicle Voice Agent with Multi-Agent, GraphRAG & MCP"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -9,58 +9,94 @@ authors = [{ name = "NexusCockpit Team" }]
 
 dependencies = [
     # --- Web Framework ---
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.27.0",
-    "python-multipart>=0.0.9",
+    "fastapi>=0.128.0",
+    "uvicorn[standard]>=0.40.0",
+    "python-multipart>=0.0.21",
     "websockets>=12.0",
+    "starlette>=0.50.0",
 
-    # --- LLM / Agent ---
-    "openai>=1.12.0",
-    "langgraph>=0.1.0",
-    "langchain-core>=0.1.30",
-    "langchain-openai>=0.1.0",
+    # --- LLM / Agent (LangChain + LangGraph 全栈) ---
+    "langchain-openai>=1.1.0",
+    "langchain-core>=1.2.0",
+    "langchain-text-splitters>=1.0.0",
+    "langgraph>=1.0.6",
+    "langgraph-prebuilt>=1.0.0",
+    "langgraph-checkpoint-sqlite>=2.0.0",
 
-    # --- RAG / Vector Store ---
-    "pymilvus>=2.4.0",
+    # --- RAG / Vector Store (LangChain 集成) ---
+    "langchain-milvus>=0.4.0",
+    "langchain-neo4j>=0.10.0",
+    "langchain-community>=0.4.0",
+    "pymilvus>=3.0.0",
     "neo4j>=5.18.0",
+    "sentence-transformers>=2.7.0",
 
     # --- Middleware ---
     "redis>=5.0.0",
 
+    # --- Database (MySQL async + ORM) ---
+    "aiomysql>=0.2.0",
+    "sqlalchemy>=2.0.0",
+
+    # --- MCP (Model Context Protocol) ---
+    "mcp>=2.0.0",
+
     # --- Config / Validation ---
-    "pydantic>=2.6.0",
+    "pydantic>=2.12.5",
+    "pydantic-core>=2.41.5",
     "pydantic-settings>=2.1.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.1",
 
     # --- Observability ---
-    "langfuse>=3.0.0",
-    "prometheus-client>=0.20.0",
+    "langfuse>=4.5.0",
+    "prometheus-client>=0.23.1",
     "structlog>=24.1.0",
 
     # --- Auth ---
-    "pyjwt>=2.8.0",
+    "pyjwt>=2.10.0",
     "passlib[bcrypt]>=1.7.4",
 
     # --- Audio / ASR / TTS ---
-    "funasr>=1.0.27",
-    "modelscope>=1.11.0",
+    "funasr>=1.1.12",
+    "modelscope>=1.15.0",
     "torchaudio>=2.2.0",
+    "librosa>=0.11.0",
+    "soundfile>=0.13.1",
+    "pydub>=0.25.1",
+
+    # --- HTTP / Network ---
+    "httpx>=0.28.1",
+    "requests>=2.32.5",
+    "aiohttp>=3.13.3",
 
     # --- Utils ---
-    "httpx>=0.27.0",
-    "tenacity>=8.2.0",
-    "tiktoken>=0.6.0",
-    "tavily-python>=0.3.5",
+    "orjson>=3.11.5",
+    "tiktoken>=0.12.0",
+    "pyyaml>=6.0.3",
+
+    # --- Search ---
+    "tavily>=1.1.0",
     "duckduckgo-search>=4.0.0",
-    "orjson>=3.10.0",
+
+    # --- Data Processing ---
+    "numpy>=1.26.4",
+    "pandas>=2.3.3",
+    "scikit-learn>=1.7.2",
+
+    # --- NLP ---
+    "sentencepiece>=0.2.1",
+    "transformers>=4.45.2",
+    "tokenizers>=0.20.3",
+
+    # --- SQLite async (checkpoint) ---
+    "aiosqlite>=0.20.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
+    "pytest>=9.0.2",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
-    "httpx>=0.27.0",
     "ruff>=0.3.0",
     "mypy>=1.8.0",
 ]

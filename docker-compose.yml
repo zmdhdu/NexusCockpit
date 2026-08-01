@@ -1,9 +1,10 @@
 # ============================================================
-# NexusCockpit v2.0 Infrastructure Stack
+# NexusCockpit v2.2 Infrastructure Stack
 # Cockpit Control + Operations Dashboard: Go Gateway + Python AI + TS Frontend
 # 简化: RabbitMQ/Celery 已移除（任务队列改为 asyncio.create_task）
 # Start all middleware: docker compose up -d
 # Start full stack: docker compose --profile app up -d
+# Dev mode (with debug ports): docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # ============================================================
 
 services:
@@ -58,7 +59,6 @@ services:
       - ./models:/app/models
       - ./data:/app/data
       - ./assets:/app/assets
-      - ./docs:/app/docs
     depends_on:
       redis:
         condition: service_healthy
@@ -116,7 +116,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - minio_data:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+    command: minio server /minio_data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -135,7 +135,6 @@ services:
       - milvus_data:/var/lib/milvus
     ports:
       - "19530:19530"
-      - "9201:9091"
     depends_on:
       - etcd
       - minio
@@ -157,7 +156,6 @@ services:
       - neo4j_logs:/logs
     ports:
       # 宿主机端口避让 Windows Hyper-V 保留范围 (7406-7505, 7681-7780)
-      - "17474:7474"
       - "17687:7687"
 
   # --- Redis 8 (Cache + Vector Search + Rate Limit + PubSub) ---
@@ -237,8 +235,6 @@ services:
       TELEMETRY_ENABLED: "false"
       # 禁用 ClickHouse (可选分析组件，本地化降级暂不需要)
       CLICKHOUSE_URL: ""
-    ports:
-      - "3101:3000"
     depends_on:
       langfuse-db:
         condition: service_healthy
@@ -255,8 +251,6 @@ services:
     volumes:
       - ./config/loki/loki-config.yml:/etc/loki/local-config.yml
       - loki_data:/loki
-    ports:
-      - "3100:3100"
     command: -config.file=/etc/loki/local-config.yml
 
   # --- Prometheus (Metrics) ---
@@ -265,8 +259,6 @@ services:
     volumes:
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
-    ports:
-      - "9200:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -279,8 +271,6 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning
-    ports:
-      - "3001:3000"
     depends_on:
       - prometheus
       - loki

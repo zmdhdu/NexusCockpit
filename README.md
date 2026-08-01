@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg)](https://fastapi.tiangolo.com/)
 
@@ -23,7 +23,7 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 | **Go 并发网关** | Gin + JWT 鉴权 + 优先级限流 + WebSocket Hub |
 | **GraphRAG** | Milvus (向量) + Neo4j (图谱) + BM25 (全文) 三路 RRF 融合 + Rerank 重排 |
 | **语义缓存** | Redis 8 RediSearch KNN 向量缓存 + 副作用隔离 |
-| **双模式部署** | 本地 Docker ⇄ 云端 API/AK·SK 一键切换 (Zilliz/AuraDB/云Redis/硅基流动) |
+| **本地离线部署** | 本地 Docker 全栈 (Milvus/Neo4j/Redis/MySQL) + 云端 LLM API 可选降级 |
 | **LLM 降级** | 云端 DeepSeek-V3 → 本地 Qwen3.5-4B (llama.cpp) 自动降级 |
 | **限流** | Redis 滑动窗口限流 |
 | **车控总线** | Mock / HTTP / MCP stdio 三模式适配 |
@@ -175,7 +175,7 @@ docker compose ps
 
 预期输出：`milvus`、`neo4j`、`redis`、`mysql`、`prometheus`、`grafana`、`loki` 均为 `running` 状态。
 
-> **双模式部署**：如果你不想本地部署所有中间件，可以在 `.env` 中设置 `*_PROVIDER=cloud`，使用云端托管服务（Zilliz Cloud / AuraDB / 云 Redis / 硅基流动 Rerank API）。详见 [双模式部署方案](docs/deployment/dual_云端与本地部署.md)。
+> **本地化部署**：v2.2 已移除云端托管模式，固定使用本地 Docker 全栈中间件。LLM 仍可选云端 API（硅基流动/火山方舟）或本地 llama.cpp 降级。
 
 ### 3. 安装后端环境
 
@@ -226,18 +226,15 @@ cp .env.example .env
 ARK_API_KEY=your_api_key_here      # 硅基流动 LLM API Key
 ARK_BASE_URL=https://api.siliconflow.cn/v1
 LLM_MODEL=deepseek-ai/DeepSeek-V3
-EMBEDDING_MODEL=Qwen/Qwen3-Embedding-4B
-EMBEDDING_DIM=2560
+EMBEDDING_MODEL=BAAI/bge-m3
+EMBEDDING_DIM=1024
 
-# === 本地/云端模式切换 (local=本地Docker, cloud=云端托管) ===
-VECTOR_STORE_PROVIDER=local    # local=Milvus Docker, cloud=Zilliz Cloud
-GRAPH_STORE_PROVIDER=local     # local=Neo4j Docker, cloud=Neo4j AuraDB
+# === 本地化部署 (固定本地 Docker 中间件) ===
 VECTOR_STORE_PROVIDER=local      # 固定本地 Milvus
 GRAPH_STORE_PROVIDER=local       # 固定本地 Neo4j
 CACHE_PROVIDER=local             # 固定本地 Redis 8
 RERANKER_PROVIDER=local          # local=本地BGE | none=跳过
-
-# 本地化降级: 云端模式已移除，固定使用本地 Docker 中间件
+EMBEDDING_PROVIDER=local         # local=本地bge-m3 | cloud=硅基流动API(过渡)
 ```
 
 > 完整环境变量说明请查看 [.env.example](.env.example)
@@ -447,10 +444,10 @@ Query
 |------|------|------|
 | Web 框架 | FastAPI | 异步原生、自动文档 |
 | Agent 编排 | LangGraph | 有状态图、条件路由 |
-| 向量库 | Milvus 2.4 | 开源、HNSW 索引 (双模式: Zilliz Cloud) |
-| 图数据库 | Neo4j 5.x | Cypher、ACID (双模式: AuraDB) |
-| 缓存 | Redis 7 | 语义缓存、限流 (双模式: 云 Redis) |
-| Reranker | bge-reranker-v2-m3 | 三路融合后重排 (双模式: 硅基流动 API) |
+| 向量库 | Milvus 2.4 | 开源、HNSW 索引 |
+| 图数据库 | Neo4j 5.x | Cypher、ACID |
+| 缓存 | Redis 8 | 语义缓存、限流 |
+| Reranker | bge-reranker-v2-m3 | 三路融合后重排 |
 | 配置 | Pydantic Settings | 类型安全 |
 | ASR | FunASR (SenseVoice) | 多语言、端侧 |
 | TTS | CosyVoice | 高质量、可克隆 |
@@ -470,7 +467,6 @@ Query
 | [Agent.md](Agent.md) | 项目总导航 |
 | **[学习路线图](docs/learning-roadmap.md)** | **新手 12-16 小时学习指南** |
 | [环境搭建指南](docs/deployment/SETUP.md) | 虚拟环境、模型下载、部署 |
-| [双模式部署方案](docs/deployment/dual_云端与本地部署.md) | 本地⇄云端 AK/SK 一键切换 |
 | [架构总览](docs/architecture/overview.md) | 7 层架构设计 |
 | [L0-L7 分层文档](docs/architecture/) | 各层详细说明 |
 | [项目进展](docs/PROGRESS.md) | 开发进度与架构图 |

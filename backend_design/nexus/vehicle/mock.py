@@ -410,8 +410,8 @@ class MockVehicleBus(BaseVehicleAdapter):
                                     lon2, lat2 = [float(x) for x in hi.split(",")]
                                     self.navigation["latitude"] = (lat1 + lat2) / 2
                                     self.navigation["longitude"] = (lon1 + lon2) / 2
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    logger.debug(f"Failed to parse GPS rectangle: {e}")
                             logger.info(f"Location updated via IP (Amap): {addr}")
                             return addr
         except Exception as e:

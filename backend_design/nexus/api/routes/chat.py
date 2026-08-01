@@ -68,11 +68,109 @@ def _is_vehicle_command(text: str) -> bool:
     return any(k in quick for k in VEHICLE_INTENT_KEYS)
 
 
+# ---- 以下为 chat() 和 chat_stream() 共用的辅助函数 (S2-S3 重构) ----
+
+async def _check_semantic_cache(
+    cache, user_id: str, text: str, is_vehicle_cmd: bool,
+) -> dict | None:
+    """语义缓存查询 — 车控指令跳过缓存。
+
+    chat() 和 chat_stream() 的公共缓存查询逻辑。
+
+    Returns:
+        命中缓存时返回 {"response": str, ...}，未命中返回 None。
+    """
+    if not cache or not cache.is_enabled or is_vehicle_cmd:
+        if cache and cache.is_enabled and is_vehicle_cmd:
+            CACHE_MISSES.inc()
+            logger.info(f"Vehicle command detected, skipping cache: '{text[:50]}'")
+        return None
+
+    cached = await cache.get(text, user_id)
+    if cached:
+        CACHE_HITS.inc()
+        REQUEST_COUNT.labels(endpoint="chat", method="POST", status="cache_hit").inc()
+        return cached
+
+    CACHE_MISSES.inc()
+    return None
+
+
+async def _async_load_session_history(
+    app, session_key: str,
+) -> tuple[list, str]:
+    """异步加载会话历史和滚动摘要。
+
+    优先从 SessionStore (Redis) 加载，不可用时回退到内存 dict。
+    chat() 和 chat_stream() 的公共历史加载逻辑。
+
+    Returns:
+        (history_list, running_summary_str)
+    """
+    session_store = getattr(app.state, "session_store", None)
+    if session_store:
+        history = await session_store.async_get(session_key)
+        running_summary = await session_store.async_get_summary(session_key)
+        return history, running_summary
+    return app.state.session_histories.get(session_key, []), ""
+
+
+async def _save_session_history(
+    app, session_key: str, state: dict,
+) -> None:
+    """保存会话历史和滚动摘要。
+
+    优先使用 SessionStore (Redis) 持久化，不可用时回退到内存 dict。
+    chat() 和 chat_stream() 的公共历史保存逻辑。
+    """
+    session_store = getattr(app.state, "session_store", None)
+    state_history = state.get("history", [])
+    if session_store:
+        await session_store.async_set(session_key, state_history)
+        state_summary = state.get("running_summary", "")
+        if state_summary:
+            await session_store.async_set_summary(session_key, state_summary)
+    else:
+        app.state.session_histories[session_key] = state_history[-get_config().memory.max_history_len:]
+
+
+async def _write_cache(
+    cache, user_id: str, text: str, response: str,
+    has_side_effect: bool,
+) -> None:
+    """写入语义缓存 — 有副作用的响应禁止缓存。
+
+    chat() 和 chat_stream() 的公共缓存写入逻辑。
+    """
+    if cache and cache.is_enabled and response and not has_side_effect:
+        await cache.set(
+            text,
+            {"response": response},
+            user_id,
+            has_side_effect=has_side_effect,
+        )
+
+
+def _extract_skill_success(state: dict) -> bool:
+    """从 expert_results 中提取车控指令的成功/失败状态。
+
+    chat() 和 chat_stream() 的公共技能状态提取逻辑。
+    """
+    skill_action = state.get("skill_action", "")
+    if not skill_action or not skill_action.startswith("vehicle_"):
+        return True
+    for er in state.get("expert_results", []):
+        if er.get("skill_status") == "error":
+            return False
+    return True
+
+
 # 会话级别并发锁 — 防止同一 session 的并发请求交叉污染会话历史
 # 当用户快速连续发送多条消息时，确保前一条处理完再处理下一条
 # 增加上限防止内存泄漏，超过阈值时清理空闲锁
 _session_locks: dict[str, asyncio.Lock] = {}
-_SESSION_LOCKS_MAX = 500
+_config = get_config()
+_SESSION_LOCKS_MAX = _config.server.session_locks_max
 
 
 def _get_session_lock(session_key: str) -> asyncio.Lock:
@@ -199,29 +297,21 @@ async def chat(request: Request, body: ChatRequest):
     # 导致"打开车窗"命中缓存后不执行实际车控操作
     is_vehicle_cmd = _is_vehicle_command(body.text)
     cache = app.state.semantic_cache
-    if cache and cache.is_enabled and not is_vehicle_cmd:
-        cached = await cache.get(body.text, body.user_id)
-        if cached:
-            CACHE_HITS.inc()
-            latency = round((time.perf_counter() - start) * 1000, 2)
-            REQUEST_COUNT.labels(endpoint="chat", method="POST", status="cache_hit").inc()
-            # 记录缓存命中指标
-            await _record_chat_metrics(
-                app, cockpit_id, body.user_id, latency, True, "", body.text, cached.get("response", ""),
-                session_id=body.session_id,
-            )
-            return ChatResponse(
-                response=cached.get("response", ""),
-                user_id=body.user_id,
-                session_id=body.session_id,
-                latency_ms=latency,
-                metadata={"cache_hit": True},
-                cache_hit=True,
-            )
-        CACHE_MISSES.inc()
-    elif is_vehicle_cmd:
-        CACHE_MISSES.inc()
-        logger.info(f"Vehicle command detected, skipping cache: '{body.text[:50]}'")
+    cached = await _check_semantic_cache(cache, body.user_id, body.text, is_vehicle_cmd)
+    if cached:
+        latency = round((time.perf_counter() - start) * 1000, 2)
+        await _record_chat_metrics(
+            app, cockpit_id, body.user_id, latency, True, "", body.text, cached.get("response", ""),
+            session_id=body.session_id,
+        )
+        return ChatResponse(
+            response=cached.get("response", ""),
+            user_id=body.user_id,
+            session_id=body.session_id,
+            latency_ms=latency,
+            metadata={"cache_hit": True},
+            cache_hit=True,
+        )
 
     # 构建 SupervisorState 并执行
     agent_graph = app.state.agent_graph
@@ -232,18 +322,9 @@ async def chat(request: Request, body: ChatRequest):
     # 获取会话锁，防止同一 session 的并发请求交叉污染历史
     session_lock = _get_session_lock(session_key)
 
-    # 优先从 SessionStore 加载历史 (Redis 持久化，重启不丢失) (from main L5 fix)
-    session_store = getattr(app.state, "session_store", None)
-
     async with session_lock:
         # 在锁内读取历史，确保不会读到并发请求的中间状态
-        if session_store:
-            history = await session_store.async_get(session_key)
-            # 加载滚动摘要（阈值压缩产生的跨轮次摘要）
-            running_summary = await session_store.async_get_summary(session_key)
-        else:
-            history = app.state.session_histories.get(session_key, [])
-            running_summary = ""
+        history, running_summary = await _async_load_session_history(app, session_key)
 
         state = create_initial_state(
             user_input=body.text,
@@ -274,27 +355,14 @@ async def chat(request: Request, body: ChatRequest):
                     output=state.get("final_response", "")[:200],
                 )
 
-        # 更新会话历史 (优先使用 SessionStore 持久化) (from main L5 fix)
-        state_history = state.get("history", [])
-        if session_store:
-            await session_store.async_set(session_key, state_history)
-            # 持久化滚动摘要（阈值压缩产生的跨轮次摘要）
-            state_summary = state.get("running_summary", "")
-            if state_summary:
-                await session_store.async_set_summary(session_key, state_summary)
-        app.state.session_histories[session_key] = state_history[-get_config().memory.max_history_len:]
+        # 更新会话历史 (优先使用 SessionStore 持久化)
+        await _save_session_history(app, session_key, state)
 
-    # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存，避免命中缓存后车控不执行 (from main L5 fix)
+    # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存，避免命中缓存后车控不执行
     final_response = state.get("final_response", "")
     has_side_effect = state.get("has_side_effect", False)
     skill_action = state.get("skill_action", "")
-    if cache and cache.is_enabled and final_response and not has_side_effect:
-        await cache.set(
-            body.text,
-            {"response": final_response},
-            body.user_id,
-            has_side_effect=has_side_effect,  # 二次安全防护
-        )
+    await _write_cache(cache, body.user_id, body.text, final_response, has_side_effect)
 
     latency = round((time.perf_counter() - start) * 1000, 2)
     REQUEST_COUNT.labels(endpoint="chat", method="POST", status="success").inc()
@@ -302,13 +370,7 @@ async def chat(request: Request, body: ChatRequest):
 
     # 记录指标 + 持久化聊天日志
     # 从 expert_results 中提取车控指令的成功/失败状态
-    expert_results = state.get("expert_results", [])
-    skill_success = True
-    if skill_action and skill_action.startswith("vehicle_"):
-        for er in expert_results:
-            if er.get("skill_status") == "error":
-                skill_success = False
-                break
+    skill_success = _extract_skill_success(state)
     await _record_chat_metrics(
         app, cockpit_id, body.user_id, latency, False, skill_action, body.text, final_response,
         session_id=body.session_id,
@@ -370,64 +432,45 @@ async def chat_stream(request: Request, body: ChatRequest):
         session_key = body.session_id or f"temp_{uuid.uuid4().hex[:16]}"
         start = time.perf_counter()
 
-        # 心跳保活: 15 秒发送一次 SSE 注释行，防止连接超时断开
-        _HEARTBEAT_INTERVAL = 15.0
+        # 心跳保活: 按配置间隔发送 SSE 注释行，防止连接超时断开
+        _heartbeat_interval = get_config().server.sse_heartbeat_interval
         _last_heartbeat = time.monotonic()
 
-        # 语义缓存检查 — 车控指令跳过缓存，确保每次都实际执行
-        # 旧缓存可能存储了车控响应（has_side_effect 修复前写入），
-        # 导致"打开车窗"命中缓存后不执行实际车控操作
+        # 语义缓存检查 — 车控指令跳过缓存
         is_vehicle_cmd = _is_vehicle_command(body.text)
         cache = app.state.semantic_cache
-        if cache and cache.is_enabled and not is_vehicle_cmd:
-            cached = await cache.get(body.text, body.user_id)
-            if cached:
-                CACHE_HITS.inc()
-                latency = round((time.perf_counter() - start) * 1000, 2)
-                REQUEST_COUNT.labels(endpoint="chat", method="POST", status="cache_hit").inc()
-                cached_response = cached.get("response", "")
-                # 记录缓存命中指标
-                await _record_chat_metrics(
-                    app, cockpit_id, body.user_id, latency, True, "", body.text, cached_response,
-                    session_id=body.session_id,
-                )
-                # 缓存命中：直接以 done 事件返回，不走 Agent 流式
-                yield (
-                    f"data: {json.dumps({'type': 'thinking', 'data': {'message': '命中缓存'}}, ensure_ascii=False)}\n\n"
-                )
-                yield (
-                    f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': cached_response}}, ensure_ascii=False)}\n\n"
-                )
-                done_payload = {
-                    'type': 'done',
-                    'data': {
-                        'response': cached_response,
-                        'latency_ms': latency,
-                        'cache_hit': True,
-                    },
-                }
-                yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
-                return
-            CACHE_MISSES.inc()
-        elif is_vehicle_cmd:
-            CACHE_MISSES.inc()
-            logger.info(f"Vehicle command detected, skipping cache (stream): '{body.text[:50]}'")
+        cached = await _check_semantic_cache(cache, body.user_id, body.text, is_vehicle_cmd)
+        if cached:
+            latency = round((time.perf_counter() - start) * 1000, 2)
+            cached_response = cached.get("response", "")
+            await _record_chat_metrics(
+                app, cockpit_id, body.user_id, latency, True, "", body.text, cached_response,
+                session_id=body.session_id,
+            )
+            # 缓存命中：直接以 done 事件返回，不走 Agent 流式
+            yield (
+                f"data: {json.dumps({'type': 'thinking', 'data': {'message': '命中缓存'}}, ensure_ascii=False)}\n\n"
+            )
+            yield (
+                f"data: {json.dumps({'type': 'chunk', 'data': {'chunk': cached_response}}, ensure_ascii=False)}\n\n"
+            )
+            done_payload = {
+                'type': 'done',
+                'data': {
+                    'response': cached_response,
+                    'latency_ms': latency,
+                    'cache_hit': True,
+                },
+            }
+            yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
+            return
 
-        # 获取会话锁，防止同一 session 的并发请求交叉污染历史
+        # 获取会话锁
         session_lock = _get_session_lock(session_key)
 
-        # 优先从 SessionStore 加载历史 (from main L5 fix)
-        session_store = getattr(app.state, "session_store", None)
-
         async with session_lock:
-            # 在锁内读取历史，确保不会读到并发请求的中间状态
-            if session_store:
-                history = await session_store.async_get(session_key)
-                # 加载滚动摘要
-                running_summary = await session_store.async_get_summary(session_key)
-            else:
-                history = app.state.session_histories.get(session_key, [])
-                running_summary = ""
+            # 在锁内读取历史
+            history, running_summary = await _async_load_session_history(app, session_key)
 
             state = create_initial_state(
                 user_input=body.text,
@@ -451,44 +494,25 @@ async def chat_stream(request: Request, body: ChatRequest):
 
                     # 心跳保活: 超过间隔时间时先发送 SSE 注释行
                     _now = time.monotonic()
-                    if _now - _last_heartbeat >= _HEARTBEAT_INTERVAL:
+                    if _now - _last_heartbeat >= _heartbeat_interval:
                         yield ": heartbeat\n\n"
                         _last_heartbeat = _now
 
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
                 # 更新会话历史
-                state_history = state.get("history", [])
-                if session_store:
-                    await session_store.async_set(session_key, state_history)
-                    # 持久化滚动摘要
-                    state_summary = state.get("running_summary", "")
-                    if state_summary:
-                        await session_store.async_set_summary(session_key, state_summary)
-                app.state.session_histories[session_key] = state_history[-get_config().memory.max_history_len:]
+                await _save_session_history(app, session_key, state)
 
-                # 写入缓存 — 有副作用的响应（如车控指令）禁止缓存
+                # 写入缓存
                 has_side_effect = state.get("has_side_effect", False)
-                if cache and cache.is_enabled and full_response and not has_side_effect:
-                    await cache.set(
-                        body.text,
-                        {"response": full_response},
-                        body.user_id,
-                        has_side_effect=has_side_effect,
-                    )
+                await _write_cache(cache, body.user_id, body.text, full_response, has_side_effect)
 
                 # 流式完成后记录指标 + 持久化聊天日志
                 latency = round((time.perf_counter() - start) * 1000, 2)
                 REQUEST_COUNT.labels(endpoint="chat", method="POST", status="success").inc()
                 REQUEST_LATENCY.labels(endpoint="chat").observe(latency / 1000)
                 # 从 expert_results 中提取车控指令的成功/失败状态
-                stream_expert_results = state.get("expert_results", [])
-                stream_skill_success = True
-                if skill_action and skill_action.startswith("vehicle_"):
-                    for er in stream_expert_results:
-                        if er.get("skill_status") == "error":
-                            stream_skill_success = False
-                            break
+                stream_skill_success = _extract_skill_success(state)
                 await _record_chat_metrics(
                     app, cockpit_id, body.user_id, latency, False, skill_action,
                     body.text, full_response,
@@ -506,14 +530,8 @@ async def chat_stream(request: Request, body: ChatRequest):
 
             finally:
                 # 确保会话历史始终被更新，即使流被中断
-                if session_store and "history" in state:
-                    await session_store.async_set(session_key, state["history"])
-                    # 确保滚动摘要也被持久化
-                    state_summary = state.get("running_summary", "")
-                    if state_summary:
-                        await session_store.async_set_summary(session_key, state_summary)
                 if "history" in state:
-                    app.state.session_histories[session_key] = state["history"][-get_config().memory.max_history_len:]
+                    await _save_session_history(app, session_key, state)
 
     return StreamingResponse(
         event_generator(),

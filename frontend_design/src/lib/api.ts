@@ -41,7 +41,8 @@ import type {
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
 // 默认开发用户 (开发环境不校验密码，直接签发 Token)
-const DEFAULT_USER_ID = "nexus_dev";
+// 可通过环境变量 NEXT_PUBLIC_DEFAULT_USER 覆盖
+const DEFAULT_USER_ID = process.env.NEXT_PUBLIC_DEFAULT_USER || "nexus_dev";
 const TOKEN_KEY = "nexus_token";
 
 /**
