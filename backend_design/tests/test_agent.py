@@ -161,11 +161,11 @@ class TestSkillRegistry:
             assert tool["type"] == "function"
             assert "function" in tool
 
-    def test_get_langchain_tools(self):
-        """测试获取 LangChain Tool 对象"""
+    def test_get_structured_tools(self):
+        """测试获取 LangChain StructuredTool 对象"""
         from nexus.skills.registry import SkillRegistry
         registry = SkillRegistry()
-        tools = registry.get_langchain_tools()
+        tools = registry.get_structured_tools()
         # 如果 langchain 已安装，应该返回 Tool 对象列表
         if tools:
             for tool in tools:
@@ -183,20 +183,20 @@ class TestSkillRegistry:
 
 
 # ============================================================
-# BaseSkill to_langchain_tool Tests
+# BaseSkill to_structured_tool Tests
 # ============================================================
 
-class TestBaseSkillLangChainTool:
-    """BaseSkill LangChain Tool 转换测试"""
+class TestBaseSkillStructuredTool:
+    """BaseSkill StructuredTool 转换测试"""
 
-    def test_to_langchain_tool(self):
-        """测试技能转换为 LangChain Tool"""
+    def test_to_structured_tool(self):
+        """测试技能转换为 LangChain StructuredTool"""
         from nexus.skills.registry import SkillRegistry
         registry = SkillRegistry()
         skill = registry.get_skill("vehicle_climate")
         if skill:
             try:
-                tool = skill.to_langchain_tool()
+                tool = skill.to_structured_tool()
                 assert tool is not None
                 assert tool.name == skill.name
             except ImportError:

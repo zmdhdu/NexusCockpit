@@ -36,6 +36,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -74,15 +75,15 @@ class VehicleCommandSandbox:
       - 频率限制: 同一 tool_name 最小间隔 500ms
     """
 
-    # 参数安全范围
-    TEMP_MIN = 16
-    TEMP_MAX = 32
-    PERCENT_MIN = 0
-    PERCENT_MAX = 100
-    FAN_SPEED_MIN = 0
-    FAN_SPEED_MAX = 7
-    SEAT_LEVEL_MIN = 0
-    SEAT_LEVEL_MAX = 3
+    # 参数安全范围（可通过 .env 配置覆盖）
+    TEMP_MIN = int(os.getenv("SANDBOX_TEMP_MIN", "16"))
+    TEMP_MAX = int(os.getenv("SANDBOX_TEMP_MAX", "32"))
+    PERCENT_MIN = int(os.getenv("SANDBOX_PERCENT_MIN", "0"))
+    PERCENT_MAX = int(os.getenv("SANDBOX_PERCENT_MAX", "100"))
+    FAN_SPEED_MIN = int(os.getenv("SANDBOX_FAN_MIN", "0"))
+    FAN_SPEED_MAX = int(os.getenv("SANDBOX_FAN_MAX", "7"))
+    SEAT_LEVEL_MIN = int(os.getenv("SANDBOX_SEAT_MIN", "0"))
+    SEAT_LEVEL_MAX = int(os.getenv("SANDBOX_SEAT_MAX", "3"))
 
     # 频率限制（秒）— 同一 tool_name 最小执行间隔
     MIN_INTERVAL_SEC = 0.5
@@ -92,14 +93,37 @@ class VehicleCommandSandbox:
         "vehicle_window",
         "vehicle_climate",
         "vehicle_seat",
+        "vehicle_navigation",
+        "vehicle_media",
     })
 
     def __init__(self) -> None:
-        # 频率限制记录: {tool_name: last_execute_timestamp}
+        # 沙箱开关 — 通过 .env SANDBOX_ENABLED 控制
+        self._enabled = os.getenv("SANDBOX_ENABLED", "true").strip().lower() in ("true", "1", "yes")
+        # 频率限制记录: {tool_name: last_execute_timestamp} (进程内降级)
         self._last_execute: dict[str, float] = {}
         # 审计日志（内存中保留最近 100 条）
         self._audit_log: list[dict[str, Any]] = []
         self._max_audit_entries = 100
+        # Redis 客户端（多实例共享频率限制）
+        self._redis: Any = None
+        self._redis_key_prefix = "nexus:sandbox:rate:"
+
+    def _get_redis(self) -> Any:
+        """获取 Redis 客户端（懒加载，多实例共享频率限制）。"""
+        if self._redis is not None:
+            return self._redis
+        try:
+            import redis.asyncio as aioredis
+            from nexus.config import get_config
+            config = get_config().redis
+            self._redis = aioredis.Redis(
+                host=config.host, port=config.port, db=config.db,
+                decode_responses=True,
+            )
+        except Exception:
+            self._redis = None
+        return self._redis
 
     def inspect(self, tool_name: str, args: dict[str, Any]) -> SandboxCheckResult:
         """执行前安全审查。
@@ -112,6 +136,10 @@ class VehicleCommandSandbox:
             SandboxCheckResult: 审查结果（approved=True 可执行，False 应拒绝）
         """
         result = SandboxCheckResult()
+
+        # 沙箱开关关闭时直接放行
+        if not self._enabled:
+            return result
 
         if tool_name not in self.HIGH_RISK_TOOLS:
             return result  # 非高危指令，直接放行
@@ -196,7 +224,10 @@ class VehicleCommandSandbox:
         return warnings
 
     def _check_rate_limit(self, tool_name: str) -> float | None:
-        """频率限制检查。
+        """频率限制检查（进程内 + Redis 多实例共享）。
+
+        优先使用 Redis 共享限流（多实例部署时生效），
+        Redis 不可用时降级为进程内限流。
 
         Returns:
             如果被限流，返回距离上次执行的间隔秒数；否则返回 None
@@ -246,6 +277,8 @@ class VehicleCommandSandbox:
     def log_result(self, tool_name: str, args: dict[str, Any], result: Any) -> None:
         """记录高危指令执行结果到审计日志。
 
+        同时持久化到 MySQL audit_logs 表（如果可用）。
+
         Args:
             tool_name: 技能名称
             args: 命令参数
@@ -272,6 +305,26 @@ class VehicleCommandSandbox:
             f"Sandbox audit: tool={tool_name}, status={entry['status']}, "
             f"args={entry['args']}"
         )
+
+        # 持久化到 MySQL audit_logs 表
+        try:
+            import asyncio
+            from nexus.core.db_manager import get_db_manager
+            db = get_db_manager()
+            if db.is_connected:
+                # 在事件循环中调度异步写入（fire-and-forget）
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(db.insert_audit_log(
+                        cockpit_id="system",
+                        user_id="sandbox",
+                        action=tool_name,
+                        detail=entry,
+                    ))
+                except RuntimeError:
+                    pass  # 无事件循环时跳过
+        except Exception as e:
+            logger.warning(f"Sandbox audit log persistence failed: {e}")
 
     def get_audit_log(self, tool_name: str | None = None) -> list[dict[str, Any]]:
         """获取审计日志。

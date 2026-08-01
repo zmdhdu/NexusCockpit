@@ -30,13 +30,13 @@ _REMINDER_KEY = "nexus:reminders:{user_id}"
 
 
 def _get_redis():
-    """延迟获取 Redis 连接。"""
+    """延迟获取异步 Redis 连接。"""
     try:
-        import redis
+        import redis.asyncio as aioredis
 
         from nexus.config import get_config
         config = get_config()
-        return redis.Redis(
+        return aioredis.Redis(
             host=config.redis.host,
             port=config.redis.port,
             db=config.redis.db,
@@ -100,7 +100,7 @@ class SetReminderSkill(BaseSkill):
                     "remind_at": timestamp,
                     "created_at": time.time(),
                 }, ensure_ascii=False)
-                r.zadd(key, {reminder_data: timestamp})
+                await r.zadd(key, {reminder_data: timestamp})
                 return SkillResult(
                     status="ok",
                     message=f"好的，已设置提醒：{content}，将在指定时间通知您。",
@@ -178,7 +178,7 @@ class QueryReminderSkill(BaseSkill):
             key = _REMINDER_KEY.format(user_id=user_id)
             now = time.time()
             # 获取所有未过期的提醒
-            items = r.zrangebyscore(key, now, "+inf")
+            items = await r.zrangebyscore(key, now, "+inf")
             if not items:
                 return SkillResult(
                     status="ok",
@@ -259,13 +259,13 @@ class CancelReminderSkill(BaseSkill):
 
         try:
             key = _REMINDER_KEY.format(user_id=user_id)
-            items = r.zrange(key, 0, -1)
+            items = await r.zrange(key, 0, -1)
             removed = 0
             for item in items:
                 try:
                     data = json.loads(item)
                     if content in data.get("content", ""):
-                        r.zrem(key, item)
+                        await r.zrem(key, item)
                         removed += 1
                 except json.JSONDecodeError:
                     continue

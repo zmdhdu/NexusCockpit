@@ -299,6 +299,26 @@ async def lifespan(app: FastAPI):
     else:
         app.state.llama_manager = None
 
+    # --- 10.5. 启动 MCP Server (标准化协同接口) ---
+    try:
+        from nexus.mcp.server import get_mcp_server
+        mcp_server = get_mcp_server()
+        await mcp_server.start()
+        app.state.mcp_server = mcp_server
+        logger.info("MCP Server started (task dispatch / state sync / heartbeat)")
+    except Exception as e:
+        logger.warning(f"MCP Server startup failed (non-fatal): {e}")
+
+    # --- 10.6. 启动提醒扫描后台任务 ---
+    try:
+        from nexus.skills.reminder_scanner import get_reminder_scanner
+        reminder_scanner = get_reminder_scanner()
+        await reminder_scanner.start()
+        app.state.reminder_scanner = reminder_scanner
+        logger.info("ReminderScanner started (30s interval)")
+    except Exception as e:
+        logger.warning(f"ReminderScanner startup failed (non-fatal): {e}")
+
     logger.info("NexusCockpit ready!")
 
     # --- 11. ASR/TTS 模型后台预加载 (P4 修复: 不阻塞启动) ---
@@ -333,6 +353,14 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, "llama_manager") and app.state.llama_manager:
         await app.state.llama_manager.stop()
         logger.info("llama.cpp subprocess stopped")
+    # 停止提醒扫描器
+    if hasattr(app.state, "reminder_scanner") and app.state.reminder_scanner:
+        await app.state.reminder_scanner.stop()
+        logger.info("ReminderScanner stopped")
+    # 停止 MCP Server
+    if hasattr(app.state, "mcp_server") and app.state.mcp_server:
+        await app.state.mcp_server.stop()
+        logger.info("MCP Server stopped")
     # 停止数据保留管理器
     if hasattr(app.state, "retention_manager"):
         await app.state.retention_manager.stop()

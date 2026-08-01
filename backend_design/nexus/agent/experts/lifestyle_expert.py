@@ -26,6 +26,21 @@ class LifestyleExpert(BaseExpertAgent):
     expert_name = "lifestyle"
     group = SkillGroup.LIFESTYLE
 
+    def _verify_result(self, result: Any, action: str = "") -> str:
+        """验证生活推荐技能执行结果。
+
+        检查项:
+            - 执行状态是否为 error
+            - 结果消息是否为空
+        """
+        if result.status == "error":
+            logger.warning(f"LifestyleExpert verify: skill '{action}' returned error: {result.message}")
+            return result.message or "生活服务暂时不可用，请稍后重试。"
+        if not result.message or len(result.message.strip()) < 2:
+            logger.warning(f"LifestyleExpert verify: skill '{action}' returned empty message")
+            return "服务已处理，但未返回详细信息。"
+        return result.message
+
     async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         intent = state.get("intent", {})
 
@@ -68,6 +83,19 @@ class LifestyleExpert(BaseExpertAgent):
             result = await self.registry.execute("order_food", {"food_name": food_name})
             return self._build_expert_result(
                 action="order_food",
+                reply=result.message,
+                handled=result.handled,
+                skill_status=result.status,
+            )
+
+        # 优先级 3: 日程提醒
+        reminder_action = intent.get("Reminder_Action") or {}
+        if reminder_action and isinstance(reminder_action, dict) and reminder_action.get("skill"):
+            skill_name = reminder_action.get("skill")
+            reminder_kwargs = {k: v for k, v in reminder_action.items() if k != "skill" and v is not None}
+            result = await self.registry.execute(skill_name, reminder_kwargs)
+            return self._build_expert_result(
+                action=skill_name,
                 reply=result.message,
                 handled=result.handled,
                 skill_status=result.status,

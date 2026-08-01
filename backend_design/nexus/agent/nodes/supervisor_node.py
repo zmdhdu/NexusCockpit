@@ -265,8 +265,9 @@ class SupervisorNode:
         策略:
           - 车控动作 → vehicle
           - 导航动作 → navigation
-          - 搜索/点餐 → lifestyle
-          - 声纹注册 → chat
+          - 搜索/点餐/提醒 → lifestyle
+          - 车辆健康诊断 → health
+          - 习惯画像/声纹注册 → chat
           - 无匹配 → chat（闲聊兜底）
 
         Returns:
@@ -282,12 +283,16 @@ class SupervisorNode:
         if intent.get("Navigation_Action"):
             experts.append("navigation")
 
-        # 生活推荐（搜索/点餐）
-        if intent.get("Need_Search") or intent.get("Call_elm"):
+        # 生活推荐（搜索/点餐/提醒）
+        if intent.get("Need_Search") or intent.get("Call_elm") or intent.get("Reminder_Action"):
             experts.append("lifestyle")
 
-        # 声纹注册
-        if intent.get("Register_Action"):
+        # 车辆健康诊断
+        if intent.get("Health_Action"):
+            experts.append("health")
+
+        # 习惯画像/声纹注册
+        if intent.get("Habit_Action") or intent.get("Register_Action"):
             experts.append("chat")
 
         # 无匹配 → 闲聊兜底

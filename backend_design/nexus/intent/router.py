@@ -47,6 +47,9 @@ class IntentRouterService:
         "Climate_Action", "Window_Action", "Seat_Action",
         "Navigation_Action", "Media_Action", "Vehicle_Status_Action",
         "Poi_Search_Action",  # 高德 POI 周边搜索
+        "Health_Action",  # 车辆健康诊断
+        "Habit_Action",   # 用户习惯画像
+        "Reminder_Action",  # 日程提醒
     )
 
     # 类级默认意图模板 — 静态方法直接引用，无需创建实例
@@ -62,6 +65,9 @@ class IntentRouterService:
         "Media_Action": {},
         "Vehicle_Status_Action": {},
         "Poi_Search_Action": {},
+        "Health_Action": {},    # 车辆健康诊断 (diagnose_vehicle/decode_dtc/maintenance_advice)
+        "Habit_Action": "",    # 用户习惯画像 (habit_record/habit_recommend/habit_adjust)
+        "Reminder_Action": {},  # 日程提醒 (set_reminder/query_reminder/cancel_reminder)
         "Need_Clarification": False,
         "Clarification_Prompt": "",
         "Route_Source": "default",
@@ -294,6 +300,92 @@ class IntentRouterService:
         if tool_name == "vehicle_status":
             op = str(arguments.get("op") or "status")
             default["Vehicle_Status_Action"] = {"op": op}
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        # ---- 车辆健康诊断技能 ----
+        if tool_name == "diagnose_vehicle":
+            default["Health_Action"] = {
+                "skill": "diagnose_vehicle",
+                "query": str(arguments.get("query") or ""),
+            }
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "decode_dtc":
+            dtc_code = str(arguments.get("dtc_code") or "").strip()
+            if not dtc_code:
+                return {}
+            default["Health_Action"] = {
+                "skill": "decode_dtc",
+                "dtc_code": dtc_code,
+            }
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "maintenance_advice":
+            default["Health_Action"] = {
+                "skill": "maintenance_advice",
+                "mileage": arguments.get("mileage", 0),
+                "months": arguments.get("months", 0),
+            }
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        # ---- 用户习惯画像技能 ----
+        if tool_name == "habit_record":
+            preference = str(arguments.get("preference") or "").strip()
+            if not preference:
+                return {}
+            default["Habit_Action"] = "habit_record"
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "habit_recommend":
+            default["Habit_Action"] = "habit_recommend"
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "habit_adjust":
+            default["Habit_Action"] = "habit_adjust"
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        # ---- 日程提醒技能 ----
+        if tool_name == "set_reminder":
+            content = str(arguments.get("content") or "").strip()
+            if not content:
+                return {}
+            default["Reminder_Action"] = {
+                "skill": "set_reminder",
+                "content": content,
+                "remind_at": str(arguments.get("remind_at") or ""),
+            }
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "query_reminder":
+            default["Reminder_Action"] = {"skill": "query_reminder"}
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "cancel_reminder":
+            content = str(arguments.get("content") or "").strip()
+            if not content:
+                return {}
+            default["Reminder_Action"] = {
+                "skill": "cancel_reminder",
+                "content": content,
+            }
             default["Route_Source"] = "llm"
             default["Route_Confidence"] = confidence
             return default

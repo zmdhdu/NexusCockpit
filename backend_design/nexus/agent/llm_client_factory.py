@@ -38,6 +38,8 @@ from __future__ import annotations
 from typing import Any
 
 from nexus.config import get_config
+from nexus.core.circuit_breaker import CircuitBreaker
+from nexus.core.exceptions import CircuitBreakerError
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,6 +48,14 @@ logger = get_logger(__name__)
 _chat_model = None      # ChatOpenAI 单例
 _primary_client = None  # AsyncOpenAI 单例
 _fallback_client = None # AsyncOpenAI 降级单例
+
+# LLM 调用熔断器 — 连续失败 5 次后熔断，30s 后试探恢复
+# 熔断期间直接降级到 fallback LLM，不再等待主 LLM 超时
+_llm_circuit = CircuitBreaker(
+    name="llm-primary",
+    failure_threshold=5,
+    recovery_period=30.0,
+)
 
 
 def get_chat_model():
@@ -165,29 +175,35 @@ async def call_llm_with_fallback(
     """
     config = get_config().llm
 
+    # 熔断器保护: 如果主 LLM 连续失败，直接跳过到 fallback
     try:
         chat_model = get_chat_model()
         # ChatOpenAI.ainvoke 返回 AIMessage，取 .content
-        response = await chat_model.ainvoke(
+        response = await _llm_circuit.call(
+            chat_model.ainvoke,
             messages,
             temperature=temperature,
             max_tokens=max_tokens,
             **kwargs,
         )
         return response.content or ""
+    except CircuitBreakerError:
+        # 熔断器开启 — 直接降级
+        logger.warning("LLM circuit breaker OPEN, skipping primary, falling back")
     except Exception as e:
         logger.warning(f"Primary ChatOpenAI failed: {e}")
-        fallback = get_fallback_client()
-        if fallback is None:
-            raise
-        logger.warning("Falling back to local LLM (AsyncOpenAI)")
-        # fallback 仍使用 AsyncOpenAI（降级场景，ChatOpenAI 单例可能已损坏）
-        response = await fallback.chat.completions.create(
-            model=config.fallback_model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=stream,
-            **kwargs,
-        )
-        return response.choices[0].message.content or ""
+
+    fallback = get_fallback_client()
+    if fallback is None:
+        raise
+    logger.warning("Falling back to local LLM (AsyncOpenAI)")
+    # fallback 仍使用 AsyncOpenAI（降级场景，ChatOpenAI 单例可能已损坏）
+    response = await fallback.chat.completions.create(
+        model=config.fallback_model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=stream,
+        **kwargs,
+    )
+    return response.choices[0].message.content or ""

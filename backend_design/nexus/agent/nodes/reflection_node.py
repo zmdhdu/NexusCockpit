@@ -177,35 +177,36 @@ class ReflectionNode:
             )
             content = (response.content or "").strip()
 
-            # 解析 JSON
-            cleaned = content.replace("```json", "").replace("```", "").strip()
-            match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-            if match:
-                cleaned = match.group(0)
-            result = json.loads(cleaned)
+            # 解析 JSON（使用 Pydantic schema 验证）
+            from nexus.intent.schema import parse_reflection_result
+            reflection = parse_reflection_result(content)
+            if reflection is None:
+                logger.warning("Reflection LLM output could not be parsed, skipping")
+                update["metadata"]["reflection_result"] = "parse_failed"
+                return update
 
-            if result.get("valid") is True:
-                logger.info(f"Reflection PASSED: {result.get('reason', '')}")
+            if reflection.valid is True:
+                logger.info(f"Reflection PASSED: {reflection.reason}")
                 update["metadata"]["reflection_result"] = "passed"
-                update["metadata"]["reflection_reason"] = result.get("reason", "")
+                update["metadata"]["reflection_reason"] = reflection.reason
             else:
                 # 反思不通过，使用修正后的回复
-                suggested = result.get("suggested_response", "").strip()
+                suggested = (reflection.suggested_response or "").strip()
                 if suggested:
                     logger.warning(
-                        f"Reflection FAILED: {result.get('reason', '')}, "
+                        f"Reflection FAILED: {reflection.reason}, "
                         f"applying corrected response"
                     )
                     update["final_response"] = suggested
                     update["metadata"]["reflection_result"] = "corrected"
-                    update["metadata"]["reflection_reason"] = result.get("reason", "")
+                    update["metadata"]["reflection_reason"] = reflection.reason
                     update["metadata"]["original_response"] = final_response[:200]
                 else:
                     logger.warning(
-                        f"Reflection FAILED but no suggestion: {result.get('reason', '')}"
+                        f"Reflection FAILED but no suggestion: {reflection.reason}"
                     )
                     update["metadata"]["reflection_result"] = "failed_no_suggestion"
-                    update["metadata"]["reflection_reason"] = result.get("reason", "")
+                    update["metadata"]["reflection_reason"] = reflection.reason
 
         except Exception as e:
             logger.error(f"Reflection LLM call failed: {e}")

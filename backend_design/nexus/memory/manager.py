@@ -155,8 +155,6 @@ class MemoryManager:
         Returns:
             调整后的召回数
         """
-        _query_lower = query.lower()
-
         # 简单指令：车控、导航 → 快速返回 3 条
         simple_keywords = (
             "空调", "车窗", "座椅", "音量", "播放", "暂停", "下一首",
@@ -270,11 +268,24 @@ class MemoryManager:
                 for mid in ids_to_delete:
                     self.graph_store.delete_relation_by_mid(mid)
 
-            # 双向写入
+            # 双向写入（带补偿回滚）
+            # 若 Milvus 写入成功但 Neo4j 写入失败，回滚 Milvus 中的记录
+            # 保证向量库与图谱数据一致性
             milvus_id = await self.vector_store.insert_memory(fact_text, user_id)
             if milvus_id:
-                self.graph_store.upsert_relation(user_id, relation, target, t_type, milvus_id)
-                stored_count += 1
+                try:
+                    self.graph_store.upsert_relation(user_id, relation, target, t_type, milvus_id)
+                    stored_count += 1
+                except Exception as ne:
+                    # Neo4j 写入失败 — 补偿回滚 Milvus 记录
+                    logger.error(
+                        f"Neo4j write failed, rolling back Milvus id={milvus_id}: {ne}"
+                    )
+                    try:
+                        self.vector_store.delete_memory_by_ids([milvus_id], user_id)
+                        logger.info(f"Compensating rollback: deleted orphaned Milvus id={milvus_id}")
+                    except Exception as re:
+                        logger.error(f"Rollback also failed for id={milvus_id}: {re}")
 
         if stored_count:
             logger.info(f"Stored {stored_count} memories for user={user_id}")
@@ -361,11 +372,24 @@ class MemoryManager:
         return task
 
     async def _store_from_text_safe(self, user_text: str, user_id: str) -> None:
-        """store_from_text 的安全包装，捕获所有异常防止任务静默失败。"""
-        try:
-            await self.store_from_text(user_text, user_id)
-        except Exception as e:
-            logger.error(f"Background memory storage failed: {e}")
+        """store_from_text 的安全包装，带重试机制。
+
+        改进: 原实现 fire-and-forget 后异常仅记日志，LLM 提取失败的记忆永久丢失。
+        现增加最多 2 次重试，间隔 1 秒，覆盖瞬时网络故障场景。
+        """
+        max_retries = 2
+        for attempt in range(1, max_retries + 2):
+            try:
+                await self.store_from_text(user_text, user_id)
+                return
+            except Exception as e:
+                if attempt <= max_retries:
+                    logger.warning(
+                        f"Background memory storage failed (attempt {attempt}/{max_retries + 1}): {e}"
+                    )
+                    await asyncio.sleep(1.0)
+                else:
+                    logger.error(f"Background memory storage permanently failed after {max_retries} retries: {e}")
 
     async def _store_conversation_safe(
         self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str
@@ -412,6 +436,15 @@ class MemoryManager:
             logger.error(f"Failed to load default user profile: {e}")
             return {}
     
+    def get_cockpit_config(self, cockpit_id: str) -> dict[str, Any] | None:
+        """从数据库查询座舱配置（同步占位实现）。
+
+        当前返回 None，因为 db_manager 全部使用异步方法，
+        而 load_cockpit_config 是同步方法无法直接调用。
+        未来将 load_cockpit_config 改为 async 后，可直接查询 cockpits 表。
+        """
+        return None
+
     def load_cockpit_config(self, cockpit_id: str | None = None) -> dict[str, Any]:
         """加载座舱配置 (从 MySQL 或默认文件).
         
@@ -429,13 +462,11 @@ class MemoryManager:
             cockpit_id = "default_cockpit_001"
         
         # 先从数据库查询
-        try:
-            result = self.get_cockpit_config(cockpit_id)
-            if result:
-                logger.info(f"Loaded cockpit config from DB: {cockpit_id}")
-                return result
-        except Exception as e:
-            logger.warning(f"Failed to load cockpit config from DB ({cockpit_id}): {e}, falling back to default file")
+        # TODO: 将 load_cockpit_config 改为 async 方法后，可通过 db_manager 查询 cockpits 表
+        result = self.get_cockpit_config(cockpit_id)
+        if result:
+            logger.info(f"Loaded cockpit config from DB: {cockpit_id}")
+            return result
         
         # 兜底：加载默认配置文件
         default_file = Path("data/preferences/default_cockpit.json")

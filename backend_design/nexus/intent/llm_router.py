@@ -127,10 +127,13 @@ class LLMIntentRouter:
 1. 只能选择技能列表中的 name。
 2. 车控类请求优先选择对应 vehicle_* 技能。
 3. 搜索、点餐、注册声纹也必须走对应技能。
-4. 当用户询问"附近"、"周边"的美食、餐厅、加油站、
+4. 当用户询问“附近”、“周边”的美食、餐厅、加油站、
    停车场等基于当前位置的信息时，优先选择 amap_poi_search，而非 web_search。
 5. 不要编造参数；缺参数时请明确请求澄清。
 6. confidence 取 0 到 1 之间的小数。
+7. 车辆健康诊断（故障灯、异响、故障码、保养）选择 diagnose_vehicle/decode_dtc/maintenance_advice。
+8. 用户习惯画像（记录偏好、习惯推荐、习惯调整）选择 habit_record/habit_recommend/habit_adjust。
+9. 日程提醒（设置提醒、查询提醒、取消提醒）选择 set_reminder/query_reminder/cancel_reminder。
 
 用户输入:
 {text}
@@ -141,14 +144,24 @@ class LLMIntentRouter:
         ]
 
     def _parse_json(self, content: str) -> dict[str, Any] | None:
-        cleaned = content.replace("```json", "").replace("```", "").strip()
-        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if match:
-            cleaned = match.group(0)
-        try:
-            parsed = json.loads(cleaned)
-            return parsed if isinstance(parsed, dict) else None
-        except Exception:
+        """解析 LLM 输出为 JSON 字典。
+
+        改进: 使用 Pydantic schema 验证 (intent/schema.py)，
+        防止 LLM 输出格式漂移导致路由失效。
+        """
+        from nexus.intent.schema import parse_intent_decision
+
+        decision = parse_intent_decision(content)
+        if decision is None:
             return None
+        # 转换为字典格式供 _decision_to_intent_static 使用
+        return {
+            "selected_tool": decision.selected_tool,
+            "arguments": decision.arguments,
+            "confidence": decision.confidence,
+            "need_clarification": decision.need_clarification,
+            "clarification_question": decision.clarification_question,
+            "reason": decision.reason,
+        }
 
 

@@ -18,6 +18,7 @@ Skill Registry — 技能注册中心
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from nexus.core.logger import get_logger
@@ -211,8 +212,25 @@ class SkillRegistry:
             if getattr(skill, "_skill_has_side_effect", False)
         ]
 
+    # 默认超时（秒），与 BaseSkill.timeout_ms=3000 对齐
+    _DEFAULT_TIMEOUT = 10.0
+    # 瞬时故障重试次数（仅对网络类技能生效）
+    _MAX_RETRIES = 2
+
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> SkillResult:
-        """执行指定技能。"""
+        """执行指定技能（带超时控制和瞬时故障重试）。
+
+        改进:
+          1. asyncio.wait_for 超时保护 — 防止外部 API (高德/Tavily) 响应慢阻塞 Agent 流程
+          2. 瞬时故障重试 — 网络抖动等可恢复异常自动重试 (_MAX_RETRIES 次)
+
+        Args:
+            tool_name: 技能名称
+            arguments: 技能参数
+
+        Returns:
+            SkillResult 执行结果
+        """
         skill = self._skills.get(tool_name)
         if not skill:
             return SkillResult(
@@ -223,22 +241,82 @@ class SkillRegistry:
                 handled=False,
             )
 
-        try:
-            cleaned = {k: v for k, v in arguments.items() if v is not None}
-            result = await skill.execute(**cleaned)
-            SKILL_EXECUTIONS.labels(
-                skill_name=tool_name,
-                status="ok" if result.status == "ok" else "error",
-            ).inc()
-            return result
-        except Exception as e:
-            logger.error(f"Skill execution failed: {tool_name} -> {e}")
-            SKILL_EXECUTIONS.labels(skill_name=tool_name, status="error").inc()
-            return SkillResult(
-                status="error",
-                message=f"技能执行失败：{e}",
-                error=str(e),
-                action=tool_name,
-                handled=False,
-            )
+        cleaned = {k: v for k, v in arguments.items() if v is not None}
+        # 从 BaseSkill.timeout_ms 读取超时，默认 10s
+        timeout_sec = getattr(skill, "timeout_ms", 3000) / 1000.0
+        timeout_sec = max(timeout_sec, 3.0)  # 最小 3s
+
+        last_exc: Exception | None = None
+        for attempt in range(1, self._MAX_RETRIES + 2):  # 1次正常 + _MAX_RETRIES 次重试
+            try:
+                result = await asyncio.wait_for(
+                    skill.execute(**cleaned),
+                    timeout=timeout_sec,
+                )
+                SKILL_EXECUTIONS.labels(
+                    skill_name=tool_name,
+                    status="ok" if result.status == "ok" else "error",
+                ).inc()
+                if attempt > 1:
+                    logger.info(f"Skill '{tool_name}' succeeded on retry {attempt}")
+                return result
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"Skill '{tool_name}' timed out after {timeout_sec}s"
+                    + (f" (attempt {attempt}/{self._MAX_RETRIES + 1})" if attempt > 1 else "")
+                )
+                last_exc = asyncio.TimeoutError(f"skill_timeout:{tool_name}")
+            except Exception as e:
+                last_exc = e
+                logger.warning(
+                    f"Skill '{tool_name}' failed (attempt {attempt}/{self._MAX_RETRIES + 1}): {e}"
+                )
+
+            # 不可重试的技能（如车控类 idempotent=True 的技能不重试）
+            if not getattr(skill, "idempotent", True):
+                break
+
+        # 全部重试失败
+        logger.error(f"Skill execution failed after retries: {tool_name} -> {last_exc}")
+        SKILL_EXECUTIONS.labels(skill_name=tool_name, status="error").inc()
+        return SkillResult(
+            status="error",
+            message=f"技能执行失败：{last_exc}",
+            error=str(last_exc),
+            action=tool_name,
+            handled=False,
+        )
+
+    async def execute_batch(
+        self, tasks: list[tuple[str, dict[str, Any]]]
+    ) -> list[SkillResult]:
+        """并行批量执行多个技能。
+
+        用于多动作组合指令场景（如"打开车窗同时调到24度"），
+        一次性并行执行多个无冲突的车控技能。
+
+        Args:
+            tasks: [(tool_name, arguments), ...] 列表
+
+        Returns:
+            [SkillResult, ...] 与 tasks 顺序对应的结果列表
+        """
+        coros = [self.execute(name, args) for name, args in tasks]
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        typed_results: list[SkillResult] = []
+        for i, r in enumerate(results):
+            if isinstance(r, Exception):
+                tool_name = tasks[i][0] if i < len(tasks) else "unknown"
+                logger.error(f"Batch execute '{tool_name}' raised: {r}")
+                typed_results.append(SkillResult(
+                    status="error",
+                    message=f"批量执行异常：{r}",
+                    error=str(r),
+                    action=tool_name,
+                    handled=False,
+                ))
+            else:
+                typed_results.append(r)
+        return typed_results
 

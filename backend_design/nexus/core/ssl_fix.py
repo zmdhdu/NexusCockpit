@@ -12,7 +12,12 @@ SSL Fix — 修复 conda-forge Python 在 Windows 上的 SSL 证书库解析 bug
 修复: 拦截 _load_windows_store_certs 的 SSLError，静默跳过 Windows 证书库，
       改用 certifi 提供的 CA 证书包（通过 SSL_CERT_FILE 环境变量或直接加载）。
 
+状态: ✅ 确认为必要补丁，非遗留代码。
+      在 Windows + conda 环境下，此补丁解决了 TLS 证书验证失败的问题。
+      非 Windows 或非 conda 环境下自动跳过，无副作用。
+
 用法: 在 sitecustomize.py 或项目入口处 import nexus.core.ssl_fix
+      模块导入时自动应用修复（apply_ssl_fix() 在模块底部调用）。
 """
 
 from __future__ import annotations

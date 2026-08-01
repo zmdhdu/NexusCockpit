@@ -227,7 +227,7 @@ skills:
         description: "充电类型"
         enum: ["fast", "slow", "any"]
         
-      - name: prefernce
+      - name: preference
         type: string
         required: false
         description: "偏好条件"

@@ -165,9 +165,16 @@ class AmapPoiSearchSkill(BaseSkill):
         - 替代原来通过 Tavily 搜索周边美食的方式（结果不准确）
         - 直接使用高德 POI API 获取真实商家信息
         - 支持多种 POI 类型：餐饮、加油站、停车场、景点、超市等
+
+    超时配置:
+        - 通过 BaseSkill.timeout_ms (默认 5000ms) 统一管理
+        - SkillRegistry.execute() 会基于此值设置 asyncio.wait_for 超时
+        - 不再硬编码 timeout=5.0
     """
 
     name = "amap_poi_search"
+    # 统一超时配置：5 秒（与原硬编码 timeout=5.0 对齐）
+    timeout_ms = 5000
     description = (
         "当用户询问周边美食、附近餐厅、周边加油站、附近停车场、周边景点等"
         "基于当前位置的地点推荐时调用此技能。"
@@ -257,11 +264,12 @@ class AmapPoiSearchSkill(BaseSkill):
             if poi_type and poi_type in self.POI_TYPE_MAP:
                 params["types"] = self.POI_TYPE_MAP[poi_type]
 
-            resp = httpx.get(
-                "https://restapi.amap.com/v3/place/around",
-                params=params,
-                timeout=5.0,
-            )
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://restapi.amap.com/v3/place/around",
+                    params=params,
+                    timeout=self.timeout_ms / 1000.0,
+                )
 
             if resp.status_code != 200:
                 logger.error(f"Amap POI search HTTP error: {resp.status_code}")
