@@ -6,7 +6,7 @@
 Responder Agent — 上下文压缩器持有者
 
 SupervisorGraph 通过 self.responder.compressor 访问上下文压缩器。
-回复生成的实际逻辑已内联到 SupervisorGraph._responder_node() 中。
+回复生成的实际逻辑已迁移到 nexus.agent.nodes.responder_node.ResponderNode.run() 中。
 """
 
 from __future__ import annotations

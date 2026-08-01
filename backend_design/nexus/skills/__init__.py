@@ -14,6 +14,9 @@
 
 注: local_life.py 已删除（recommend_poi/multi_turn_refine/preference_filter），
     因为其调用的 search_poi/add_habit 方法在 graph_store 中不存在，为死代码。
+
+注: default.yaml 为技能开发参考文档（P2-4 落地），不在运行时加载，
+    实际技能注册通过 @register_skill 装饰器在 Python 类中完成。
 """
 
 # 技能模块导入（触发 @register_skill 装饰器注册）

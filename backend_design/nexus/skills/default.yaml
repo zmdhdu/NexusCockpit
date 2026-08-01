@@ -1,7 +1,17 @@
-# NexusCockpit Skills Default Configuration
-# ============================================
-# This file defines the default skill catalog for new installations.
-# Each skill includes metadata, parameters, and example usages.
+# ============================================================
+# NexusCockpit 技能开发参考配置 (Development Reference Only)
+# ============================================================
+#
+# ⚠️ 注意: 此文件仅为技能开发参考文档，不在运行时加载。
+#    实际技能实现使用 @register_skill 装饰器在 Python 类中定义
+#    (见 skills/vehicle/*.py, skills/special.py 等)。
+#    此 YAML 仅用于:
+#      1. 新技能开发时参考参数定义和示例
+#      2. 技能目录维护时核对技能清单
+#      3. 文档生成时作为技能规格说明
+#
+# P2-4 落地: 从 "待重新定位" 标记转为正式的技能开发参考文档
+# ============================================================
 
 version: "1.0"
 last_updated: "2026-07-31T00:00:00Z"
