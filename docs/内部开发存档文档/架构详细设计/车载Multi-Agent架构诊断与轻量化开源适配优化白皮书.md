@@ -1,7 +1,7 @@
 # 车载 Multi-Agent 系统架构诊断 & 轻量化开源适配优化白皮书
 
 > **文档编号**: NX-WP-2026-001  
-> **版本**: v3.0 (整改完成版)  
+> **版本**: v3.1 (LangChain 可选接入完成版)  
 > **编制日期**: 2026-08-01  
 > **项目**: NexusCockpit — 车载离线 Multi-Agent 语音系统  
 > **运行环境**: Windows 10/11 x64 + NVIDIA RTX4070 (CUDA) 本地仿真车机  
@@ -22,19 +22,19 @@
 | P2-1 | **Windows 后台常驻部署** | 新增 `scripts/start-all.ps1` (一键后台启动) + `scripts/install-autostart.ps1` (Task Scheduler 自启注册) + `scripts/stop-all.ps1` (全部停止) | `scripts/` |
 | P2-4 | **default.yaml 技能配置重定位** | `skills/default.yaml` 头部添加显著注释标记为技能开发参考文档，不在运行时加载；`skills/__init__.py` 同步更新说明 | `skills/` |
 | P2-5 | **交付文档补齐** | 白皮书 v3.0 更新，移除已落地项和保留状态参考表，仅保留待确认项和验收/部署规范 | `docs/` |
+| LC-1 | **LangChain ChatPromptTemplate 接入** | `PromptManager` 从手动 `string.replace()` 迁移到 `ChatPromptTemplate.from_template().format()`，模板文件无需修改 | `prompts/` |
+| LC-2 | **LangChain StructuredTool 接入** | `BaseSkill` 新增 `to_structured_tool()` 方法，动态创建 Pydantic `args_schema` 并包装 `execute()` 为 `StructuredTool`；`SkillRegistry` 新增 `get_structured_tools()` | `skills/` |
 
 ---
 
-## 待确认项（需后续判断）
+## LangChain 可选接入项 (已落地)
 
-### LangChain 可选接入项
+以下两项已确认接入，原有原生写法保留向后兼容。
 
-以下两项为可选项，当前保留原生写法。如后续需接入，请确认。
-
-| # | 自研模块 | 可选开源组件 | 当前状态 | 接入收益 |
-|---|---------|-------------|---------|---------|
-| 1 | Prompt 模板管理 (`prompts/__init__.py`) | LangChain `ChatPromptTemplate` | **保留原生写法** — 自研 `PromptManager` 功能够用 | 模板渲染 + 变量注入 + Few-shot |
-| 2 | 结构化 Skill 定义 (`skills/base.py`) | LangChain `StructuredTool` / `@tool` | **保留原生写法** — `@register_skill` 装饰器运行稳定 | Skill → Tool Schema 自动生成 |
+| # | 自研模块 | 接入组件 | 接入内容 |
+|---|---------|---------|--------|
+| 1 | Prompt 模板管理 (`prompts/__init__.py`) | LangChain `ChatPromptTemplate` | ✅ 已接入 — `PromptManager` 内部使用 `ChatPromptTemplate.from_template()` 创建模板，`.format()` 渲染变量，保留降级手动替换 |
+| 2 | 结构化 Skill 定义 (`skills/base.py`) | LangChain `StructuredTool` | ✅ 已接入 — `BaseSkill.to_structured_tool()` 动态创建 Pydantic `args_schema` 并包装 `execute()` 为 `StructuredTool`；`SkillRegistry.get_structured_tools()` 批量转换 |
 
 ---
 

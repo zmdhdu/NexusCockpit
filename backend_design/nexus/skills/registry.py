@@ -179,6 +179,24 @@ class SkillRegistry:
         """获取所有技能的 Tool Schema。"""
         return [skill.get_tool_schema() for skill in self._skills.values()]
 
+    def get_structured_tools(self) -> list:
+        """获取所有技能的 LangChain StructuredTool 实例。
+
+        使用 BaseSkill.to_structured_tool() 将技能转换为 StructuredTool，
+        供 LangChain Agent / ToolNode 等框架组件调用。
+
+        Returns:
+            list[langchain_core.tools.StructuredTool]
+        """
+        tools = []
+        for skill in self._skills.values():
+            try:
+                tool = skill.to_structured_tool()
+                tools.append(tool)
+            except Exception as e:
+                logger.error(f"Failed to convert skill '{skill.name}' to StructuredTool: {e}")
+        return tools
+
     def get_skills_by_group(self, group: SkillGroup) -> dict[str, BaseSkill]:
         """按专家分组获取技能（供专家 Agent 使用）。"""
         return {

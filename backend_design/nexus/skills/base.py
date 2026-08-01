@@ -3,13 +3,20 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Skill Base — 技能基类定义 + 装饰器自动注册
+Skill Base — 技能基类定义 + 装饰器自动注册 (LangChain StructuredTool 接入)
 
 核心特性:
   - @register_skill 装饰器，技能类标记后自动注册到全局表
   - SkillGroup 枚举，标识技能归属的专家
   - BaseSkill 提供 has_side_effect / cache_ttl 属性，用于缓存安全控制
   - SkillRegistry 初始化时自动扫描已注册技能，无需硬编码
+  - to_structured_tool() 方法将技能转换为 LangChain StructuredTool
+
+LangChain 接入:
+  - 使用 langchain_core.tools.StructuredTool 包装技能
+  - 动态创建 Pydantic args_schema 从 self.parameters 字典
+  - StructuredTool.coroutine 包装 BaseSkill.execute() 异步调用
+  - 保留 get_tool_schema() 返回 OpenAI Function Calling 格式 (向后兼容)
 
 技能分类:
     车载技能: 空调/车窗/座椅/导航/媒体/状态查询
@@ -180,6 +187,75 @@ class BaseSkill(ABC):
     def group(self) -> SkillGroup:
         """归属的专家分组。"""
         return self._skill_group
+
+    def to_structured_tool(self):
+        """将技能转换为 LangChain StructuredTool。
+
+        动态创建 Pydantic args_schema 从 self.parameters 字典，
+        包装 BaseSkill.execute() 为 StructuredTool 的异步调用接口。
+
+        Returns:
+            langchain_core.tools.StructuredTool 实例
+        """
+        from langchain_core.tools import StructuredTool
+        from pydantic import Field, create_model
+
+        # OpenAPI type -> Python type 映射
+        _type_map = {
+            "string": str,
+            "number": float,
+            "integer": int,
+            "boolean": bool,
+            "array": list,
+            "object": dict,
+        }
+
+        # 动态创建 Pydantic 模型作为 args_schema
+        fields: dict[str, Any] = {}
+        for param_name, param_info in self.parameters.items():
+            if not isinstance(param_info, dict):
+                fields[param_name] = (str | None, Field(default=None))
+                continue
+            type_str = param_info.get("type", "string")
+            param_type = _type_map.get(type_str, str)
+            description = param_info.get("description", "")
+            if param_name in self.required_parameters:
+                default = ...  # 必填参数
+            else:
+                default = None  # 可选参数
+            fields[param_name] = (param_type | None, Field(default=default, description=description))
+
+        args_model = create_model(f"{self.name}_args", **fields) if fields else None
+
+        # 异步包装: StructuredTool 调用 execute() 并返回 SkillResult.message
+        async def _arun(**kwargs) -> str:
+            result = await self.execute(**kwargs)
+            return result.message or result.error or ""
+
+        # 同步包装: 创建新事件循环执行 async 调用 (仅用于非 async 上下文)
+        def _run(**kwargs) -> str:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 在 async 上下文中，StructuredTool 会自动调用 coroutine
+                    raise RuntimeError("Use arun() in async context")
+            except RuntimeError:
+                raise
+            new_loop = asyncio.new_event_loop()
+            try:
+                result = new_loop.run_until_complete(self.execute(**kwargs))
+                return result.message or result.error or ""
+            finally:
+                new_loop.close()
+
+        return StructuredTool.from_function(
+            func=_run,
+            coroutine=_arun,
+            name=self.name,
+            description=self.description,
+            args_schema=args_model,
+        )
 
     def __repr__(self) -> str:
         return f"<Skill name={self.name} group={self._skill_group.value} risk={self.risk_level}>"
