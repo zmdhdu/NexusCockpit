@@ -147,10 +147,10 @@ class ReflectionNode:
         # 快速跳过: 短回复 + 工具消息也是短文本 → 无需 LLM 反思
         # 场景: 位置查询回复 "您现在位于北京市。" (9字) vs 工具消息 "您当前位于北京市。" (13字)
         # 这种回复是工具直接返回的，不会包含编造信息，LLM 反思纯属浪费 4-10 秒
-        _TOOL_FAST_SKIP_MAX_LEN = 100
+        _tool_fast_skip_max_len = 100
         if (
-            len(final_response.strip()) <= _TOOL_FAST_SKIP_MAX_LEN
-            and len(tool_message.strip()) <= _TOOL_FAST_SKIP_MAX_LEN
+            len(final_response.strip()) <= _tool_fast_skip_max_len
+            and len(tool_message.strip()) <= _tool_fast_skip_max_len
         ):
             # 仍做幻觉兜底检查
             hallucination_fix = self.post_check_chat_response(state, final_response)
@@ -255,7 +255,11 @@ class ReflectionNode:
         self, state: SupervisorState, user_input: str,
         final_response: str, t0: float,
     ) -> dict[str, Any]:
-        """车控指令回复轻量反思 — 确定性校验，无 LLM 调用。作用：校验车控回复非空/无幻觉/失败提及；场景：B3分支车控指令回复的快速校验。"""
+        """车控指令回复轻量反思 — 确定性校验，无 LLM 调用。
+
+        作用：校验车控回复非空/无幻觉/失败提及；
+        场景：B3分支车控指令回复的快速校验。
+        """
         update: dict[str, Any] = {"metadata": {}}
 
         # 空回复检查

@@ -223,6 +223,8 @@ class LLMIntentRouter:
 
     def _parse_multi_json(self, content: str) -> list[dict[str, Any]] | None:
         """解析 LLM 多意图输出为决策字典列表。"""
+        from nexus.intent.schema import parse_multi_intent_decision
+
         decision = parse_multi_intent_decision(content)
         if decision is None:
             return None
@@ -292,7 +294,7 @@ class LLMIntentRouter:
         改进: 使用 Pydantic schema 验证 (intent/schema.py)，
         防止 LLM 输出格式漂移导致路由失效。
         """
-        from nexus.intent.schema import parse_intent_decision, parse_multi_intent_decision
+        from nexus.intent.schema import parse_intent_decision
 
         decision = parse_intent_decision(content)
         if decision is None:

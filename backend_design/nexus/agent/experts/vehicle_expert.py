@@ -192,7 +192,7 @@ class VehicleExpert(BaseExpertAgent):
             logger.error(f"Vehicle command timeout: tool={tool_name}, args={args}")
             result = SkillResult(
                 status="error",
-                message=f"车控指令执行超时，设备可能离线，请稍后重试。",
+                message="车控指令执行超时，设备可能离线，请稍后重试。",
                 error="timeout",
                 action=tool_name,
                 handled=True,
@@ -262,7 +262,6 @@ class VehicleExpert(BaseExpertAgent):
 
         for r in all_results:
             tool_name = r["tool_name"]
-            args = r["args"]
             result: SkillResult = r["result"]
 
             if not primary_action:

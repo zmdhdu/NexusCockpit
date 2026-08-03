@@ -258,18 +258,27 @@ class SupervisorNode:
                 _route_intent(),
             )
 
+            _skip_keys = (
+                'Route_Source', 'Route_Confidence',
+                'Need_Clarification', 'Clarification_Prompt',
+            )
+            _active_keys = [
+                k for k in intent
+                if intent[k] and k not in _skip_keys
+            ]
             if _is_fast_vehicle and _has_non_vehicle_intent:
                 logger.info(
-                    f"Mixed-intent: vehicle + non-vehicle, memory recall done. "
-                    f"intent_keys={[k for k in intent if intent[k] and k not in ('Route_Source', 'Route_Confidence', 'Need_Clarification', 'Clarification_Prompt')]} "
+                    f"Mixed-intent: vehicle + non-vehicle, "
+                    f"memory recall done. "
+                    f"intent_keys={_active_keys} "
                     f"memories={len(memories)}"
                 )
             if _is_compound:
                 logger.info(
-                    f"Compound query routed: source={intent.get('Route_Source', 'unknown')}, "
-                    f"intent_keys={[k for k in intent if intent[k] and k not in ('Route_Source', 'Route_Confidence', 'Need_Clarification', 'Clarification_Prompt')]}"
+                    f"Compound query routed: "
+                    f"source={intent.get('Route_Source', 'unknown')}, "
+                    f"intent_keys={_active_keys}"
                 )
-
         # 处理记忆结果
         update["recalled_memories"] = memories
         memory_items = []

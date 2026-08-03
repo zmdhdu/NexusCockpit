@@ -81,7 +81,14 @@ class ReviewerNode:
 
         # 3. 合规性校验 — 通过 Output Gateway 做最终全局校验
         reflection_result = state.get("metadata", {}).get("reflection_result", "")
-        reflection_passed = "passed" in reflection_result or reflection_result in ("", "chat_fast_skipped", "chat_timeout", "search_timeout", "tool_fast_skipped", "tool_timeout")
+        _skip_reflection_results = (
+            "", "chat_fast_skipped", "chat_timeout",
+            "search_timeout", "tool_fast_skipped", "tool_timeout",
+        )
+        reflection_passed = (
+            "passed" in reflection_result
+            or reflection_result in _skip_reflection_results
+        )
         validated, gw_meta = validate_output(
             final_response, state, reflection_passed=reflection_passed
         )

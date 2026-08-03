@@ -90,7 +90,8 @@ def validate_output(
     }
     state = state or {}
 
-    # 0. 五层链路闭环校验：作用：校验链路完成标识，拦截跳过五层流水线的非法输出；场景：封堵路由短路、未经校验数据直接返回前端
+    # 0. 五层链路闭环校验：校验链路完成标识，拦截跳过五层流水线的非法输出
+    # 场景：封堵路由短路、未经校验数据直接返回前端
     chain_completed = state.get("_chain_completed", False)
     if not chain_completed:
         # 特殊场景豁免：LLM错误兜底/澄清分支已走 Reviewer+Gateway，允许通过

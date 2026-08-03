@@ -297,7 +297,8 @@ class SupervisorGraph:
                         replies.append("；".join(parts))
                 full_response = "\n".join(replies) if replies else ""
 
-        # 分支 B4：作用：车控任务执行后调用LLM生成对话查询内容，合并两份应答数据；场景：用户同时提交车控操作、历史对话查询的复合请求
+        # 分支 B4：作用：车控任务执行后调用LLM生成对话查询内容，合并两份应答数据
+        # 场景：用户同时提交车控操作、历史对话查询的复合请求
         if (
             full_response
             and state.get("intent", {}).get("History_Query_Action")
@@ -314,7 +315,8 @@ class SupervisorGraph:
             except Exception as e:
                 logger.error(f"Mixed-response LLM generation failed: {e}, using vehicle reply only")
 
-        # 分支 B5：作用：车控任务执行后调用LLM合成搜索结果，合并车控与搜索两份应答数据；场景：用户同时提交车控操作、生活搜索查询的复合请求
+        # 分支 B5：作用：车控任务执行后调用LLM合成搜索结果，合并车控与搜索两份应答数据
+        # 场景：用户同时提交车控操作、生活搜索查询的复合请求
         if (
             full_response
             and state.get("search_context")
@@ -357,7 +359,14 @@ class SupervisorGraph:
 
         # Phase 8: Output Gateway 全局输出网关校验
         reflection_result = state.get("metadata", {}).get("reflection_result", "")
-        reflection_passed = "passed" in reflection_result or reflection_result in ("", "chat_fast_skipped", "chat_timeout", "search_timeout", "tool_fast_skipped", "tool_timeout")
+        _skip_results = (
+            "", "chat_fast_skipped", "chat_timeout",
+            "search_timeout", "tool_fast_skipped", "tool_timeout",
+        )
+        reflection_passed = (
+            "passed" in reflection_result
+            or reflection_result in _skip_results
+        )
         validated, gw_meta = validate_output(full_response, state, reflection_passed=reflection_passed)
         state["final_response"] = validated
         state.setdefault("metadata", {}).update(gw_meta)
@@ -495,7 +504,8 @@ class SupervisorGraph:
                         replies.append("；".join(parts))
                 full_response = "\n".join(replies) if replies else ""
 
-        # 分支 B4：作用：车控任务执行后调用LLM生成对话查询内容，合并两份应答数据；场景：用户同时提交车控操作、历史对话查询的复合请求
+        # 分支 B4：作用：车控任务执行后调用LLM生成对话查询内容，合并两份应答数据
+        # 场景：用户同时提交车控操作、历史对话查询的复合请求
         if (
             full_response
             and state.get("intent", {}).get("History_Query_Action")
@@ -513,7 +523,8 @@ class SupervisorGraph:
             except Exception as e:
                 logger.error(f"Mixed-response LLM generation failed (events): {e}")
 
-        # 分支 B5：作用：车控任务执行后调用LLM合成搜索结果，合并车控与搜索两份应答数据；场景：用户同时提交车控操作、生活搜索查询的复合请求
+        # 分支 B5：作用：车控任务执行后调用LLM合成搜索结果，合并车控与搜索两份应答数据
+        # 场景：用户同时提交车控操作、生活搜索查询的复合请求
         if (
             full_response
             and state.get("search_context")
@@ -559,7 +570,14 @@ class SupervisorGraph:
 
         # Phase 8: Output Gateway 全局输出网关校验：未通过校验内容不输出前端
         reflection_result = state.get("metadata", {}).get("reflection_result", "")
-        reflection_passed = "passed" in reflection_result or reflection_result in ("", "chat_fast_skipped", "chat_timeout", "search_timeout", "tool_fast_skipped", "tool_timeout")
+        _skip_results = (
+            "", "chat_fast_skipped", "chat_timeout",
+            "search_timeout", "tool_fast_skipped", "tool_timeout",
+        )
+        reflection_passed = (
+            "passed" in reflection_result
+            or reflection_result in _skip_results
+        )
         validated, gw_meta = validate_output(full_response, state, reflection_passed=reflection_passed)
         state["final_response"] = validated
         state.setdefault("metadata", {}).update(gw_meta)

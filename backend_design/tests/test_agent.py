@@ -13,9 +13,8 @@ NexusCockpit Agent & Intent Router Tests — P4 测试覆盖率提升
 """
 
 import hashlib
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 
 # ============================================================
 # Intent Router Tests
@@ -179,7 +178,7 @@ class TestSkillRegistry:
         side_effects = registry.get_side_effect_skills()
         # 车控类技能应有副作用
         # vehicle_climate, vehicle_window 等应在列表中
-        assert isinstance(side_effect_skills := side_effects, list)
+        assert isinstance(side_effects, list)
 
 
 # ============================================================
@@ -204,8 +203,8 @@ class TestBaseSkillStructuredTool:
 
     def test_get_skills_by_group(self):
         """测试按分组获取技能"""
-        from nexus.skills.registry import SkillRegistry
         from nexus.skills.base import SkillGroup
+        from nexus.skills.registry import SkillRegistry
         registry = SkillRegistry()
         vehicle_skills = registry.get_skills_by_group(SkillGroup.VEHICLE)
         assert isinstance(vehicle_skills, dict)

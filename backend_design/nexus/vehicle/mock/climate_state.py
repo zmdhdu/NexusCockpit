@@ -99,7 +99,11 @@ class ClimateState:
         if op in ("status", "query", "query_status"):
             return VehicleCommandResult(
                 success=True,
-                message=f"空调状态：温度 {self.climate['temperature']} 度，风量 {self.climate['fan_speed']} 档，模式 {self.climate['mode']}。",
+                message=(
+                    f"空调状态：温度 {self.climate['temperature']} 度，"
+                    f"风量 {self.climate['fan_speed']} 档，"
+                    f"模式 {self.climate['mode']}。"
+                ),
                 data={"climate": dict(self.climate)},
             )
 
@@ -115,12 +119,19 @@ class ClimateState:
             if fan_speed is not None:
                 parts.append(f"风量已设为 {self.climate['fan_speed']} 档")
             if mode:
-                mode_names = {"auto": "自动", "cool": "制冷", "heat": "制热", "defog": "除雾", "vent": "通风", "defrost": "除霜"}
+                mode_names = {
+                    "auto": "自动", "cool": "制冷",
+                    "heat": "制热", "defog": "除雾",
+                    "vent": "通风", "defrost": "除霜",
+                }
                 parts.append(f"模式已设为 {mode_names.get(mode, mode)}")
 
         # 如果只有电源操作且无参数变更，使用简洁消息
         if not parts:
-            parts.append(f"空调已开启，当前温度 {self.climate['temperature']} 度，风量 {self.climate['fan_speed']} 档。")
+            parts.append(
+                f"空调已开启，当前温度 {self.climate['temperature']} 度，"
+                f"风量 {self.climate['fan_speed']} 档。"
+            )
 
         message = "，".join(parts) + "。" if parts else "空调已开启。"
 

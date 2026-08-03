@@ -218,8 +218,8 @@ class ResponderNode:
         # 快速路径: 短工具消息已是自然语言，无需 LLM 合成
         # 场景: 位置查询返回 "您当前位于北京市。" — LLM 合成只改几个字却耗时 10s+
         # 阈值 50 字符: 车控/导航/时间的工具消息通常 < 50 字且已是完整句子
-        _FAST_SYNTHESIS_MAX_LEN = 50
-        if len(tool_message.strip()) <= _FAST_SYNTHESIS_MAX_LEN:
+        _fast_synthesis_max_len = 50
+        if len(tool_message.strip()) <= _fast_synthesis_max_len:
             logger.info(
                 f"Tool synthesis FAST-SKIP (short message): tool={tool_name}, "
                 f"len={len(tool_message)}, message={tool_message[:80]}"

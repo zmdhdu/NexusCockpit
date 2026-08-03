@@ -144,7 +144,11 @@ class HeuristicRouter:
         climate_keywords = ("空调", "车内温度", "风量", "风速", "冷一点", "热一点", "制冷", "制热", "除雾", "除霜")
         if not any(k in text for k in climate_keywords):
             return {}
-        if "温度" in text and not any(k in text for k in ("空调", "车内", "车里", "调高", "调低", "设置", "设为", "开到", "调到")):
+        _temp_context_keys = (
+            "空调", "车内", "车里", "调高", "调低",
+            "设置", "设为", "开到", "调到",
+        )
+        if "温度" in text and not any(k in text for k in _temp_context_keys):
             return {}
 
         # 分段解析 — 仅在包含空调关键词的子句内查找操作动词
@@ -463,12 +467,19 @@ class HeuristicRouter:
         分段解析：在包含媒体领域关键词的子句内解析操作动词，
         避免"关闭车窗，打开音乐"中车窗子句的"关闭"被误匹配为媒体 stop 操作。
         """
-        if not any(k in text for k in ("音乐", "播放", "暂停", "停止", "下一首", "上一首", "音量", "切歌", "听歌", "歌曲", "歌")):
+        _media_keys = (
+            "音乐", "播放", "暂停", "停止", "下一首",
+            "上一首", "音量", "切歌", "听歌", "歌曲", "歌",
+        )
+        if not any(k in text for k in _media_keys):
             return {}
 
         # 分段解析 — 仅在包含媒体关键词的子句内查找操作动词
         segments = self._split_segments(text)
-        media_segments = [s for s in segments if any(k in s for k in ("音乐", "播放", "暂停", "停止", "下一首", "上一首", "音量", "切歌", "听歌", "歌曲", "歌"))]
+        media_segments = [
+            s for s in segments
+            if any(k in s for k in _media_keys)
+        ]
         if not media_segments:
             media_segments = [text]
 
@@ -664,7 +675,12 @@ class HeuristicRouter:
 
         # 如果包含媒体关键词且有“推荐”，不拦截为搜索（让 _extract_media 处理推荐歌曲/音乐）
         media_keywords = ("音乐", "歌曲", "歌", "播放", "听歌")
-        if any(k in text for k in media_keywords) and "推荐" in text and not any(k in text for k in ("美食", "餐厅", "酒旅", "旅游", "景点")):
+        _food_keys = ("美食", "餐厅", "酒旅", "旅游", "景点")
+        if (
+            any(k in text for k in media_keywords)
+            and "推荐" in text
+            and not any(k in text for k in _food_keys)
+        ):
             return {}
 
         # 如果包含天气关键词，不拦截为搜索（已由 _extract_weather 处理）
