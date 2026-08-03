@@ -30,10 +30,7 @@ logger = get_logger(__name__)
 
 
 class PersonalizationService:
-    """个性化服务 — 根据声纹识别的用户ID匹配偏好内容。
-
-    核心流程:
-        声纹识别 → user_id → 读取 JSON 偏好 + MySQL 习惯 → 构建画像文本 → 注入 Prompt
+    """个性化服务：作用：声纹识别→匹配偏好+习惯→构建画像→注入Prompt；场景：用户身份识别后个性化上下文注入。
 
     Attributes:
         config: 应用配置实例

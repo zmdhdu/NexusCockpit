@@ -17,6 +17,7 @@ Intent Router Service — 统一意图路由服务
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from nexus.agent.llm_client_factory import get_llm_client
@@ -47,9 +48,11 @@ class IntentRouterService:
         "Climate_Action", "Window_Action", "Seat_Action",
         "Navigation_Action", "Media_Action", "Vehicle_Status_Action",
         "Poi_Search_Action",  # 高德 POI 周边搜索
+        "Weather_Action",  # 和风天气查询
         "Health_Action",  # 车辆健康诊断
         "Habit_Action",   # 用户习惯画像
         "Reminder_Action",  # 日程提醒
+        "History_Query_Action",  # 对话历史查询（与车控等意图并行）
     )
 
     # 类级默认意图模板 — 静态方法直接引用，无需创建实例
@@ -65,9 +68,11 @@ class IntentRouterService:
         "Media_Action": {},
         "Vehicle_Status_Action": {},
         "Poi_Search_Action": {},
+        "Weather_Action": {},  # 和风天气查询
         "Health_Action": {},    # 车辆健康诊断 (diagnose_vehicle/decode_dtc/maintenance_advice)
         "Habit_Action": "",    # 用户习惯画像 (habit_record/habit_recommend/habit_adjust)
         "Reminder_Action": {},  # 日程提醒 (set_reminder/query_reminder/cancel_reminder)
+        "History_Query_Action": {},  # 对话历史查询（与车控等意图并行）
         "Need_Clarification": False,
         "Clarification_Prompt": "",
         "Route_Source": "default",
@@ -98,12 +103,17 @@ class IntentRouterService:
     async def route(self, text: str) -> dict[str, Any]:
         """路由用户意图，返回标准意图字典。
 
-        路由顺序（性能优化）:
+        三级路由策略 + 结构化路由日志 + 异常降级机制:
           Level 1: 启发式规则 — 关键词匹配，<1ms，覆盖常见车控指令
+          Level 1.5: 复合查询增强 — 启发式部分命中时，LLM 多意图路由补充未识别意图
           Level 2: LLM 路由 — 语义理解，1-3s，处理复杂/模糊意图
           Level 3: 默认闲聊
 
-        注: BERT 路由分支已移除（始终为 None，从未实现）
+        复合查询支持:
+            当用户输入包含多个不同类型的需求（如"酒旅服务+美食推荐+打开车窗"）时，
+            启发式路由可能只能识别部分意图（如仅识别车窗控制）。
+            此时通过复合查询检测 + LLM 多意图路由，识别并合并所有意图，
+            确保系统具备处理任意数量和类型的复合需求的能力。
 
         Args:
             text: 用户输入文本
@@ -113,13 +123,58 @@ class IntentRouterService:
         """
         default = self._build_default_intent()
 
-        # Level 1: 启发式规则（快速路径，<1ms）
+        # ---- Level 1: 启发式规则（快速路径，<1ms）----
         # 常见车控指令（空调/车窗/座椅/导航/音乐/车况）直接命中，无需等 LLM
-        heuristic_intent = self.heuristic.route(text)
+        try:
+            heuristic_intent = self.heuristic.route(text)
+        except Exception as e:
+            # 启发式路由代码异常 — 降级到 LLM 路由，不中断流程
+            logger.error(
+                f"Router LOG | level=heuristic | status=ERROR | text='{text[:80]}' | error={e}"
+            )
+            heuristic_intent = {}
+
         if heuristic_intent:
+            # 结构化路由命中日志 — 记录路由源、命中字段、用于调试路由匹配
+            matched_keys = [
+                k for k, v in heuristic_intent.items()
+                if v and k not in ("Route_Source", "Route_Confidence")
+            ]
+            logger.info(
+                f"Router LOG | level=heuristic | status=HIT | "
+                f"text='{text[:80]}' | matched_keys={matched_keys} | "
+                f"multi_intent={'YES' if len(matched_keys) > 1 else 'NO'}"
+            )
+
+            # ---- Level 1.5: 复合查询增强 ----
+            # 启发式路由部分命中时，检查是否为复合查询（文本含多个子句但仅部分被识别）
+            # 如果是，调用 LLM 多意图路由识别剩余需求，合并结果
+            if self._is_potential_compound_query(text, heuristic_intent):
+                additional = await self._try_llm_multi_route(text)
+                if additional:
+                    # 合并: LLM 补充的意图 + 启发式命中的意图（启发式优先，避免覆盖车控参数）
+                    merged = {**default, **additional, **heuristic_intent}
+                    merged["Route_Source"] = "heuristic+llm_multi"
+                    all_keys = [
+                        k for k, v in merged.items()
+                        if v and k not in ("Route_Source", "Route_Confidence",
+                                           "Need_Clarification", "Clarification_Prompt")
+                    ]
+                    logger.info(
+                        f"Router LOG | level=heuristic+llm_multi | status=HIT | "
+                        f"text='{text[:80]}' | heuristic_keys={matched_keys} | "
+                        f"llm_additional={[k for k in all_keys if k not in matched_keys]} | "
+                        f"total_keys={all_keys}"
+                    )
+                    return merged
+
             return {**default, **heuristic_intent, "Route_Source": "heuristic"}
 
-        # Level 2: LLM 路由（慢速路径，1-3s）
+        logger.info(
+            f"Router LOG | level=heuristic | status=MISS | text='{text[:80]}'"
+        )
+
+        # ---- Level 2: LLM 路由（慢速路径，1-3s）----
         # 启发式未命中时，用 LLM 理解复杂/模糊意图
         if self.llm_enabled and self.llm_router:
             try:
@@ -127,17 +182,136 @@ class IntentRouterService:
                 if decision:
                     resolved = self._decision_to_intent(decision)
                     if resolved:
+                        # 结构化路由命中日志
+                        matched_keys = [
+                            k for k, v in resolved.items()
+                            if v and k not in ("Route_Source", "Route_Confidence")
+                        ]
+                        logger.info(
+                            f"Router LOG | level=llm | status=HIT | "
+                            f"text='{text[:80]}' | tool={decision.get('selected_tool', '')} | "
+                            f"confidence={decision.get('confidence', 0)} | "
+                            f"matched_keys={matched_keys}"
+                        )
                         return resolved
+                    else:
+                        logger.warning(
+                            f"Router LOG | level=llm | status=RESOLVE_FAILED | "
+                            f"text='{text[:80]}' | tool={decision.get('selected_tool', '')}"
+                        )
+                else:
+                    logger.info(
+                        f"Router LOG | level=llm | status=MISS | text='{text[:80]}'"
+                    )
             except Exception as e:
-                logger.warning(f"LLM routing failed, falling back: {e}")
+                logger.warning(
+                    f"Router LOG | level=llm | status=ERROR | text='{text[:80]}' | error={e}"
+                )
+                # 标记 LLM 不可用，让后续阶段（responder/reflection/reviewer）走错误兜底分支
+                default["LLM_Error"] = str(e)
 
-        # Level 3: 默认闲聊
+        # ---- Level 3: 默认闲聊（安全兜底）----
+        logger.info(
+            f"Router LOG | level=default | status=FALLBACK | text='{text[:80]}'"
+        )
         return default
 
     def _build_default_intent(self) -> dict[str, Any]:
         """构建默认意图字典（实例方法，每次返回深拷贝避免共享引用）。"""
         import copy
         return copy.deepcopy(self._DEFAULT_INTENT_TEMPLATE)
+
+    # ---- 复合查询检测与 LLM 多意图路由 ----
+
+    _COMPOUND_SPLIT_RE = re.compile(r"[，。！？；;,,\n]")
+
+    def _is_potential_compound_query(
+        self, text: str, heuristic_intent: dict[str, Any]
+    ) -> bool:
+        """检测是否为可能包含未识别意图的复合查询。
+
+        策略: 将文本按标点分段，如果段数 > 已匹配的意图类别数，
+        说明可能有部分需求未被启发式路由识别，需要 LLM 多意图路由补充。
+
+        示例:
+            text = "帮我查酒旅服务，推荐一些美食，打开车窗"
+            heuristic_intent = {"Window_Action": {...}}  # 仅识别到车窗
+            segments = ["帮我查酒旅服务", "推荐一些美食", "打开车窗"]
+            len(segments)=3 > matched_count=1 → 返回 True
+
+        Args:
+            text: 用户输入文本
+            heuristic_intent: 启发式路由已识别的意图字典
+
+        Returns:
+            True 表示可能是复合查询，需要 LLM 补充识别
+        """
+        if not text or not heuristic_intent:
+            return False
+
+        segments = self._COMPOUND_SPLIT_RE.split(text)
+        segments = [s.strip() for s in segments if s.strip()]
+        if len(segments) <= 1:
+            return False
+
+        # 计算已匹配的意图类别数
+        _skip_keys = {
+            "Route_Source", "Route_Confidence",
+            "Need_Clarification", "Clarification_Prompt",
+            "Time_Query", "LLM_Error",
+        }
+        matched_count = sum(
+            1 for k, v in heuristic_intent.items()
+            if v and k not in _skip_keys
+        )
+
+        # 段数 > 已匹配意图数 → 可能存在未识别的需求
+        is_compound = len(segments) > matched_count
+        if is_compound:
+            logger.info(
+                f"Compound query detected: segments={len(segments)}, "
+                f"matched_intents={matched_count}, text='{text[:80]}'"
+            )
+        return is_compound
+
+    async def _try_llm_multi_route(self, text: str) -> dict[str, Any]:
+        """尝试 LLM 多意图路由，返回额外的意图字段。
+
+        调用 LLMIntentRouter.route_multi() 识别所有适用的技能，
+        将每个技能映射为标准意图格式后合并返回。
+
+        异常处理:
+            LLM 调用失败时返回空字典，不影响启发式路由已有的结果。
+
+        Args:
+            text: 用户输入文本
+
+        Returns:
+            合并后的额外意图字典，可能为空
+        """
+        if not self.llm_enabled or not self.llm_router:
+            return {}
+        try:
+            decisions = await self.llm_router.route_multi(text)
+            if not decisions:
+                return {}
+            merged: dict[str, Any] = {}
+            for decision in decisions:
+                intent = self._decision_to_intent_static(
+                    decision, self.min_confidence
+                )
+                if intent:
+                    merged.update(intent)
+            if merged:
+                logger.info(
+                    f"LLM multi-intent routing success: "
+                    f"tools={[d.get('selected_tool', '') for d in decisions]}, "
+                    f"intents={list(merged.keys())}"
+                )
+            return merged
+        except Exception as e:
+            logger.warning(f"LLM multi-intent routing failed: {e}")
+            return {}
 
     def _decision_to_intent(self, decision: dict[str, Any]) -> dict[str, Any]:
         """将 LLM 决策转换为标准意图格式"""
@@ -205,6 +379,15 @@ class IntentRouterService:
                 "poi_type": str(arguments.get("poi_type") or ""),
                 "radius": arguments.get("radius", 3000),
             }
+            default["Route_Source"] = "llm"
+            default["Route_Confidence"] = confidence
+            return default
+
+        if tool_name == "weather_query":
+            query = str(arguments.get("query") or "").strip()
+            if not query:
+                return {}
+            default["Weather_Action"] = {"query": query}
             default["Route_Source"] = "llm"
             default["Route_Confidence"] = confidence
             return default

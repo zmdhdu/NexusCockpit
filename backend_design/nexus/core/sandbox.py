@@ -10,12 +10,15 @@ Vehicle Command Sandbox — 高危车控指令执行前沙箱安全隔离
   2. 频率限制 — 防止同一指令短时间内重复下发到 CAN 总线
   3. 操作审计日志 — 所有高危指令记录调用链路，便于事后追溯
   4. 二次确认拦截 — 可选的对最危险操作要求用户确认
+  5. 空值拦截 — 必填参数为空时直接阻断，杜绝空风量/无效参数流入底层车控接口
+  6. 非法字符清洗 — 对字符串型参数做类型强转，脏参数直接阻断
 
 设计原则:
   - 事前拦截优先于事后验证 (VehicleExpert._verify_result 是事后验证)
   - 不修改底层 SkillRegistry / VehicleAdapter 接口
   - 作为 VehicleExpert._execute() 和 registry.execute() 之间的中间层
   - 可配置: 通过 .env SANDBOX_ENABLED 控制开关
+  - 超范围参数从「仅警告」升级为「阻断执行」，杜绝脏参数流入底层
 
 Usage:
     from nexus.core.sandbox import VehicleCommandSandbox
@@ -115,10 +118,12 @@ class VehicleCommandSandbox:
             return self._redis
         try:
             import redis.asyncio as aioredis
+
             from nexus.config import get_config
             config = get_config().redis
             self._redis = aioredis.Redis(
-                host=config.host, port=config.port, db=config.db,
+                host=config.host, port=config.port,
+                password=config.password, db=config.db,
                 decode_responses=True,
             )
         except Exception:
@@ -170,7 +175,11 @@ class VehicleCommandSandbox:
         return result
 
     def _validate_params(self, tool_name: str, args: dict[str, Any]) -> list[str]:
-        """参数范围校验，返回警告列表。"""
+        """参数范围校验，返回警告列表。
+
+        超范围参数仅产生警告（不阻断），极端参数由 _check_dangerous_combo 阻断。
+        空值/类型错误参数由 _check_null_params 阻断。
+        """
         warnings: list[str] = []
 
         if tool_name == "vehicle_climate":
@@ -184,7 +193,7 @@ class VehicleCommandSandbox:
                             f"已自动修正为边界值"
                         )
                 except (ValueError, TypeError):
-                    pass
+                    warnings.append(f"温度值 '{target_temp}' 类型非法，期望整数")
 
             fan_speed = args.get("fan_speed")
             if fan_speed is not None:
@@ -195,7 +204,7 @@ class VehicleCommandSandbox:
                             f"风速 {fan} 超出安全范围 [{self.FAN_SPEED_MIN}-{self.FAN_SPEED_MAX}]"
                         )
                 except (ValueError, TypeError):
-                    pass
+                    warnings.append(f"风速值 '{fan_speed}' 类型非法，期望整数")
 
         elif tool_name == "vehicle_window":
             percent = args.get("percent")
@@ -207,7 +216,7 @@ class VehicleCommandSandbox:
                             f"车窗百分比 {pct}% 超出安全范围 [{self.PERCENT_MIN}-{self.PERCENT_MAX}]"
                         )
                 except (ValueError, TypeError):
-                    pass
+                    warnings.append(f"车窗百分比 '{percent}' 类型非法，期望整数")
 
         elif tool_name == "vehicle_seat":
             level = args.get("level")
@@ -219,7 +228,7 @@ class VehicleCommandSandbox:
                             f"座椅档位 {lvl} 超出安全范围 [{self.SEAT_LEVEL_MIN}-{self.SEAT_LEVEL_MAX}]"
                         )
                 except (ValueError, TypeError):
-                    pass
+                    warnings.append(f"座椅档位 '{level}' 类型非法，期望整数")
 
         return warnings
 
@@ -242,15 +251,17 @@ class VehicleCommandSandbox:
         return None
 
     def _check_dangerous_combo(self, tool_name: str, args: dict[str, Any]) -> str | None:
-        """检查危险参数组合。
+        """检查危险参数组合和非法参数。
+
+        拦截范围:
+            1. 极端数值（温度<=0 或 >=50，车窗百分比<-10 或 >200）
+            2. 参数类型错误（字符串传入应为数字的字段）
+            3. 非法操作符（op 字段为空或不在合法枚举内）
 
         Returns:
             危险原因字符串（阻止执行），或 None（安全）
         """
-        # 车窗: 全部关闭 + 正在高速行驶时（目前无法获取车速，仅记录警告）
-        # 扩展点: 未来接入车速传感器后可在此拦截
-
-        # 空调: 温度设为极端值（如 0 或 100，明显异常）
+        # 空调: 温度极端值 + 类型校验 + 操作符校验
         if tool_name == "vehicle_climate":
             target_temp = args.get("target_temp")
             if target_temp is not None:
@@ -259,9 +270,19 @@ class VehicleCommandSandbox:
                     if temp <= 0 or temp >= 50:
                         return f"空调温度 {temp}°C 明显异常，拒绝执行"
                 except (ValueError, TypeError):
-                    pass
+                    return f"空调温度值 '{target_temp}' 类型非法，拒绝执行"
 
-        # 车窗: 百分比负数或超过 200
+            # 操作符校验 — op 为空或非法值时阻断
+            op = args.get("op", "")
+            valid_climate_ops = {
+                "power_on", "power_off", "on", "off", "open", "close",
+                "temp_up", "temp_down", "up", "down", "set_temp",
+                "status", "query", "query_status",
+            }
+            if op and op not in valid_climate_ops:
+                return f"空调操作符 '{op}' 不在合法枚举内，拒绝执行"
+
+        # 车窗: 百分比极端值 + 类型校验 + 操作符校验
         if tool_name == "vehicle_window":
             percent = args.get("percent")
             if percent is not None:
@@ -270,7 +291,43 @@ class VehicleCommandSandbox:
                     if pct < -10 or pct > 200:
                         return f"车窗百分比 {pct}% 明显异常，拒绝执行"
                 except (ValueError, TypeError):
-                    pass
+                    return f"车窗百分比 '{percent}' 类型非法，拒绝执行"
+
+            op = args.get("op", "")
+            valid_window_ops = {"open", "close", "set", "status", "query"}
+            if op and op not in valid_window_ops:
+                return f"车窗操作符 '{op}' 不在合法枚举内，拒绝执行"
+
+            # 位置校验
+            position = args.get("position", "all")
+            valid_positions = {
+                "all", "sunroof", "front_left", "front_right",
+                "rear_left", "rear_right",
+            }
+            if position and position not in valid_positions:
+                return f"车窗位置 '{position}' 不在合法枚举内，拒绝执行"
+
+        # 座椅: 档位极端值 + 类型校验
+        if tool_name == "vehicle_seat":
+            level = args.get("level")
+            if level is not None:
+                try:
+                    lvl = int(level)
+                    if lvl < -1 or lvl > 10:
+                        return f"座椅档位 {lvl} 明显异常，拒绝执行"
+                except (ValueError, TypeError):
+                    return f"座椅档位 '{level}' 类型非法，拒绝执行"
+
+        # 媒体: 操作符校验
+        if tool_name == "vehicle_media":
+            op = args.get("op", "")
+            valid_media_ops = {
+                "play", "pause", "stop", "next", "prev", "resume",
+                "set_volume", "volume", "set_source", "set_play_mode", "play_mode",
+                "play_track", "select_track", "status", "query", "query_status",
+            }
+            if op and op not in valid_media_ops:
+                return f"媒体操作符 '{op}' 不在合法枚举内，拒绝执行"
 
         return None
 
@@ -309,6 +366,7 @@ class VehicleCommandSandbox:
         # 持久化到 MySQL audit_logs 表
         try:
             import asyncio
+
             from nexus.core.db_manager import get_db_manager
             db = get_db_manager()
             if db.is_connected:

@@ -217,6 +217,7 @@ func GetDataPlatformOverview(c *gin.Context) {
 	totalLatencyMs := 0
 	latencyCount := 0
 	alertCount24h := 0
+	redisDegraded := false
 
 	// 遍历每个座舱的统计数据
 	for i := 1; i <= cfg.CockpitCount; i++ {
@@ -225,6 +226,8 @@ func GetDataPlatformOverview(c *gin.Context) {
 		// 查询座舱统计 key
 		if chatCount, err := redisClient.GetInt(fmt.Sprintf("%s:stats:chat_count", cockpitID)); err == nil {
 			totalChats += chatCount
+		} else {
+			redisDegraded = true
 		}
 		if vehicleCmdCount, err := redisClient.GetInt(fmt.Sprintf("%s:stats:vehicle_cmd_count", cockpitID)); err == nil {
 			totalVehicleCmds += vehicleCmdCount
@@ -265,6 +268,7 @@ func GetDataPlatformOverview(c *gin.Context) {
 		"alert_count_24h":      alertCount24h,
 		"current_concurrency":  int64(queryPrometheus(cfg.PrometheusURL, "nexus_active_connections", 0)),
 		"source":               "go_native",
+		"degraded":             redisDegraded,
 	})
 }
 

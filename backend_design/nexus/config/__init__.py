@@ -31,7 +31,6 @@ NexusCockpit 配置中心 — 统一入口
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -40,7 +39,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from nexus.config._common import _ENV_FILE, _PROJECT_ROOT, _resolve_path  # noqa: F401
 from nexus.config.asr import ASRConfig
 from nexus.config.cache import RedisConfig
-from nexus.config.cockpit import AmapConfig, CockpitSettings, TavilyConfig
+from nexus.config.cockpit import AmapConfig, CockpitSettings, QWeatherConfig, TavilyConfig
 from nexus.config.data import DataConfig, MemoryConfig
 from nexus.config.database import MilvusConfig, MySQLConfig, Neo4jConfig
 from nexus.config.llm import LLMConfig
@@ -73,6 +72,7 @@ __all__ = [
     "JWTConfig",
     "TavilyConfig",
     "AmapConfig",
+    "QWeatherConfig",
     "ProvidersConfig",
     "RerankerConfig",
     "DataConfig",
@@ -116,6 +116,7 @@ class AppConfig(BaseSettings):
     # === 第三方服务 ===
     tavily: TavilyConfig = Field(default_factory=TavilyConfig)
     amap: AmapConfig = Field(default_factory=AmapConfig)
+    qweather: QWeatherConfig = Field(default_factory=QWeatherConfig)
 
     # === 部署模式 ===
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
@@ -129,6 +130,11 @@ class AppConfig(BaseSettings):
     cockpit: CockpitSettings = Field(default_factory=CockpitSettings)
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+    @property
+    def project_root(self) -> str:
+        """项目根目录的绝对路径 (供各模块拼接数据/模型路径)。"""
+        return _PROJECT_ROOT
 
 
 # ============================================================

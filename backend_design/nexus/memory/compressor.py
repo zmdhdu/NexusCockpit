@@ -22,10 +22,8 @@ import re
 from typing import Any
 
 from langchain_core.messages import (
-    AIMessage,
     HumanMessage,
     SystemMessage,
-    trim_messages,
 )
 
 from nexus.agent.llm_client_factory import get_chat_model, get_llm_client
@@ -49,13 +47,30 @@ class ContextCompressor:
     }
 
     _LOCATION_PATTERNS = [
+        # "我现在在杭州" / "我现在杭州"(常见少字)
+        re.compile(r"我现在(?:在)?([一-龥A-Za-z]{2,10})"),
+        # "我现在到了杭州" / "我到了杭州"
+        re.compile(r"我现在到了([一-龥A-Za-z]{2,10})"),
+        # "我在杭州"（放在“我现在”之后，优先级更低）
         re.compile(r"我在([一-龥A-Za-z]{2,10})"),
         re.compile(r"我住在([一-龥A-Za-z]{2,10})"),
-        re.compile(r"我到了([一-龥A-Za-z]{2,10})"),
         re.compile(r"到([一-龥A-Za-z]{2,8})了"),
         re.compile(r"定位(?:在|是)?([一-龥A-Za-z]{2,15})"),
         re.compile(r"我在([一-龥A-Za-z]{2,15}(?:大学|学校|公司|商场|机场|车站|医院))"),
     ]
+    # 提取出的位置如果是这些词，不是真实地名，需要过滤
+    _LOCATION_STOPWORDS = {
+        "这里", "那里", "这边", "那边", "哪儿", "哪里", "外面", "家里",
+        # 疑问词 — "我现在在什么位置" 等查询句式会被正则误捕获
+        "什么位置", "什么地方", "什么地方呢", "哪个位置", "哪个地方",
+        "啥地方", "啥位置", "什么地方呢", "哪个城市", "什么城市",
+        "哪儿呢", "哪里呢", "啥地方呢",
+        # "处于什么位置" / "处于什么" — "我现在处于什么位置" 会被正则捕获
+        "处于什么位置", "处于什么", "处于哪", "处于哪里",
+        # 其他常见非地名捕获
+        "什么", "哪里", "哪个", "哪儿", "啥", "位置", "地方",
+        "现在", "目前", "当前", "今天", "明天", "昨天",
+    }
     _PREFERENCE_PATTERNS = [
         re.compile(r"我喜欢(?:吃|喝|听|看)?([一-龥A-Za-z]{1,10})"),
         re.compile(r"我爱(?:吃|喝)?([一-龥A-Za-z]{1,10})"),
@@ -176,13 +191,23 @@ class ContextCompressor:
             if not content:
                 continue
             if "location" not in key_ctx:
-                for pattern in self._LOCATION_PATTERNS:
-                    match = pattern.search(content)
-                    if match:
-                        loc = match.group(1).strip()
-                        if len(loc) >= 2 and loc not in ("这里", "那里", "这边", "那边"):
-                            key_ctx["location"] = loc
-                            break
+                # 跳过位置查询类消息（如"我现在在哪里"、"我现在处于什么位置"）
+                # 这类消息是询问位置，不是声明位置
+                _location_query_indicators = (
+                    "在哪", "在哪里", "在哪儿", "什么位置", "什么地方",
+                    "处于什么", "处于哪", "当前位置是", "现在的位置",
+                    "我的位置", "位置在哪", "定位在哪",
+                )
+                is_location_query = any(ind in content for ind in _location_query_indicators)
+                if not is_location_query:
+                    for pattern in self._LOCATION_PATTERNS:
+                        match = pattern.search(content)
+                        if match:
+                            loc = match.group(1).strip()
+                            # 过滤非真实地名（"现在在杭州"的 group 可能包含"现在在"）
+                            if len(loc) >= 2 and loc not in self._LOCATION_STOPWORDS and not loc.startswith("现在"):
+                                key_ctx["location"] = loc
+                                break
             for pattern in self._PREFERENCE_PATTERNS:
                 matches = pattern.findall(content)
                 for m in matches:
@@ -236,7 +261,10 @@ class ContextCompressor:
         if not old_messages:
             return history, running_summary
         turns_compressed = len(old_messages) // 2
-        logger.info(f"Threshold compression: {turns_compressed} old turns → summary, keeping {self.keep_recent_turns} recent")
+        logger.info(
+            f"Threshold compression: {turns_compressed} old turns → summary, "
+            f"keeping {self.keep_recent_turns} recent"
+        )
         new_summary = await self.compress_messages(old_messages)
         if running_summary and new_summary:
             combined = f"{running_summary}\n{new_summary}"
@@ -245,7 +273,10 @@ class ContextCompressor:
             merged_summary = combined[:self.max_summary_chars]
         else:
             merged_summary = (new_summary or running_summary)[:self.max_summary_chars]
-        logger.info(f"Threshold compression done: summary_len={len(merged_summary)}, history={len(history)}→{len(recent_messages)}")
+        logger.info(
+            f"Threshold compression done: summary_len={len(merged_summary)}, "
+            f"history={len(history)}→{len(recent_messages)}"
+        )
         return recent_messages, merged_summary
 
     async def _merge_summaries(self, old_summary: str, new_summary: str) -> str:

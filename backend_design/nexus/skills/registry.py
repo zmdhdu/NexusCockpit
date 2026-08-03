@@ -34,12 +34,7 @@ logger = get_logger(__name__)
 
 
 class SkillRegistry:
-    """技能注册中心。
-
-    初始化流程:
-      1. 扫描 _SKILL_REGISTRY 全局表，获取所有用 @register_skill 标记的技能类
-      2. 实例化每个技能类（通过 factory 回调注入 graph_store / vehicle_adapter 等依赖）
-      3. 同时支持手动 register() 注册
+    """技能注册中心：作用：扫描全局表自动注册技能 + 手动注册；场景：SupervisorGraph 初始化时实例化所有技能。
 
     Args:
         graph_store: Neo4j 图谱存储（供点餐/习惯技能查询）
@@ -103,7 +98,13 @@ class SkillRegistry:
         """
         # 如果已经用 @register_skill 标记，_auto_discover 已处理
         # 这里处理未标记装饰器的技能（需要手动依赖注入）
-        from nexus.skills.special import AmapPoiSearchSkill, FoodDeliverySkill, RegisterVoiceSkill, WebSearchSkill
+        from nexus.skills.special import (
+            AmapPoiSearchSkill,
+            FoodDeliverySkill,
+            RegisterVoiceSkill,
+            WeatherSkill,
+            WebSearchSkill,
+        )
         from nexus.skills.vehicle.climate import ClimateControlSkill
         from nexus.skills.vehicle.media import MediaControlSkill
         from nexus.skills.vehicle.navigation import NavigationSkill
@@ -113,6 +114,7 @@ class SkillRegistry:
 
         manual_map = {
             "web_search": (WebSearchSkill, {}),
+            "weather_query": (WeatherSkill, {}),
             "order_food": (FoodDeliverySkill, {"graph_store": self._deps["graph_store"]}),
             "amap_poi_search": (AmapPoiSearchSkill, {}),
             "register_voice": (RegisterVoiceSkill, {}),
@@ -157,7 +159,7 @@ class SkillRegistry:
                             self._skills[name]._skill_group = SkillGroup.VEHICLE
                             self._skills[name]._skill_has_side_effect = True
                             self._skills[name]._skill_cache_ttl = 0
-                        elif name == "order_food" or name == "web_search" or name == "amap_poi_search":
+                        elif name in ("order_food", "web_search", "amap_poi_search", "weather_query"):
                             self._skills[name]._skill_group = SkillGroup.LIFESTYLE
                         elif name == "register_voice":
                             self._skills[name]._skill_group = SkillGroup.CHAT
@@ -218,11 +220,7 @@ class SkillRegistry:
     _MAX_RETRIES = 2
 
     async def execute(self, tool_name: str, arguments: dict[str, Any]) -> SkillResult:
-        """执行指定技能（带超时控制和瞬时故障重试）。
-
-        改进:
-          1. asyncio.wait_for 超时保护 — 防止外部 API (高德/Tavily) 响应慢阻塞 Agent 流程
-          2. 瞬时故障重试 — 网络抖动等可恢复异常自动重试 (_MAX_RETRIES 次)
+        """执行指定技能：作用：超时保护+瞬时故障重试，防止外部API慢响应阻塞；场景：所有技能执行入口。
 
         Args:
             tool_name: 技能名称

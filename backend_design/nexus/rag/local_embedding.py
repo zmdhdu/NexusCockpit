@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Any
 
 from nexus.core.logger import get_logger
 
@@ -50,15 +49,19 @@ class LocalEmbeddingService:
         self._load_error = ""
 
     def _ensure_loaded(self) -> bool:
-        """延迟加载模型（首次调用时加载）。"""
+        """延迟加载模型（首次调用时加载）。
+
+        仅从本地路径加载模型，不触发任何联网下载。
+        模型路径默认: ./models/embedding/bge-m3/
+        """
         if self._loaded:
             return True
         if self._model is not None:
             return True
 
         if not os.path.exists(self.model_path):
-            self._load_error = f"Model not found at {self.model_path}"
-            logger.warning(self._load_error)
+            self._load_error = f"Local model path not found: {self.model_path}"
+            logger.error(self._load_error)
             return False
 
         try:

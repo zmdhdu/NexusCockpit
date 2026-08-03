@@ -420,7 +420,7 @@ npm run dev
 | **MCP** | Model Context Protocol，AI 工具调用协议 | `nexus/mcp/gateway.py` |
 | **RBAC** | Role-Based Access Control，基于角色的权限控制 | `nexus_gate/internal/auth/jwt.go` |
 | **Circuit Breaker** | 熔断器，防止故障扩散 | `nexus/core/circuit_breaker.py` |
-| **Celery** | Python 异步任务队列 | `nexus/middleware/task_queue.py` |
+| **asyncio** | Python 异步任务处理 | `nexus/agent/nodes/reviewer_node.py`（记忆存储直接 await） |
 
 ---
 

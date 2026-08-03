@@ -5,7 +5,7 @@
 """
 MCP Vehicle Bus Adapter — 通过 MCP SDK (Model Context Protocol) 对接车控服务
 
-P1-4 落地：使用 mcp.ClientSession + mcp.StdioServerParameters 替换自研 StdioJsonRpcTransport。
+使用 mcp.ClientSession + mcp.StdioServerParameters 与车控服务通信。
 保留 MCPStdioVehicleAdapter 同步接口不变，内部通过后台 asyncio 事件循环驱动 MCP SDK 异步调用。
 """
 
@@ -167,7 +167,7 @@ class _MCPBackgroundRunner:
 class MCPStdioVehicleAdapter(BaseVehicleAdapter):
     """MCP stdio 车控适配器。
 
-    P1-4 落地后使用 MCP SDK (mcp.ClientSession) 替换自研 StdioJsonRpcTransport，
+    使用 MCP SDK (mcp.ClientSession) 与车控服务通信，
     公共接口（vehicle_climate / vehicle_window 等）保持不变。
     """
 

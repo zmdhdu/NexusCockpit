@@ -53,8 +53,8 @@ class NodeContext:
     intent_router: IntentRouterService
     memory_manager: MemoryManager
     skill_registry: SkillRegistry
-    llm_client: Any  # AsyncOpenAI，已迁移到 chat_model.ainvoke，仅保留向后兼容
-    chat_model: Any  # ChatOpenAI，来自 call_llm_with_fallback
+    llm_client: Any  # AsyncOpenAI，仅 compressor/manager 向后兼容使用
+    chat_model: Any  # ChatOpenAI，各节点统一调用入口
     experts: dict[str, BaseExpertAgent]
     responder: ResponderAgent
     reviewer: ReviewerAgent

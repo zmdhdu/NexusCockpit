@@ -4,6 +4,51 @@
 
 ---
 
+## [2.3.0] — 2026-08-03
+
+### 新增
+- **多需求并行调度架构**: VehicleExpert 支持单条指令内多动作并行执行
+  - 遍历全部 intent 字段收集匹配动作，`asyncio.gather` 并行执行
+  - 互斥组（`_MUTEX_GROUPS`）内串行执行，避免硬件冲突
+  - `_execute_single` 异常兜底：`asyncio.wait_for(timeout=10s)` 捕获通信超时
+- **路由防漂移机制**: Supervisor `_determine_experts` 增加路由错配检测
+  - 车控指令强制路由到 vehicle 专家（优先级最高）
+  - Navigation_Action 无 destination 且与车控意图共现时判定为误匹配
+  - 路由错配自动修复：强制添加 vehicle 专家并记录 CRITICAL 日志
+- **Sandbox 参数强校验拦截器**: 操作符枚举校验 + 类型校验 + 空值拦截
+  - climate/window/seat/media 全部增加合法操作符枚举（`_VALID_OPS`）
+  - 非法操作符直接阻断执行并返回标准化错误提示
+  - 参数类型错误从静默忽略升级为阻断执行
+- **Heuristic Router 文本分段解析**: `_split_segments` 按标点拆解复合指令
+  - 各 extractor 仅在包含领域关键词的子句内解析操作动词
+  - 彻底解决"打开音乐，关闭车窗"跨域关键词误匹配问题
+- **Dispatch Node 多专家聚合优化**: `tool_results` 列表收集 + `multi_actions` 追踪
+  - 并行调度全流程日志埋点（专家详情、多动作数量）
+- **Responder B3 分支增强**: 多专家回复分组聚合 + 空回复兜底
+
+### 修复
+- **空调控制链路**: `climate_state.py` power_on/power_off 不再提前 return，
+  后续温度/风量/模式参数正常生效
+- **多需求并行失效**: `vehicle_expert.py` 废弃「首个匹配即 return」逻辑，
+  改为遍历全部 intent 字段收集所有匹配动作
+- **跨域关键词误匹配**: `heuristic.py` `_extract_window` 等方法改为分段解析，
+  操作动词仅在领域子句内生效
+- **车窗操作符缺失**: `window_state.py` 未显式匹配 `open`/`up`/`raise`，
+  未知 op 默认 100%（全开），现增加操作符枚举校验
+- **座椅非法位置**: `seat_state.py` 未知 position 覆盖 driver 状态，
+  现增加位置枚举校验，非法 position 回退到 driver
+- **媒体未知操作**: `media_state.py` 未知 op 静默返回成功，
+  现增加操作符枚举校验
+- **冗余导入**: `vehicle_expert.py` `_verify_result` 内部重复导入 `SkillResult`
+
+### 优化
+- 全部 mock state 文件统一增加 `_VALID_OPS` / `_VALID_POSITIONS` 枚举校验
+- `window_state.py` 单独车窗操作后同步 `all` 字段为最大值
+- `seat_state.py` 座椅档位增加上界限制 `min(3, ...)`
+- `climate_state.py` 参数设置后构建完整回复消息（电源+温度+风量+模式）
+
+---
+
 ## [2.2.0] — 2026-08-01
 
 ### 新增

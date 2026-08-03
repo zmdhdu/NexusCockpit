@@ -244,6 +244,7 @@ EMBEDDING_PROVIDER=local         # local=本地bge-m3 | cloud=硅基流动API(�
 ```bash
 # 方式一：直接启动
 cd backend_design
+conda activate nexus
 uvicorn nexus.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 方式二：通过 Makefile

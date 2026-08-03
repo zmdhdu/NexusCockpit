@@ -58,6 +58,13 @@ class NavExpert(BaseExpertAgent):
                                 f"NavExpert: injected cached GPS coords "
                                 f"({lat}, {lon}) into location query"
                             )
+                        else:
+                            logger.warning(
+                                f"NavExpert: no cached GPS coords in adapter "
+                                f"(cockpit_id={cockpit_id}), will fall back to IP location"
+                            )
+                else:
+                    logger.warning("NavExpert: cockpit_id is empty, cannot get vehicle adapter for GPS coords")
             except Exception as e:
                 logger.debug(f"NavExpert: failed to get cached GPS coords: {e}")
 

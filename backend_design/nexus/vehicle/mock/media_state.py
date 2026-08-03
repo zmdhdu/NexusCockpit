@@ -81,6 +81,13 @@ class MediaState:
             return f"{parts[1]} - {parts[0]}" if len(parts) == 2 else name
         return name
 
+    # 合法操作符枚举
+    _VALID_OPS = frozenset({
+        "play", "pause", "stop", "next", "next_track", "prev", "previous_track",
+        "resume", "set_volume", "volume", "set_source", "set_play_mode", "play_mode",
+        "play_track", "select_track", "status", "query", "query_status",
+    })
+
     def handle(
         self,
         op: str = "play",
@@ -89,6 +96,15 @@ class MediaState:
         volume: int | None = None,
         play_mode: str | None = None,
     ) -> VehicleCommandResult:
+        # 操作符校验 — 非法 op 直接返回错误
+        if op not in self._VALID_OPS:
+            return VehicleCommandResult(
+                success=False,
+                message=f"不支持的媒体操作: {op}",
+                error="invalid_op",
+                data={"media": dict(self.media)},
+            )
+
         # 设置播放模式
         if op in ("set_play_mode", "play_mode"):
             valid_modes = ("sequential", "single", "shuffle")
@@ -143,8 +159,16 @@ class MediaState:
             self.media["playing"] = True
             if not self.media.get("track") and self._playlist:
                 self.media["track"] = self._playlist[self._track_index]
-        elif op in ("pause", "stop"):
+        elif op == "pause":
+            # 暂停: 记住当前播放进度，可恢复
             self.media["playing"] = False
+        elif op == "stop":
+            # 停止: 停止播放并重置到第一首
+            self.media["playing"] = False
+            self._track_index = 0
+            if self._playlist:
+                self.media["track"] = self._playlist[0]
+                self.media["track_index"] = 0
         elif op in ("next", "next_track"):
             if self._playlist:
                 mode = self.media.get("play_mode", "sequential")

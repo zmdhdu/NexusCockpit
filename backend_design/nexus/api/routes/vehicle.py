@@ -17,10 +17,11 @@ Vehicle Routes — 车控命令 REST 接口
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from nexus.core.auth import get_current_user
+from nexus.core.exceptions import VehicleError
 from nexus.core.logger import get_logger
 from nexus.core.tenant_context import get_cockpit_id
 from nexus.models.schemas import VehicleCommandRequest, VehicleCommandResponse
@@ -63,8 +64,17 @@ async def vehicle_command(
         VehicleCommandResponse 包含执行结果
     """
     adapter = _get_adapter(request)
+    if adapter is None:
+        raise HTTPException(status_code=503, detail="Vehicle adapter not initialized")
 
-    result = adapter.invoke_command(body.command, body.arguments)
+    try:
+        result = adapter.invoke_command(body.command, body.arguments)
+    except Exception as e:
+        logger.error(f"Vehicle command '{body.command}' failed: {e}", exc_info=True)
+        raise VehicleError(
+            message=f"车控指令执行失败: {e}",
+            details={"command": body.command, "arguments": body.arguments},
+        )
     SKILL_EXECUTIONS.labels(skill_name=body.command, status="ok" if result.success else "error").inc()
 
     return VehicleCommandResponse(
@@ -86,7 +96,14 @@ async def vehicle_status(request: Request, user_id: str = Depends(get_current_us
         包含车辆各子系统状态的字典
     """
     adapter = _get_adapter(request)
-    result = adapter.vehicle_status()
+    if adapter is None:
+        raise HTTPException(status_code=503, detail="Vehicle adapter not initialized")
+
+    try:
+        result = adapter.vehicle_status()
+    except Exception as e:
+        logger.error(f"Vehicle status query failed: {e}", exc_info=True)
+        raise VehicleError(message=f"车控状态查询失败: {e}")
     # 返回扁平结构，前端 VehicleStatus 类型直接匹配
     return result.data
 
@@ -117,6 +134,12 @@ async def update_location(
         adapter.navigation["longitude"] = body.longitude
         # 清除旧的缓存地址，下次查询时会重新逆地理编码
         adapter.navigation["current_location"] = ""
+        # 同时存储客户端 IP，作为 GPS 不可用时的降级定位手段
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            adapter.navigation["client_ip"] = forwarded.split(",")[0].strip()
+        elif request.client:
+            adapter.navigation["client_ip"] = request.client.host
         return {
             "success": True,
             "location": "",

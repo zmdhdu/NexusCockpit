@@ -5,13 +5,8 @@
 """
 Reminder Scanner — 后台提醒扫描器
 
-定时扫描 Redis Sorted Set 中的到期提醒，通过 WebSocket 推送通知。
-
-工作流程:
-    1. 每 30 秒扫描一次所有用户的提醒 Sorted Set
-    2. 提取 score <= 当前时间戳的提醒（已到期）
-    3. 通过 WebSocket 连接推送通知
-    4. 从 Sorted Set 中删除已推送的提醒
+作用：定时扫描 Redis Sorted Set 到期提醒，通过 WebSocket 推送通知；
+场景：后台定时任务，每 30 秒扫描到期提醒并推送。
 """
 
 from __future__ import annotations
@@ -54,6 +49,7 @@ class ReminderScanner:
             self._redis = aioredis.Redis(
                 host=config.host,
                 port=config.port,
+                password=config.password,
                 db=config.db,
                 decode_responses=True,
             )

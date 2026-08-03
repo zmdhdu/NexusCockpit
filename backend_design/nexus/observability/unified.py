@@ -62,7 +62,6 @@ from nexus.observability.langfuse import LangfuseMonitor, observe, update_curren
 from nexus.observability.metrics import (
     AGENT_INVOCATIONS,
     AGENT_LATENCY,
-    APP_INFO,
     CACHE_HITS,
     CACHE_MISSES,
     LLM_CALLS,

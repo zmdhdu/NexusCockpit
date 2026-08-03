@@ -30,6 +30,7 @@ class Neo4jGraphStore(BaseGraphStore):
         self.config = get_config().neo4j
         self._graph = None
         self._driver = None  # 底层 neo4j driver（供 health/admin 路由检查连接状态）
+        self._connected = False
 
     @property
     def driver(self):
@@ -37,7 +38,9 @@ class Neo4jGraphStore(BaseGraphStore):
         return self._driver
 
     def connect(self) -> None:
-        """连接 Neo4j（使用 langchain_community Neo4jGraph）。"""
+        """连接 Neo4j（使用 langchain_community Neo4jGraph，幂等）。"""
+        if self._connected and self._graph is not None:
+            return
         try:
             from langchain_neo4j import Neo4jGraph
             self._graph = Neo4jGraph(
@@ -48,6 +51,7 @@ class Neo4jGraphStore(BaseGraphStore):
             # 获取底层 driver（供 health/admin 路由检查连接状态）
             self._driver = self._graph._driver
             self._init_constraints()
+            self._connected = True
             logger.info("Neo4j connected", uri=self.config.uri)
         except Exception as e:
             logger.error(f"Neo4j connection failed: {e}")
@@ -119,7 +123,8 @@ class Neo4jGraphStore(BaseGraphStore):
                 for record in records:
                     relations = record.get("relations", [])
                     nodes = record.get("nodes", [])
-                    path_str = " → ".join(f"{nodes[i]} -[{relations[i]}]->" for i in range(len(relations))) + f" {nodes[-1]}"
+                    edges = [f"{nodes[i]} -[{relations[i]}]->" for i in range(len(relations))]
+                    path_str = " → ".join(edges) + f" {nodes[-1]}"
                     results.append(f"[图谱深层] {path_str}")
             return results
         except Exception as e:
@@ -174,4 +179,5 @@ class Neo4jGraphStore(BaseGraphStore):
         """关闭连接。"""
         if self._driver:
             self._driver.close()
+            self._connected = False
             logger.info("Neo4j disconnected")

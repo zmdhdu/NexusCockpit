@@ -122,7 +122,11 @@ async def cockpit_chat(
         # 执行 Agent 工作流
         import time
         t0 = time.perf_counter()
-        result = await agent_graph.invoke(state)
+        try:
+            result = await agent_graph.invoke(state)
+        except Exception as e:
+            logger.error(f"Agent invocation failed for cockpit {cockpit_id}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Agent 处理失败，请稍后重试")
         latency_ms = round((time.perf_counter() - t0) * 1000, 2)
 
         # 记录指标

@@ -80,7 +80,7 @@ class SemanticCache:
         redis_client: aioredis.Redis | None = None,
     ):
         self.config = get_config().redis
-        self.embedding_service = embedding_service or EmbeddingService()
+        self.embedding_service = embedding_service  # 必须由外部传入，避免不必要的云端 API 连接
         self._redis: aioredis.Redis | None = redis_client
         self._enabled = self.config.cache_enabled
         self._hit_count = 0
@@ -182,6 +182,7 @@ class SemanticCache:
             schema = (
                 TextField("query"),
                 TagField("user_id"),
+                TagField("session_id"),
                 NumericField("timestamp"),
                 VectorField(
                     "embedding",
@@ -247,12 +248,11 @@ class SemanticCache:
             filter_expr = f"@user_id:{{{user_id}}}" if user_id else "*"
             q = (
                 Query(f"{filter_expr} =>[KNN 1 @embedding $vec AS score]")
-                .add_param("vec", vec_bytes)
                 .return_fields("response", "query", "score", "timestamp", "user_id", "has_side_effect")
                 .dialect(2)
             )
 
-            results = await self._redis.ft(_INDEX_NAME).search(q)
+            results = await self._redis.ft(_INDEX_NAME).search(q, query_params={"vec": vec_bytes})
 
             if not results.docs:
                 self._miss_count += 1
@@ -372,6 +372,7 @@ class SemanticCache:
         embedding: list[float] | None = None,
         ttl: int = 0,
         has_side_effect: bool = False,
+        session_id: str = "",
     ) -> None:
         """写入缓存。
 
@@ -379,9 +380,11 @@ class SemanticCache:
           - 支持 TTL 分级（闲聊 1h、知识库 24h）
           - 存入 RediSearch 索引
           - has_side_effect=True 时禁止写入缓存
+          - 记录 session_id 用于会话级清理
 
         Args:
             has_side_effect: 是否有副作用 (车控等)，为 True 时禁止写入缓存
+            session_id: 会话 ID，用于会话删除时精确清理缓存条目
         """
         # 有副作用的响应永远不写入缓存，防止车控指令被缓存后不执行 (from main L5 fix)
         if has_side_effect:
@@ -417,6 +420,7 @@ class SemanticCache:
                     "query": query[:200],
                     "response": json.dumps(response, ensure_ascii=False),
                     "user_id": user_id,
+                    "session_id": session_id,
                     "embedding": vec_field,
                     "timestamp": str(time.time()),
                     "has_side_effect": str(has_side_effect),
@@ -431,7 +435,7 @@ class SemanticCache:
             logger.error(f"Cache set failed: {e}")
 
     async def delete_by_user(self, user_id: str) -> int:
-        """删除指定用户的所有语义缓存条目（用户删除对话时调用）。
+        """删除指定用户的所有语义缓存条目（用户级清理）。
 
         遍历所有缓存条目，删除 user_id 匹配的条目，释放 Redis 内存。
 
@@ -457,6 +461,40 @@ class SemanticCache:
             return count
         except Exception as e:
             logger.error(f"Cache delete_by_user failed: {e}")
+            return 0
+
+    async def delete_by_session(self, session_id: str, user_id: str = "") -> int:
+        """删除指定会话的语义缓存条目（会话级精确清理）。
+
+        仅删除属于该 session_id 的缓存条目，不影响同一用户其他会话的缓存。
+        旧缓存条目（无 session_id 字段）通过 user_id 匹配作为兜底。
+
+        Args:
+            session_id: 会话 ID
+            user_id: 用户 ID（用于兜底匹配无 session_id 的旧缓存）
+
+        Returns:
+            删除的缓存条目数量
+        """
+        if not self._enabled or not self._redis:
+            return 0
+
+        try:
+            count = 0
+            async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*", count=100):
+                cached_session = await self._redis.hget(key, "session_id")
+                # 精确匹配 session_id
+                if cached_session == session_id:
+                    await self._redis.delete(key)
+                    count += 1
+
+            if count > 0:
+                logger.info(
+                    f"SemanticCache: deleted {count} cache entries for session '{session_id}'"
+                )
+            return count
+        except Exception as e:
+            logger.error(f"Cache delete_by_session failed: {e}")
             return 0
 
     async def clear(self) -> int:
@@ -498,18 +536,19 @@ class SemanticCache:
         try:
             count = 0
             async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*", count=100):
-                data = await self._redis.hgetall(key)
-                if not data:
-                    continue
+                # 只读取需要的文本字段，避免 hgetall 解码二进制 embedding 字段
+                # embedding 字段在 RediSearch 模式下存储为 numpy float32 bytes，
+                # hgetall 会尝试将其作为 UTF-8 解码，导致解码失败
+                has_side_effect = await self._redis.hget(key, "has_side_effect")
+                query = await self._redis.hget(key, "query")
 
                 # 条件 1: has_side_effect 为 True（冗余清理）
-                if data.get("has_side_effect", "") in ("True", "true", "1"):
+                if has_side_effect and has_side_effect in ("True", "true", "1"):
                     await self._redis.delete(key)
                     count += 1
                     continue
 
                 # 条件 2: query 匹配车控关键词（兜底清理旧条目）
-                query = data.get("query", "")
                 if query and any(kw in query for kw in vehicle_keywords):
                     await self._redis.delete(key)
                     count += 1

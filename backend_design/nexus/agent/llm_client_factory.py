@@ -35,8 +35,6 @@ ChatOpenAI 优势:
 
 from __future__ import annotations
 
-from typing import Any
-
 from nexus.config import get_config
 from nexus.core.circuit_breaker import CircuitBreaker
 from nexus.core.exceptions import CircuitBreakerError
@@ -80,7 +78,7 @@ def get_chat_model():
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         timeout=config.timeout,
-        max_retries=2,
+        max_retries=1,  # 1 次重试 = 最多 2 次尝试，避免用户等待 90 秒
     )
     mode = "local llama.cpp" if config.is_local else "cloud API"
     logger.info(f"ChatOpenAI created: mode={mode}, model={config.llm_model}")
@@ -90,9 +88,8 @@ def get_chat_model():
 def get_llm_client():
     """获取 AsyncOpenAI 实例（全局单例，已弃用）。
 
-    ⚠️ 已弃用: 新代码请使用 call_llm_with_fallback() 或 get_chat_model().ainvoke()。
+    ⚠️ 已弃用: 新代码请使用 get_chat_model().ainvoke()。
     保留此函数仅为向后兼容 (memory/manager.py, memory/compressor.py 仍在使用)。
-    supervisor_graph.py 中的 7 处直接调用将在 supervisor_graph.py 拆分阶段统一迁移。
 
     Returns:
         AsyncOpenAI 实例

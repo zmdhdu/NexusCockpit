@@ -93,7 +93,6 @@ class DataRetentionManager:
             logger.debug("MySQL not connected, skipping data retention cleanup")
             return
 
-        _total_deleted = 0
         timestamp_col_map = {
             "subagent_logs": "check_time",
             "mainagent_logs": "alert_time",
@@ -106,7 +105,7 @@ class DataRetentionManager:
         for table, retention_days in RETENTION_POLICY.items():
             ts_col = timestamp_col_map.get(table, "created_at")
             try:
-                _rows = await db.execute_query(
+                await db.execute_query(
                     f"DELETE FROM {table} "
                     f"WHERE {ts_col} < DATE_SUB(NOW(), INTERVAL %s DAY)",
                     (retention_days,),

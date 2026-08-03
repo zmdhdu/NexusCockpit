@@ -39,6 +39,7 @@ def _get_redis():
         return aioredis.Redis(
             host=config.redis.host,
             port=config.redis.port,
+            password=config.redis.password,
             db=config.redis.db,
             decode_responses=True,
         )

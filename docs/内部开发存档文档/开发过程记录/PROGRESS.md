@@ -7,6 +7,20 @@
 >
 > ---
 >
+> ## v2.3.0 多需求并行调度重构 + 空调控制全链路修复 + 全域车载交互加固
+>
+> 针对空调控制残留故障、多需求并行调度失效、全域车载交互隐性问题做根源化整改：
+> - **空调控制链路修复**: `climate_state.py` power_on/power_off 不再提前 return，温度/风量/模式参数正常生效
+> - **多需求并行调度重构**: `vehicle_expert.py` 废弃首个匹配即 return，改为遍历全部 intent 字段并行执行
+> - **意图拆解修复**: `heuristic.py` 新增 `_split_segments` 文本分段解析，解决跨域关键词误匹配
+> - **分发聚合增强**: `dispatch_node.py` 多专家结果列表收集 + `responder_node.py` B3 分支分组聚合
+> - **路由防漂移**: `supervisor_node.py` 车控指令强制路由 vehicle 专家，Navigation_Action 误匹配检测
+> - **参数强校验**: `sandbox.py` 操作符枚举校验 + 类型校验 + 空值拦截
+> - **异常兜底**: `vehicle_expert.py` `_execute_single` 通信超时/硬件无响应统一捕获
+> - **Mock State 加固**: climate/window/seat/media 全部增加操作符枚举校验
+>
+> ---
+>
 > ## 质量增强与会话隔离修复
 >
 > 聚焦于对话质量、会话隔离和时间准确性：
@@ -88,7 +102,7 @@
 | RAG 检索 | `backend_design/nexus/rag/` | ✅ | 三路融合+Rerank+CherryKB |
 | JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
 | 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis Lua 脚本原子化滑动窗口 |
-| 任务队列 | `backend_design/nexus/middleware/task_queue.py` | ✅ | asyncio.create_task 进程内异步 |
+| ~~任务队列~~ | ~~`backend_design/nexus/middleware/task_queue.py`~~ | ✅ 已删除 | v2.3 死代码清理，记忆存储改为 reviewer_node.py 中直接 await |
 | 会话存储 | `backend_design/nexus/middleware/session_store.py` | ✅ | Redis 持久化 + 内存回退 |
 | 认证路由 | `backend_design/nexus/api/routes/auth.py` | ✅ | POST /auth/token 令牌签发 |
 | API 路由 | `backend_design/nexus/api/routes/` | ✅ | chat/vehicle/admin/health |

@@ -51,3 +51,15 @@ class ASRConfig(BaseSettings):
         self.cosyvoice_model_path = _resolve_path(self.cosyvoice_model_path)
         self.speaker_enroll_dir = _resolve_path(self.speaker_enroll_dir)
         self.speaker_users_dir = _resolve_path(self.speaker_users_dir)
+
+    def resolved_funasr_path(self) -> str:
+        """返回已解析为绝对路径的 FunASR 模型路径。"""
+        return self.funasr_model_path
+
+    def resolved_cosyvoice_path(self) -> str:
+        """返回已解析为绝对路径的 CosyVoice 模型路径。"""
+        return self.cosyvoice_model_path
+
+    def resolved_cam_path(self) -> str:
+        """返回已解析为绝对路径的 CAM++ 声纹模型路径。"""
+        return self.cam_model_path

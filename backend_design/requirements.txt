@@ -40,7 +40,7 @@ neo4j>=5.18.0                   # Neo4j Python Driver (领域特定 Cypher)
 sentence-transformers>=2.7.0   # 本地 Embedding (bge-m3) + Reranker (bge-reranker)
 
 # --- Middleware ---
-redis==5.0.0
+redis>=5.0.1                    # redis-py 5.0+ 移除了 Query.add_param, 使用 ft.search(query_params=...) 替代
 
 # --- Database (MySQL async) ---
 aiomysql>=0.2.0                 # MySQL 异步驱动

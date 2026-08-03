@@ -24,7 +24,7 @@ from typing import Any
 
 from nexus.agent.nodes.context import NodeContext
 from nexus.core.logger import get_logger
-from nexus.intent.constants import VEHICLE_INTENT_KEYS
+from nexus.intent.constants import NON_VEHICLE_INTENT_KEYS, VEHICLE_INTENT_KEYS
 from nexus.models.state import SupervisorState
 from nexus.observability.langfuse import observe
 from nexus.observability.metrics import (
@@ -99,9 +99,11 @@ class SupervisorNode:
         short_term_history = state.get("history", [])  # 对话历史列表 [{role, content}, ...]
         running_summary = state.get("running_summary", "")
 
-        # 关键信息提取 — 从对话历史中提取位置/偏好/身份等关键实体
+        # 关键信息提取 — 从对话历史 + 当前用户输入中提取位置/偏好/身份等关键实体
         # 这是零 LLM 调用的纯正则匹配，不会增加延迟
-        key_context = ctx.responder.compressor.extract_key_context(short_term_history)
+        # 注意：必须包含当前 user_input，否则"我现在在杭州"这类位置信息无法被提取
+        temp_history = short_term_history + [{"role": "user", "content": user_input}]
+        key_context = ctx.responder.compressor.extract_key_context(temp_history)
 
         # 如果对话历史中没有提取到位置，从车辆适配器获取 GPS 位置补充
         # 场景: 用户从没说过"我在杭州"，但 GPS 定位在杭州电子科技大学
@@ -118,6 +120,19 @@ class SupervisorNode:
                 if adapter and hasattr(adapter, "navigation"):
                     nav = adapter.navigation
                     loc = nav.get("current_location", "")
+                    # 如果 current_location 为空但 GPS 坐标可用，触发逆地理编码
+                    if (not loc or "未知" in loc or "不可用" in loc):
+                        lat = nav.get("latitude")
+                        lon = nav.get("longitude")
+                        if lat is not None and lon is not None and hasattr(adapter, "_navigation"):
+                            loc = adapter._navigation._fetch_ip_location(
+                                float(lat), float(lon)
+                            )
+                            if loc and "未知" not in loc and "不可用" not in loc:
+                                nav["current_location"] = loc
+                                logger.info(f"Location reverse-geocoded for key_context: {loc}")
+                            else:
+                                loc = ""
                     if loc and "未知" not in loc and "不可用" not in loc:
                         if not key_context:
                             key_context = {}
@@ -129,8 +144,7 @@ class SupervisorNode:
             update["key_context"] = key_context
             logger.info(f"Key context extracted: {key_context}")
 
-        # 阈值压缩 — 对话轮数超阈值时自动压缩旧对话为滚动摘要
-        # 这确保长期对话的关键信息不会因 SessionStore 的 20 条截断而丢失
+        # 阈值压缩：对话超阈值时自动压缩旧对话为滚动摘要
         compressed_history = short_term_history
         new_running_summary = running_summary
         try:
@@ -154,21 +168,41 @@ class SupervisorNode:
             logger.error(f"Threshold compression failed, using original history: {e}")
 
         # 记忆召回 + 用户画像 + 意图路由 并行执行
-        # 快速路径: 启发式路由命中的车控指令跳过记忆召回和 RAG，
+        # 快速路径: 启发式路由命中的纯车控指令跳过记忆召回和 RAG，
         # 将 supervisor 延迟从 ~7.5s 降至 <100ms
+        #
+        # 混合意图检测: 当车控指令与非车控意图（如对话历史查询）同时出现时，
+        # 不走快速路径，需要执行记忆召回以支持非车控部分的回答。
+        # 场景: "我问了你哪些问题，同时打开天窗" → 车控走快速执行，
+        # 但对话历史查询需要记忆召回 + LLM 生成回答。
+        #
+        # 复合查询检测: 当文本包含多个子句但启发式只识别了部分意图时，
+        # 不走快速路径，需要 LLM 多意图路由识别剩余需求。
+        # 场景: "帮我查酒旅服务，推荐一些美食，打开车窗" →
+        # 启发式仅识别到 Window_Action，但酒旅和美食需要 LLM 补充识别。
         quick_intent = ctx.intent_router.heuristic.route(user_input)
         _is_fast_vehicle = (
             quick_intent
             and any(k in quick_intent for k in VEHICLE_INTENT_KEYS)
         )
+        _has_non_vehicle_intent = (
+            quick_intent
+            and any(k in quick_intent for k in NON_VEHICLE_INTENT_KEYS)
+        )
+        # 复合查询检测: 文本含多个子句但仅部分被启发式识别
+        _is_compound = (
+            quick_intent
+            and ctx.intent_router._is_potential_compound_query(user_input, quick_intent)
+        )
 
-        if _is_fast_vehicle:
-            # 快速路径: 跳过记忆召回和用户画像加载
+        if _is_fast_vehicle and not _has_non_vehicle_intent and not _is_compound:
+            # 快速路径: 纯车控指令跳过记忆召回和用户画像加载
             intent = {**ctx.intent_router._build_default_intent(), **quick_intent, "Route_Source": "heuristic"}
             memories: list[str] = []
             profile: dict[str, Any] = {}
             logger.info("Fast-path: heuristic vehicle command, skipping memory recall")
         else:
+            # 需要记忆召回的场景：非车控意图、混合意图（车控+非车控）
             async def _recall_memory():
                 """记忆召回：使用查询增强提升长期记忆召回质量。
 
@@ -197,7 +231,20 @@ class SupervisorNode:
                     return {}
 
             async def _route_intent():
-                """意图路由"""
+                """意图路由
+
+                混合意图优化: 当启发式路由已检测到车控+非车控意图时，
+                直接使用启发式结果，跳过 LLM 路由（节省 1-3s 延迟）。
+                非车控意图走正常 LLM 路由。
+
+                复合查询增强: 当检测到复合查询（文本含多个子句但仅部分被识别）时，
+                走完整路由流程（ctx.intent_router.route()），该流程会自动调用
+                LLM 多意图路由补充识别未匹配的需求。
+                """
+                if _is_fast_vehicle and _has_non_vehicle_intent and not _is_compound:
+                    # 简单混合意图: 启发式已识别全部意图，跳过 LLM 路由
+                    return {**ctx.intent_router._build_default_intent(), **quick_intent, "Route_Source": "heuristic"}
+                # 复合查询或纯非车控: 走完整路由流程（含 LLM 多意图路由）
                 try:
                     return await ctx.intent_router.route(user_input)
                 except Exception as e:
@@ -210,6 +257,18 @@ class SupervisorNode:
                 asyncio.to_thread(_load_profile),
                 _route_intent(),
             )
+
+            if _is_fast_vehicle and _has_non_vehicle_intent:
+                logger.info(
+                    f"Mixed-intent: vehicle + non-vehicle, memory recall done. "
+                    f"intent_keys={[k for k in intent if intent[k] and k not in ('Route_Source', 'Route_Confidence', 'Need_Clarification', 'Clarification_Prompt')]} "
+                    f"memories={len(memories)}"
+                )
+            if _is_compound:
+                logger.info(
+                    f"Compound query routed: source={intent.get('Route_Source', 'unknown')}, "
+                    f"intent_keys={[k for k in intent if intent[k] and k not in ('Route_Source', 'Route_Confidence', 'Need_Clarification', 'Clarification_Prompt')]}"
+                )
 
         # 处理记忆结果
         update["recalled_memories"] = memories
@@ -248,9 +307,12 @@ class SupervisorNode:
             RAG_RETRIEVALS.labels(source="fusion").inc()
             RAG_LATENCY.observe(latency_ms / 1000)
 
+        _skip_keys = {"Route_Source", "Route_Confidence", "Need_Clarification", "Clarification_Prompt"}
+        intent_keys = [k for k, v in update["intent"].items() if v and k not in _skip_keys]
         logger.info(
             f"Supervisor done: source={update['intent_source']}, "
             f"experts={update['active_experts']}, "
+            f"intent_keys={intent_keys}, "
             f"memories={len(update['recalled_memories'])}, "
             f"profile={'yes' if update['user_profile'] else 'no'}, "
             f"clarify={update['need_clarification']}, "
@@ -263,28 +325,59 @@ class SupervisorNode:
         """根据意图路由结果决定分派给哪些专家。
 
         策略:
-          - 车控动作 → vehicle
+          - 车控动作 → vehicle（优先级最高，固化路由）
           - 导航动作 → navigation
           - 搜索/点餐/提醒 → lifestyle
           - 车辆健康诊断 → health
           - 习惯画像/声纹注册 → chat
           - 无匹配 → chat（闲聊兜底）
 
+        路由防漂移机制:
+          - 车控意图特征白名单：Climate/Window/Seat/Media/Vehicle_Status
+          - 车控指令强制路由到 vehicle 专家，不会被导航/闲聊拦截
+          - 检测到路由错配时自动触发二次重路由并记录日志
+
         Returns:
             专家名称列表
         """
         experts: list[str] = []
 
-        # 车控
-        if any(intent.get(k) for k in VEHICLE_INTENT_KEYS):
+        # 车控 — 优先级最高，强制路由到 vehicle 专家
+        has_vehicle_intent = any(intent.get(k) for k in VEHICLE_INTENT_KEYS)
+        if has_vehicle_intent:
             experts.append("vehicle")
 
-        # 导航
-        if intent.get("Navigation_Action"):
+        # 路由错配检测 — 车控指令不应出现在 navigation 专家中
+        # 如果 Navigation_Action 与车控意图同时出现，检查是否为误匹配
+        nav_action = intent.get("Navigation_Action")
+        if nav_action and isinstance(nav_action, dict):
+            # 车控语境排除：如果同时有车控意图，且导航动作没有明确的 destination，
+            # 则很可能是车控指令被误匹配为导航（如"空调开到27度"中的"开到"）
+            if has_vehicle_intent and not nav_action.get("destination"):
+                logger.warning(
+                    f"Route drift detected: Navigation_Action without destination "
+                    f"co-occurs with vehicle intent, likely misroute. "
+                    f"Skipping navigation expert. intent={nav_action}"
+                )
+            elif nav_action.get("destination") or nav_action.get("op") == "location":
+                experts.append("navigation")
+            else:
+                # 有 Navigation_Action 但无 destination 且无 location op，可能是误匹配
+                logger.warning(
+                    f"Route ambiguity: Navigation_Action has no destination/op, "
+                    f"may be misroute. intent={nav_action}"
+                )
+        elif nav_action:
             experts.append("navigation")
 
-        # 生活推荐（搜索/点餐/提醒）
-        if intent.get("Need_Search") or intent.get("Call_elm") or intent.get("Reminder_Action"):
+        # 生活推荐（搜索/天气/点餐/提醒/POI周边搜索）
+        if (
+            intent.get("Need_Search")
+            or intent.get("Call_elm")
+            or intent.get("Reminder_Action")
+            or intent.get("Poi_Search_Action")
+            or intent.get("Weather_Action")
+        ):
             experts.append("lifestyle")
 
         # 车辆健康诊断
@@ -295,8 +388,25 @@ class SupervisorNode:
         if intent.get("Habit_Action") or intent.get("Register_Action"):
             experts.append("chat")
 
+        # 对话历史查询 — 需要记忆召回 + LLM 生成回答
+        # 场景: "我问了你哪些问题，同时打开天窗"
+        # → vehicle 专家执行车控，chat 专家回答对话历史查询
+        if intent.get("History_Query_Action"):
+            if "chat" not in experts:
+                experts.append("chat")
+
         # 无匹配 → 闲聊兜底
         if not experts:
             experts.append("chat")
+
+        # 路由错配检测：分发目标与指令领域不匹配时记录警告
+        if has_vehicle_intent and "vehicle" not in experts:
+            logger.error(
+                f"CRITICAL route mismatch: vehicle intent detected but 'vehicle' "
+                f"expert not in dispatch list! experts={experts}, "
+                f"intent_keys={[k for k in VEHICLE_INTENT_KEYS if intent.get(k)]}"
+            )
+            # 自动修复：强制添加 vehicle 专家
+            experts.insert(0, "vehicle")
 
         return experts

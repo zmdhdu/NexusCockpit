@@ -36,6 +36,7 @@ _SUMMARY_PREFIX = "nexus:summary:"
 _DEFAULT_MAX_HISTORY = 20
 # 会话过期时间 (秒)，默认 24 小时，可通过 .env SESSION_TTL_SECONDS 配置
 import os as _os
+
 _SESSION_TTL = int(_os.getenv("SESSION_TTL_SECONDS", "86400"))
 
 

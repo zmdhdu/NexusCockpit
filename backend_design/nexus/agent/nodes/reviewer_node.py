@@ -5,17 +5,8 @@
 """
 Reviewer Node — 质量审查节点
 
-从 supervisor_graph.py 的 _reviewer_node() 方法抽取。
-
-职责:
-    1. 响应质量检查 — 响应为空或太短时填充备选回复
-    2. 记忆存储 — 触发后台异步存储（三元组提取 + 对话向量化）
-    3. 延迟统计 — 计算整个流程的总耗时
-    4. Agent 活动日志 — 记录到 MySQL subagent_logs
-
-消除循环依赖:
-    原实现委托回 SupervisorGraph._reviewer_node()，
-    拆分后直接通过 NodeContext 持有 ReviewerAgent 和 MemoryManager 引用。
+作用：终审强校验 + 记忆存储 + 对话向量化 + 延迟统计 + Agent活动日志；
+场景：五层链路终审关卡，所有对外输出必经此节点校验。
 """
 
 from __future__ import annotations
@@ -24,6 +15,7 @@ from time import perf_counter
 from typing import Any
 
 from nexus.agent.nodes.context import NodeContext
+from nexus.agent.output_gateway import validate_output
 from nexus.core.logger import get_logger
 from nexus.models.state import SupervisorState
 from nexus.observability.langfuse import observe
@@ -45,46 +37,84 @@ class ReviewerNode:
 
     @observe(name="reviewer-node")
     async def run(self, state: SupervisorState) -> dict[str, Any]:
-        """Reviewer 节点：质量检查 + 记忆存储 + 对话向量化 + 延迟统计。
+        """Reviewer 节点：终审强校验 + 记忆存储 + 对话向量化 + 延迟统计。
 
-        增强特性:
-            - 记忆提取存储（store_from_text）
-            - 对话向量化存储（store_conversation）
-            - 两者异步执行，不阻塞响应
+        作为全局唯一出口关卡，所有对外输出内容必须经过终审校验：
+            1. 响应质量检查 — 空内容/极短内容填充备选回复
+            2. 业务准确性校验 — 车控指令回复必须包含执行状态
+            3. 合规性校验 — 通过 Output Gateway 做最终全局校验
+            4. 记忆存储 — 触发后台异步存储（三元组提取 + 对话向量化）
+            5. 延迟统计 — 计算整个流程的总耗时
+            6. Agent 活动日志 — 记录到 MySQL subagent_logs
         """
         ctx = self._ctx
         t0 = perf_counter()
         update: dict[str, Any] = {}
 
-        # 1. 响应质量检查
         final_response = state.get("final_response", "")
-        if not final_response or len(final_response.strip()) < 2:
-            update["final_response"] = "抱歉，我没有理解你的意思，能再说一次吗？"
-            update["metadata"] = {"reviewer_fallback": True}
 
-        # 2. 触发后台记忆存储（三重记忆存储）
+        # 1. 响应质量检查 — 空内容或极短内容填充备选回复
+        if not final_response or len(final_response.strip()) < 2:
+            final_response = "抱歉，我没有理解你的意思，能再说一次吗？"
+            state["final_response"] = final_response
+            update.setdefault("metadata", {})["reviewer_fallback"] = True
+            logger.warning("Reviewer: empty/short response, applied fallback")
+
+        # 2. 业务准确性校验 — 车控指令回复必须包含执行状态信息
+        skill_action = state.get("skill_action", "")
+        if skill_action and skill_action.startswith("vehicle_"):
+            expert_results = state.get("expert_results", [])
+            has_error = any(
+                er.get("skill_status") == "error"
+                for er in expert_results
+            )
+            if has_error:
+                failure_indicators = ("失败", "错误", "无法", "不支持", "异常")
+                if not any(ind in final_response for ind in failure_indicators):
+                    final_response = f"{final_response}\n\n⚠️ 该操作执行时出现异常，请稍后重试或检查车辆状态。"
+                    state["final_response"] = final_response
+                    update.setdefault("metadata", {})["reviewer_vehicle_error_guard"] = True
+                    logger.warning(
+                        f"Reviewer: vehicle command '{skill_action}' failed "
+                        f"but response didn't mention failure, appended warning"
+                    )
+
+        # 3. 合规性校验 — 通过 Output Gateway 做最终全局校验
+        reflection_result = state.get("metadata", {}).get("reflection_result", "")
+        reflection_passed = "passed" in reflection_result or reflection_result in ("", "chat_fast_skipped", "chat_timeout", "search_timeout", "tool_fast_skipped", "tool_timeout")
+        validated, gw_meta = validate_output(
+            final_response, state, reflection_passed=reflection_passed
+        )
+        if validated != final_response:
+            final_response = validated
+            state["final_response"] = final_response
+            logger.info(
+                f"Reviewer: output gateway corrected response, reason={gw_meta.get('gateway_reason', '')}"
+            )
+        update.setdefault("metadata", {}).update(gw_meta)
+
+        # 4. 触发后台记忆存储（三重记忆存储）
         if ctx.memory_manager and final_response:
             user_id = state.get("user_id", "default")
             user_input = state.get("user_input", "")
             cockpit_id = state.get("cockpit_id", "")
+            session_id = state.get("session_id", "")
 
-            # 2a. 提取记忆三元组 → Milvus + Neo4j
             try:
                 ctx.memory_manager.store_from_text_async(user_input, user_id)
                 update.setdefault("metadata", {})["memory_storage_triggered"] = True
             except Exception as e:
                 logger.error(f"Memory storage trigger failed: {e}")
 
-            # 2b. 对话向量化 → Milvus（语义检索用）
             try:
                 ctx.memory_manager.store_conversation_async(
-                    user_input, final_response, user_id, cockpit_id
+                    user_input, final_response, user_id, cockpit_id, session_id=session_id
                 )
                 update.setdefault("metadata", {})["conversation_vectorized"] = True
             except Exception as e:
                 logger.error(f"Conversation vectorization trigger failed: {e}")
 
-        # 3. 计算总延迟
+        # 5. 计算总延迟
         metadata = state.get("metadata", {})
         reviewer_latency = round((perf_counter() - t0) * 1000, 2)
         total_latency = sum(
@@ -95,7 +125,6 @@ class ReviewerNode:
                 "reviewer_latency_ms",
             )
         )
-        # 也检查专家的延迟
         for key in metadata:
             if key.endswith("_latency_ms") and key not in (
                 "supervisor_latency_ms", "responder_latency_ms", "reviewer_latency_ms"
@@ -104,9 +133,9 @@ class ReviewerNode:
 
         update["latency_ms"] = round(total_latency, 2)
         update.setdefault("metadata", {})["reviewer_latency_ms"] = reviewer_latency
-        update["metadata"]["total_latency_ms"] = update["latency_ms"]
+        update.setdefault("metadata", {})["total_latency_ms"] = update["latency_ms"]
 
-        # 记录 Agent 活动到 MySQL subagent_logs（供运营总览引擎活动时间线展示）
+        # 6. 记录 Agent 活动到 MySQL subagent_logs
         try:
             from nexus.core.db_manager import get_db_manager
             db = get_db_manager()
@@ -114,8 +143,6 @@ class ReviewerNode:
                 cockpit_id = state.get("cockpit_id", "cockpit-01")
                 intent = state.get("intent", {})
                 active_experts = state.get("active_experts", [])
-                skill_action = state.get("skill_action", "")
-                reflection_result = metadata.get("reflection_result", "")
 
                 check_items = {
                     "user_input": state.get("user_input", "")[:100],
@@ -125,7 +152,11 @@ class ReviewerNode:
                     "reflection": reflection_result,
                     "latency_ms": update["latency_ms"],
                 }
-                is_anomaly = reflection_result in ("hallucination_guard", "corrected", "failed_no_suggestion")
+                is_anomaly = reflection_result in (
+                    "hallucination_guard", "corrected", "failed_no_suggestion",
+                    "chat_corrected", "chat_retried", "search_corrected",
+                    "blocked_hallucination", "blocked_sensitive",
+                )
 
                 await db.insert_subagent_log(
                     cockpit_id=cockpit_id,
@@ -139,6 +170,7 @@ class ReviewerNode:
 
         logger.info(
             f"Reviewer done: total_latency={update['latency_ms']}ms, "
+            f"gateway={gw_meta.get('gateway_result', 'N/A')}, "
             f"response='{final_response[:50]}...'"
         )
         return update

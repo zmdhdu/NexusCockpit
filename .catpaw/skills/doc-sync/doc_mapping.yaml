@@ -167,7 +167,7 @@ mappings:
       - "是否描述了降级回退到 O(n) 遍历的模式"
       - "限流器是否描述了 Lua 脚本原子化方案"
       - "SessionStore 模块是否在文档中登记"
-      - "TaskQueue 任务清单是否与 task_queue.py 中的 @celery_app.task 一致"
+      - "异步任务处理是否描述了 asyncio.create_task / await 模式（task_queue.py 已删除）"
 
   # ============================================================
   # L6 API 层 (api/ + main.py)

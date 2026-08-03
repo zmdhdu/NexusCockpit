@@ -65,8 +65,14 @@ class GraphRAGRetriever:
         enable_rerank: bool = True,
         enable_bm25: bool = True,
     ):
-        self.embedding_service = embedding_service or EmbeddingService()
-        self.vector_store = vector_store or build_vector_store(self.embedding_service)
+        # 仅在需要自建 vector_store 时才创建 EmbeddingService
+        # 避免 vector_store 已传入却仍实例化云端 EmbeddingService（触发不必要的 API 连接）
+        if vector_store:
+            self.vector_store = vector_store
+            self.embedding_service = embedding_service  # 可能为 None，仅占位
+        else:
+            self.embedding_service = embedding_service or EmbeddingService()
+            self.vector_store = build_vector_store(self.embedding_service)
         self.graph_store = graph_store or build_graph_store()
         self.enable_rerank = enable_rerank
         self.enable_bm25 = enable_bm25

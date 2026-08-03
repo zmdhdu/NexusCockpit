@@ -252,14 +252,22 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           const cockpitSessions = state.sessionsByCockpit[state.cockpitId] || [];
           const updatedSessions = cockpitSessions.filter((s) => s.session_id !== sessionId);
+
+          // 清理被删除会话在 messagesByKey 中的孤儿消息数据
+          // 防止 localStorage 残留导致刷新后消息回显
+          const deletedKey = storageKey(state.cockpitId, sessionId);
+          const updatedMessagesByKey = { ...state.messagesByKey };
+          delete updatedMessagesByKey[deletedKey];
+
           // 如果删除的是当前会话，切换到第一个
           if (state.sessionId === sessionId) {
             const nextSessionId = updatedSessions[0]?.session_id || "";
             const nextKey = storageKey(state.cockpitId, nextSessionId);
-            const nextMessages = state.messagesByKey[nextKey] || [];
+            const nextMessages = updatedMessagesByKey[nextKey] || [];
             return {
               sessionId: nextSessionId,
               messages: nextMessages,
+              messagesByKey: updatedMessagesByKey,
               sessionsByCockpit: {
                 ...state.sessionsByCockpit,
                 [state.cockpitId]: updatedSessions,
@@ -267,6 +275,7 @@ export const useChatStore = create<ChatState>()(
             };
           }
           return {
+            messagesByKey: updatedMessagesByKey,
             sessionsByCockpit: {
               ...state.sessionsByCockpit,
               [state.cockpitId]: updatedSessions,

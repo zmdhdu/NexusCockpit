@@ -1,7 +1,7 @@
 # L4 Agent 层 (Multi-Agent)
 
 > 对应代码: `nexus/agent/` + `nexus/intent/`
-> 最后更新: 2026-07-18
+> 最后更新: 2026-08-03
 
 ## 职责
 
@@ -14,6 +14,15 @@
 
 > **v2.2.5 更新**: 新增闲聊预校验（Pre-check）和幻觉兜底（Post-check），
 > 防止 LLM 编造对话历史。流式模式改为"先生成完整回复 → 校验 → 再发送"。
+>
+> **v2.3.0 更新**: 多需求并行调度架构重构 + 空调控制全链路修复 + 全域车载交互加固
+> - VehicleExpert 支持多动作并行执行（`asyncio.gather` + 互斥组串行）
+> - Supervisor 新增路由防漂移机制（车控指令强制路由 vehicle 专家，检测 Navigation_Action 误匹配）
+> - Sandbox 参数校验从「仅警告」升级为「阻断执行」，增加操作符枚举校验
+> - Heuristic Router 新增文本分段解析（`_split_segments`），彻底解决跨域关键词误匹配
+> - Dispatch Node 多专家结果聚合优化（`tool_results` 列表收集 + `multi_actions` 追踪）
+> - Responder B3 分支多专家回复分组聚合 + 空回复兜底
+> - 全部 mock state（climate/window/seat/media）增加操作符枚举校验，非法 op 直接返回错误
 
 ## 工作流 (v2.0)
 
@@ -132,6 +141,38 @@ async for event in agent.stream_with_events(state):
 3. 调用 `SkillRegistry` 执行技能
 4. 返回 partial state update（不修改原 state）
 
+#### VehicleExpert 多动作并行执行（v2.3.0）
+
+VehicleExpert 支持单条指令内多个车控动作的并行执行：
+
+```python
+# 用户输入: "打开音乐，关闭车窗，空调调到24度"
+# intent 中同时包含 Climate_Action / Window_Action / Media_Action
+
+# 1. 收集所有匹配动作
+pending_actions = [
+    {"intent_key": "Climate_Action", "tool_name": "vehicle_climate", "args": {...}},
+    {"intent_key": "Window_Action", "tool_name": "vehicle_window", "args": {...}},
+    {"intent_key": "Media_Action", "tool_name": "vehicle_media", "args": {...}},
+]
+
+# 2. 沙箱安全审查（逐个检查）
+# 3. 并行执行 — 无冲突动作 asyncio.gather，互斥组串行
+# 4. 结果聚合为统一回复
+```
+
+互斥组定义（`_MUTEX_GROUPS`）：同一组内的指令串行执行，避免硬件冲突。
+
+| 互斥组 | 技能 | 串行原因 |
+|--------|------|----------|
+| climate | vehicle_climate | 空调状态写入互斥 |
+| window | vehicle_window | 车窗电机控制互斥 |
+| seat | vehicle_seat | 座椅电机控制互斥 |
+| media | vehicle_media | 媒体播放器状态互斥 |
+
+异常兜底：`_execute_single` 内部通过 `asyncio.wait_for(timeout=10s)` 捕获通信超时、
+硬件无响应等异常，返回标准化错误提示，避免静默失败。
+
 ### experts/base.py — 专家基类
 
 ```python
@@ -243,7 +284,11 @@ system_msg = pm.render("chat", user_profile={}, memory="用户喜欢24度")
 
 1. **Supervisor 模式** — Supervisor 统一调度，专家各司其职
 2. **并行执行** — 多个专家通过 `asyncio.gather` 并行，`expert_results` 自动累加
-3. **可观测** — 每个 Agent 的输入输出都被 Langfuse 追踪
-4. **可降级** — LLM 不可用时，技能结果可直通
-5. **可扩展** — 新增专家只需实现 `BaseExpertAgent` 并在 `SupervisorGraph.experts` 中注册
+3. **路由防漂移** — 车控指令强制路由到 vehicle 专家，检测 Navigation_Action 误匹配并自动重路由
+4. **多动作并行** — VehicleExpert 支持单条指令内多动作并行执行，互斥组串行
+5. **参数强校验** — Sandbox 对温度/风量/百分比/操作符做值域校验和枚举校验，脏参数直接阻断
+6. **异常兜底** — 通信超时、硬件无响应、执行异常统一捕获并返回标准化提示
+7. **可观测** — 每个 Agent 的输入输出都被 Langfuse 追踪
+8. **可降级** — LLM 不可用时，技能结果可直通
+9. **可扩展** — 新增专家只需实现 `BaseExpertAgent` 并在 `SupervisorGraph.experts` 中注册
 6. **Checkpoint** — 支持 `SqliteSaver` 持久化，会话中断可恢复

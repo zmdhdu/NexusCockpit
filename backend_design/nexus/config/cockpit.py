@@ -56,3 +56,27 @@ class AmapConfig(BaseSettings):
     api_key: str = Field(default="", validation_alias="AMAP_KEY")
 
     model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+
+class QWeatherConfig(BaseSettings):
+    """和风天气 API 配置。
+
+    用于天气查询技能，替代 Tavily 通用搜索获取精准天气数据。
+    申请: https://dev.qweather.com/
+
+    认证方式: API KEY (通过 X-QW-Api-Key 请求头传递)
+    API Host: 个性化域名，在控制台-项目管理中查看，默认 devapi.qweather.com
+    """
+
+    api_key: str = Field(default="", validation_alias="QWEATHER_APIKEY")
+    key: str = Field(default="", validation_alias="QWEATHER_KEY")
+    project_id: str = Field(default="", validation_alias="QWEATHER_PROJECT_ID")
+    credential_id: str = Field(default="", validation_alias="QWEATHER_CREDENTIAL_ID")
+    api_host: str = Field(default="devapi.qweather.com", validation_alias="QWEATHER_API_HOST")
+
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
+
+    @property
+    def effective_key(self) -> str:
+        """返回有效的 API Key（优先 QWEATHER_APIKEY，其次 QWEATHER_KEY）。"""
+        return self.api_key or self.key

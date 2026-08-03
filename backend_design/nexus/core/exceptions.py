@@ -114,3 +114,14 @@ class RateLimitError(NexusError):
 
     def __init__(self, message: str = "Rate limit exceeded"):
         super().__init__(message, code="RATE_LIMIT_ERROR")
+
+
+class CircuitBreakerError(NexusError):
+    """熔断器错误 — 熔断器处于 OPEN/HALF_OPEN 状态时拒绝请求抛出。
+
+    用于 LLM API、Milvus、车控等外部服务连续失败后的故障隔离，
+    触发降级逻辑（如云端 LLM 降级到本地模型）。
+    """
+
+    def __init__(self, message: str = "Circuit breaker is open"):
+        super().__init__(message, code="CIRCUIT_BREAKER_ERROR")

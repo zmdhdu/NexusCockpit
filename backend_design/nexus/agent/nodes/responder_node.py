@@ -5,21 +5,9 @@
 """
 Responder Node — 回复生成节点
 
-从 supervisor_graph.py 的以下方法抽取:
-    - _responder_node()         → run()
-    - _synthesize_tool_response() → synthesize_tool_response()
-    - _generate_llm_response()   → generate_llm_response()
-    - _stream_llm_response()     → stream_llm_response()
-    - _get_system_prompt()       → get_system_prompt()
-    - _format_key_context()      → format_key_context() (staticmethod)
-    - _get_location_status()     → get_location_status()
-
-职责:
-    1. 汇总专家输出，根据分支选择回复策略（澄清/工具合成/LLM 闲聊）
-    2. Tool→LLM 合成: 工具调用结果回传 LLM 生成自然语言回复
-    3. LLM 闲聊生成（非流式 + 流式）
-    4. System Prompt 构建（注入画像/记忆/习惯/位置/关键上下文）
-    5. 闲聊预校验 + 后校验（通过 reflection_node 引用）
+职责：汇总专家输出，按分支选择回复策略（澄清/工具合成/LLM闲聊），
+构建System Prompt并注入画像/记忆/习惯/位置/关键上下文，
+执行闲聊预校验与后校验。
 """
 
 from __future__ import annotations
@@ -44,7 +32,7 @@ logger = get_logger(__name__)
 
 
 class ResponderNode:
-    """Responder 节点：汇总专家输出，生成最终回复。
+    """Responder 节点：汇总专家输出生成最终回复。
 
     通过 NodeContext 依赖注入获取共享服务，不持有 SupervisorGraph 引用。
     通过 reflection_node 引用调用闲聊预校验/后校验（避免循环依赖，
@@ -68,7 +56,15 @@ class ResponderNode:
 
     @observe(name="responder-node")
     async def run(self, state: SupervisorState) -> dict[str, Any]:
-        """Responder 节点：汇总专家输出，生成最终回复。
+        """Responder 节点：按分支选择回复策略生成最终回复。
+
+        分支策略:
+            A: 需要澄清 → 直接返回 clarification_prompt
+            B1: 搜索类技能 → LLM 用 search 提示词生成
+            B2: 工具返回结构化数据 → Tool→LLM 合成
+            B3: 简单车控指令 → 聚合所有专家回复
+            B5: 复合查询混合 → 车控回复 + LLM 合成搜索结果拼接
+            C: LLM 闲聊兜底
 
         增强特性:
             - 分支 B 优化: 当工具返回结构化数据时，将结果回传 LLM 做自然语言合成
@@ -96,10 +92,54 @@ class ResponderNode:
             # B3: 简单车控指令，直接使用工具返回的自然语言消息
             else:
                 expert_results = state.get("expert_results", [])
+                # 多专家/多动作并行时汇总所有回复，避免丢失其他专家的执行结果
+                # 按 expert 分组聚合，同一专家的多条结果合并为一段
+                expert_replies: dict[str, list[str]] = {}
                 for er in expert_results:
                     if er.get("handled") and er.get("reply"):
-                        full_response = er["reply"]
-                        break
+                        expert_name = er.get("expert", "unknown")
+                        expert_replies.setdefault(expert_name, []).append(er["reply"])
+                # 每个专家的回复合并为一段，多专家之间用换行分隔
+                replies = []
+                for expert_name, parts in expert_replies.items():
+                    if len(parts) == 1:
+                        replies.append(parts[0])
+                    else:
+                        # 同一专家多条结果合并
+                        replies.append("；".join(parts))
+                full_response = "\n".join(replies) if replies else ""
+
+                # 空回复兜底 — 专家标记 handled=True 但回复为空时，返回标准化提示
+                if not full_response:
+                    logger.warning("Responder B3: skill_handled=True but all replies empty, applying fallback")
+                    full_response = "指令已执行，但未返回详细信息。"
+
+            # B5: 复合查询混合场景 — 车控指令 + 搜索/POI 结果
+            # 当车控专家已执行指令（B3），同时生活专家返回了搜索结果时，
+            # 需要额外调用 LLM 合成搜索结果，并与车控回复拼接。
+            # 场景: "帮我查酒旅服务，推荐美食，打开车窗"
+            # → vehicle 专家回复"已打开车窗"
+            # → LLM 合成搜索结果"为您找到以下酒店..."
+            # → 两者拼接为完整回复
+            if (
+                full_response
+                and state.get("search_context")
+                and "lifestyle" in state.get("active_experts", [])
+                and state.get("skill_action") != "web_search"  # 避免与 B1 重复
+            ):
+                try:
+                    original_action = state.get("skill_action", "")
+                    state["skill_action"] = "web_search"
+                    search_response = await self.generate_llm_response(state)
+                    state["skill_action"] = original_action
+                    if search_response and search_response.strip():
+                        full_response = f"{full_response}\n{search_response}"
+                        logger.info(
+                            f"Compound search synthesis: search_len={len(search_response)}, "
+                            f"total_len={len(full_response)}"
+                        )
+                except Exception as e:
+                    logger.error(f"Compound search synthesis failed: {e}")
 
         # 分支 C: LLM 闲聊兜底
         else:
@@ -172,6 +212,17 @@ class ResponderNode:
             logger.info(
                 f"Tool synthesis SKIPPED (failure detected): tool={tool_name}, "
                 f"message={tool_message[:80]}"
+            )
+            return tool_message
+
+        # 快速路径: 短工具消息已是自然语言，无需 LLM 合成
+        # 场景: 位置查询返回 "您当前位于北京市。" — LLM 合成只改几个字却耗时 10s+
+        # 阈值 50 字符: 车控/导航/时间的工具消息通常 < 50 字且已是完整句子
+        _FAST_SYNTHESIS_MAX_LEN = 50
+        if len(tool_message.strip()) <= _FAST_SYNTHESIS_MAX_LEN:
+            logger.info(
+                f"Tool synthesis FAST-SKIP (short message): tool={tool_name}, "
+                f"len={len(tool_message)}, message={tool_message[:80]}"
             )
             return tool_message
 
@@ -334,7 +385,13 @@ class ResponderNode:
         except Exception as e:
             LLM_CALLS.labels(model=get_config().llm.llm_model, status="error").inc()
             logger.error(f"LLM response failed: {e}")
-            return f"抱歉，我遇到了一些问题: {e}"
+            # 搜索类回复 LLM 超时/失败时，直接返回搜索结果作为兜底
+            # 避免用户等待 60 秒后只收到"我遇到了一些问题"
+            search_ctx = state.get("search_context", "")
+            if search_ctx:
+                logger.info("LLM failed, returning raw search results as fallback")
+                return f"根据搜索结果：\n{search_ctx[:800]}"
+            return "抱歉，AI 服务暂时繁忙，请稍后再试。"
 
     async def stream_llm_response(self, state: SupervisorState) -> AsyncGenerator[str, None]:
         """流式调用 LLM 生成回复。
@@ -383,7 +440,13 @@ class ResponderNode:
                     yield chunk.content
         except Exception as e:
             logger.error(f"LLM streaming failed: {e}")
-            yield f"抱歉，连接模型出错: {e}"
+            # 搜索类回复 LLM 超时/失败时，返回搜索结果作为兜底
+            search_ctx = state.get("search_context", "")
+            if search_ctx:
+                logger.info("LLM stream failed, returning raw search results as fallback")
+                yield f"根据搜索结果：\n{search_ctx[:800]}"
+            else:
+                yield "抱歉，AI 服务暂时繁忙，请稍后再试。"
 
     # ------------------------------------------------------------------
     # System Prompt 构建
@@ -457,18 +520,6 @@ class ResponderNode:
         # 从 state 中获取习惯记忆（已在 recall 中加载）
         memory_str = state.get("memory_str", "")
         habits_str = state.get("habits_str", "")
-
-        # 注入当前东八区时间，让 LLM 能正确回答时间相关问题
-        cn_tz = timezone(timedelta(hours=8))
-        now_cn = datetime.now(cn_tz)
-        weekday_map = {"Monday": "星期一", "Tuesday": "星期二", "Wednesday": "星期三",
-                        "Thursday": "星期四", "Friday": "星期五", "Saturday": "星期六",
-                        "Sunday": "星期日"}
-        weekday_cn = weekday_map.get(now_cn.strftime("%A"), now_cn.strftime("%A"))
-        current_time_str = (
-            f"{now_cn.strftime('%Y年%m月%d日')} {weekday_cn} "
-            f"{now_cn.strftime('%H:%M')}"
-        )
 
         # 默认使用 chat 提示词
         prompt = ctx.prompt_manager.render(
@@ -546,8 +597,11 @@ class ResponderNode:
     def get_location_status(self, state: SupervisorState) -> str:
         """获取当前位置状态，用于注入提示词防止幻觉。
 
-        从车控适配器获取实时位置，如果位置不可用则明确告知 LLM
-        不要编造地址信息。
+        优先级:
+            1. current_location 缓存（已有逆地理编码地址）
+            2. GPS 坐标可用但地址未缓存 → 触发逆地理编码获取地址
+            3. GPS 坐标可用但逆地理编码失败 → 告知 LLM 坐标可用
+            4. GPS 坐标不可用 → 告知 LLM 定位服务不可用
         """
         try:
             adapter = None
@@ -563,14 +617,53 @@ class ResponderNode:
             if adapter and hasattr(adapter, "navigation"):
                 nav = adapter.navigation
                 loc = nav.get("current_location", "")
+                lat = nav.get("latitude")
+                lon = nav.get("longitude")
+
+                # 1. 已有缓存的逆地理编码地址
                 if loc and "未知" not in loc and "不可用" not in loc:
                     return f"用户当前位置：{loc}（可在回复中使用此位置信息）"
-                else:
-                    return (
-                        "⚠️ 当前位置未知（定位服务不可用）。"
-                        "禁止在回复中编造或猜测用户的位置信息。"
-                        "如果用户询问位置相关问题，请告知定位服务不可用。"
-                    )
+
+                # 2. GPS 坐标可用但地址未缓存 → 触发逆地理编码
+                if lat is not None and lon is not None:
+                    # 调用 NavigationState 的逆地理编码方法获取地址
+                    # _fetch_ip_location 是同步方法（使用 httpx.get），可在同步上下文中调用
+                    try:
+                        if hasattr(adapter, "_navigation"):
+                            addr = adapter._navigation._fetch_ip_location(
+                                float(lat), float(lon)
+                            )
+                        elif hasattr(adapter, "vehicle_navigation"):
+                            # 回退: 通过 vehicle_navigation 方法触发逆地理编码
+                            result = adapter.vehicle_navigation(
+                                op="location", latitude=float(lat), longitude=float(lon)
+                            )
+                            addr = result.message
+                        else:
+                            addr = ""
+
+                        if addr and "未知" not in addr and "不可用" not in addr:
+                            nav["current_location"] = addr
+                            logger.info(f"Location reverse-geocoded on demand: {addr}")
+                            return f"用户当前位置：{addr}（可在回复中使用此位置信息）"
+                        # 逆地理编码失败，但坐标可用
+                        return (
+                            f"用户当前坐标：({lat:.4f}, {lon:.4f})"
+                            "（地址解析中，可使用此坐标进行周边搜索）"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Reverse geocoding failed in get_location_status: {e}")
+                        return (
+                            f"用户当前坐标：({lat:.4f}, {lon:.4f})"
+                            "（地址解析中，可使用此坐标进行周边搜索）"
+                        )
+
+                # 3. GPS 坐标不可用
+                return (
+                    "⚠️ 当前位置未知（定位服务不可用）。"
+                    "禁止在回复中编造或猜测用户的位置信息。"
+                    "如果用户询问位置相关问题，请告知定位服务不可用。"
+                )
         except Exception as e:
             logger.debug(f"Failed to get location status: {e}")
 

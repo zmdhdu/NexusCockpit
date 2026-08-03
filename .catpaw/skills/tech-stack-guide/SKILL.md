@@ -188,17 +188,17 @@ description: 帮助新人系统学习 NexusCockpit 项目技术栈的导航技�
 | **项目位置** | `backend_design/nexus/rag/retriever.py`（检索器）、`reranker.py`（重排器） |
 | **推荐资源** | [RAG 综述论文](https://arxiv.org/abs/2312.10997)、[RRF 算法说明](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf) |
 
-#### Celery 异步任务队列
+#### 异步任务处理
 
 | 项目 | 说明 |
 |------|------|
-| **是什么** | Python 分布式任务队列框架 |
-| **为什么选它** | 将耗时操作（记忆存储、缓存清理）从主请求剥离 |
-| **架构** | Broker (RabbitMQ) → Worker (Celery) → Backend (Redis) |
-| **项目位置** | `backend_design/nexus/middleware/task_queue.py` |
-| **学习要点** | `@celery_app.task` 装饰器、`task_time_limit` 超时、`worker_prefetch_multiplier` 预取 |
-| **推荐资源** | [Celery 官方文档](https://docs.celeryq.dev/) |
-| **动手实验** | 阅读 `task_store_memory` 函数，理解同步 Worker 中如何桥接异步代码 |
+| **是什么** | 基于 asyncio 的进程内异步任务处理 |
+| **为什么选它** | 车载场景单机部署，无需额外中间件（RabbitMQ），延迟更低 |
+| **架构** | `asyncio.create_task()` 或直接 `await` 调用 |
+| **项目位置** | 记忆存储在 `backend_design/nexus/agent/nodes/reviewer_node.py` 中直接 await |
+| **学习要点** | asyncio 事件循环、异步上下文管理、错误处理与重试 |
+| **推荐资源** | [Python asyncio 文档](https://docs.python.org/3/library/asyncio.html) |
+| **动手实验** | 阅读 `reviewer_node.py` 中的记忆存储调用，理解 async/await 模式 |
 
 ### 🟠 数据存储技术栈
 

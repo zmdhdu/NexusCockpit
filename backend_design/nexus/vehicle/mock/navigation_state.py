@@ -27,6 +27,7 @@ class NavigationState:
             "longitude": None,
             "speed_kmh": 0,
             "heading": "北",
+            "client_ip": "",  # 客户端 IP，用于 IP 定位（避免使用服务器 IP）
         }
 
     def handle(
@@ -38,8 +39,13 @@ class NavigationState:
         # 查询当前位置
         if op in ("location", "current_location", "where", "位置", "我在哪"):
             loc = self.navigation.get("current_location", "")
-            # 只缓存成功获取的位置，失败时每次重试
-            if not loc or "未知" in loc or "不可用" in loc:
+            # 当 GPS 坐标被显式传入时（NavExpert 从 adapter 缓存中注入），
+            # 绕过 current_location 缓存，强制调用逆地理编码获取精确地址。
+            # 原逻辑: 只要 current_location 有值就返回缓存，导致即使用户
+            # 已开启浏览器 GPS 定位，仍返回旧的 IP 级别位置（如"浙江省杭州市"）。
+            if latitude is not None and longitude is not None:
+                loc = self._fetch_ip_location(latitude, longitude)
+            elif not loc or "未知" in loc or "不可用" in loc:
                 loc = self._fetch_ip_location(latitude, longitude)
             # 坐标降级时也算部分成功（至少有坐标）
             is_failure = "未知" in loc and "坐标" not in loc
@@ -130,15 +136,21 @@ class NavigationState:
                 logger.warning(f"GPS reverse geocoding (Nominatim) failed: {e}")
 
         # 2a. IP 定位 — 高德 IP 定位 API
+        # 使用客户端 IP（从 chat 请求中存储）而非服务器 IP，
+        # 避免服务器在北京但用户在杭州时返回错误位置
+        client_ip = self.navigation.get("client_ip", "")
         try:
             import httpx
 
             from nexus.config import get_config
             amap_key = get_config().amap.api_key
             if amap_key:
+                ip_params = {"key": amap_key, "output": "json"}
+                if client_ip:
+                    ip_params["ip"] = client_ip
                 resp = httpx.get(
                     "https://restapi.amap.com/v3/ip",
-                    params={"key": amap_key, "output": "json"},
+                    params=ip_params,
                     timeout=3.0,
                 )
                 if resp.status_code == 200:
@@ -166,10 +178,12 @@ class NavigationState:
             logger.warning(f"IP geolocation (Amap) failed: {e}")
 
         # 2b. IP 定位 — ip-api.com (国际备选)
+        # 同样使用客户端 IP
         try:
             import httpx
+            ip_url = f"http://ip-api.com/json/{client_ip}" if client_ip else "http://ip-api.com/json/"
             resp = httpx.get(
-                "http://ip-api.com/json/",
+                ip_url,
                 params={"lang": "zh-CN", "fields": "status,country,regionName,city,lat,lon,query"},
                 timeout=5.0,
             )

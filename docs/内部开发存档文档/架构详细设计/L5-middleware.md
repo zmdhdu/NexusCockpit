@@ -111,29 +111,11 @@ await store.async_set("user_123", [
 - 每个会话以 `session:{user_id}` 为 key 存储在 Redis
 - `async_close()` 在应用关闭时清理连接
 
-## 任务队列 (task_queue.py)
+## 任务队列（已移除）
 
-> **v2.2 简化**: 移除 Celery/RabbitMQ 依赖，改为使用 `asyncio.create_task()` 进程内异步执行。原 Celery 任务已移除，记忆存储改为在 Reviewer 中直接调用 `memory_manager.store_from_text_async()`。
-
-```python
-from nexus.middleware.task_queue import create_background_task
-
-# 创建后台异步任务（替代 Celery 的 task.delay()）
-task = create_background_task(
-    memory_manager.store_from_text_async(user_input, user_id),
-    name="memory_store",
-)
-```
-
-### 优势
-- 无需额外中间件（RabbitMQ）
-- 无需启动 Worker 进程
-- 部署更简单，适合车载场景
-- 延迟更低（无队列转发开销）
-
-### 注意
-- 进程内异步任务在进程重启时会丢失（可接受，记忆存储有重试机制）
-- 不支持分布式任务调度（单机模式足够）
+> **v2.2 简化**: 移除 Celery/RabbitMQ 依赖，改为使用 `asyncio.create_task()` 进程内异步执行。
+>
+> **v2.3 进一步精简**: `task_queue.py` 模块已删除（死代码清理）。记忆存储改为在 Reviewer 中直接 `await` 调用 `memory_manager.store_from_text_async()`，无需额外的任务队列封装。
 
 ## 熔断器 (core/circuit_breaker.py)
 

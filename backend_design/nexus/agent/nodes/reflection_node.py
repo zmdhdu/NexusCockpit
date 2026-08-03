@@ -5,28 +5,13 @@
 """
 Reflection Node — 反思校验节点
 
-从 supervisor_graph.py 的以下方法抽取:
-    - _reflection_node()           → run()
-    - _deterministic_date_check()  → deterministic_date_check()
-    - _reflect_search_response()   → reflect_search_response()
-    - _reflect_chat_response()      → reflect_chat_response()
-    - _regenerate_with_feedback()  → regenerate_with_feedback()
-    - _is_history_query()           → is_history_query()
-    - _has_history()                 → has_history()
-    - _is_hallucinated_history()     → is_hallucinated_history()
-    - _pre_check_chat_response()    → pre_check_chat_response()
-    - _post_check_chat_response()   → post_check_chat_response()
-
-职责:
-    1. 事实性校验（工具数据 vs 回复一致性）
-    2. 搜索类回复反思（无幻觉 + 时效性 + 日期正确性）
-    3. 通用闲聊反思（渐进式校验 + retry 重新生成）
-    4. 确定性日期校验（正则，无 LLM 调用）
-    5. 幻觉兜底检查（防止编造对话历史）
+作用：对 LLM 输出做事实性/一致性/无幻觉/车载场景合规性检查，含确定性日期校验与渐进式 retry；
+场景：Responder 生成回复后、Reviewer 终审前的反思校验环节。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -36,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from nexus.agent.nodes.context import NodeContext
 from nexus.config import get_config
 from nexus.core.logger import get_logger
+from nexus.intent.constants import HALLUCINATED_HISTORY_PATTERNS
 from nexus.models.state import SupervisorState
 from nexus.observability.langfuse import observe
 
@@ -43,6 +29,18 @@ if TYPE_CHECKING:
     from nexus.agent.nodes.responder_node import ResponderNode
 
 logger = get_logger(__name__)
+
+# P5 修复: 系统能力声明 — 注入反思 prompt，防止 LLM 纠正时说"无法控制"已有功能
+_SYSTEM_CAPABILITIES = """
+## 系统能力声明（重要）
+本系统是车载语音助手小千，以下能力均已实现，助手完全可以执行:
+- 空调控制: 开关、温度设置(16-30度)、风量调节(1-7档)、模式切换(制冷/制热/除雾/自动)
+- 车窗控制: 全开/全关、单独位置控制(左前/右前/左后/右后/天窗)、百分比开度
+- 媒体控制: 播放/暂停/停止/上一首/下一首/音量调节/播放模式切换
+- 导航: 目的地设置、位置查询、路线规划
+- 座椅: 加热/通风/按摩/位置调节 (主驾/副驾/后排)
+当助手回复"无法控制""请您手动设置"这些功能时，判定为不合格。
+"""
 
 
 class ReflectionNode:
@@ -76,27 +74,13 @@ class ReflectionNode:
         "我们聊了什么", "对话历史", "聊天记录",
     ]
 
-    # LLM 编造对话历史的可疑模式
-    _HALLUCINATED_HISTORY_PATTERNS = [
-        "您最初是问", "你最初是问", "您第一次问", "你第一次问",
-        "您刚才问的是", "你刚才问的是", "您之前问的是", "你之前问的是",
-        "您的第一个问题", "你的第一个问题", "您第一句话", "你第一句话",
-    ]
-
     # ------------------------------------------------------------------
     # 主节点方法
     # ------------------------------------------------------------------
 
     @observe(name="reflection-node")
     async def run(self, state: SupervisorState) -> dict[str, Any]:
-        """反思校验节点：对 LLM 输出做事实性、一致性、无幻觉检查。
-
-        反思策略:
-            - 有工具数据时：执行 LLM 反思（CoT 自我批评）
-            - 有搜索结果时：执行 LLM 反思
-            - 无工具数据时：轻量检查（非空、长度合理）
-
-        可通过 REFLECTION_ENABLED=false 关闭以减少 LLM 调用。
+        """反思校验节点：作用：按分支选择反思策略（工具LLM反思/搜索反思/车控轻量校验/闲聊渐进式retry），所有分支不可绕过；场景：Responder后、Reviewer前的全链路闭环校验。
 
         Args:
             state: 包含 final_response 和 tool_result 的 SupervisorState
@@ -121,7 +105,6 @@ class ReflectionNode:
                 update["metadata"]["reflection_result"] = "disabled_by_config"
 
             # 即使反思禁用，也要做幻觉兜底检查
-            # 防止 LLM 编造对话历史（如"您最初是问..."）
             hallucination_fix = self.post_check_chat_response(state, final_response)
             if hallucination_fix is not None:
                 update["final_response"] = hallucination_fix
@@ -132,16 +115,26 @@ class ReflectionNode:
             logger.info(f"Reflection skipped (disabled by config): latency={latency_ms}ms")
             return update
 
+        # 车控指令轻量校验：确定性检查无LLM调用，混合场景例外走完整LLM反思
+        skill_action = state.get("skill_action", "")
+        has_history_query = bool(state.get("intent", {}).get("History_Query_Action"))
+        if (
+            skill_action
+            and skill_action.startswith("vehicle_")
+            and not tool_result.get("message")
+            and not has_history_query
+        ):
+            return await self.reflect_vehicle_response(state, user_input, final_response, t0)
+
         # 搜索类回复也做反思校验
         if not tool_result or not tool_result.get("message"):
             if search_context and state.get("skill_action") == "web_search":
-                # 搜索类反思：检查回复是否基于搜索结果，是否有时效性问题
+                # 搜索类反思
                 return await self.reflect_search_response(
                     state, user_input, final_response, search_context, t0
                 )
 
-            # 通用闲聊反思 — 对所有非工具类回复做 LLM 质量校验（渐进式校验机制）
-            # 不再只做轻量检查，而是走完整的 LLM 反思 + retry 流程
+            # 通用闲聊反思（渐进式校验 + retry）
             return await self.reflect_chat_response(
                 state, user_input, final_response, t0
             )
@@ -151,8 +144,36 @@ class ReflectionNode:
         tool_data = tool_result.get("data", {})
         tool_name = tool_result.get("tool_name", "")
 
+        # 快速跳过: 短回复 + 工具消息也是短文本 → 无需 LLM 反思
+        # 场景: 位置查询回复 "您现在位于北京市。" (9字) vs 工具消息 "您当前位于北京市。" (13字)
+        # 这种回复是工具直接返回的，不会包含编造信息，LLM 反思纯属浪费 4-10 秒
+        _TOOL_FAST_SKIP_MAX_LEN = 100
+        if (
+            len(final_response.strip()) <= _TOOL_FAST_SKIP_MAX_LEN
+            and len(tool_message.strip()) <= _TOOL_FAST_SKIP_MAX_LEN
+        ):
+            # 仍做幻觉兜底检查
+            hallucination_fix = self.post_check_chat_response(state, final_response)
+            if hallucination_fix is not None:
+                update["final_response"] = hallucination_fix
+                update["metadata"]["reflection_result"] = "tool_hallucination_guard"
+            else:
+                update["metadata"]["reflection_result"] = "tool_fast_skipped"
+                update["metadata"]["reflection_reason"] = (
+                    f"短回复+短工具消息，跳过 LLM 反思 (resp_len={len(final_response)}, "
+                    f"tool_msg_len={len(tool_message)})"
+                )
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            logger.info(
+                f"Tool reflection FAST-SKIPPED: latency={latency_ms}ms, "
+                f"resp='{final_response[:50]}', tool_msg='{tool_message[:50]}'"
+            )
+            return update
+
         reflection_prompt = (
             "你是一个响应质量审查员。请检查助手的回复是否准确、一致、无幻觉。\n\n"
+            f"{_SYSTEM_CAPABILITIES}\n\n"
             f"## 用户问题\n{user_input}\n\n"
             f"## 工具返回的真实数据\n"
             f"- 工具名称: {tool_name}\n"
@@ -170,10 +191,13 @@ class ReflectionNode:
         )
 
         try:
-            response = await self._ctx.chat_model.ainvoke(
-                [{"role": "user", "content": reflection_prompt}],
-                temperature=0.0,
-                max_tokens=500,
+            response = await asyncio.wait_for(
+                self._ctx.chat_model.ainvoke(
+                    [{"role": "user", "content": reflection_prompt}],
+                    temperature=0.0,
+                    max_tokens=500,
+                ),
+                timeout=15.0,
             )
             content = (response.content or "").strip()
 
@@ -208,6 +232,10 @@ class ReflectionNode:
                     update["metadata"]["reflection_result"] = "failed_no_suggestion"
                     update["metadata"]["reflection_reason"] = reflection.reason
 
+        except asyncio.TimeoutError:
+            logger.warning("Tool reflection LLM call TIMEOUT (15s), skipping reflection")
+            update["metadata"]["reflection_result"] = "tool_timeout"
+            update["metadata"]["reflection_reason"] = "工具反思 LLM 超时(15s)，跳过反思"
         except Exception as e:
             logger.error(f"Reflection LLM call failed: {e}")
             update["metadata"]["reflection_result"] = "error"
@@ -220,18 +248,69 @@ class ReflectionNode:
         return update
 
     # ------------------------------------------------------------------
+    # 车控指令轻量反思
+    # ------------------------------------------------------------------
+
+    async def reflect_vehicle_response(
+        self, state: SupervisorState, user_input: str,
+        final_response: str, t0: float,
+    ) -> dict[str, Any]:
+        """车控指令回复轻量反思 — 确定性校验，无 LLM 调用。作用：校验车控回复非空/无幻觉/失败提及；场景：B3分支车控指令回复的快速校验。"""
+        update: dict[str, Any] = {"metadata": {}}
+
+        # 空回复检查
+        if not final_response or len(final_response.strip()) < 2:
+            update["final_response"] = "抱歉，车控指令执行失败，请稍后重试。"
+            update["metadata"]["reflection_result"] = "vehicle_fallback_empty"
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            return update
+
+        # 幻觉历史检查
+        hallucination_fix = self.post_check_chat_response(state, final_response)
+        if hallucination_fix is not None:
+            update["final_response"] = hallucination_fix
+            update["metadata"]["reflection_result"] = "vehicle_hallucination_guard"
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            logger.info(f"Vehicle reflection: hallucination guard triggered, latency={latency_ms}ms")
+            return update
+
+        # 车控执行状态检查
+        expert_results = state.get("expert_results", [])
+        has_error = any(
+            er.get("skill_status") == "error"
+            for er in expert_results
+        )
+        if has_error:
+            failure_indicators = ("失败", "错误", "无法", "不支持", "异常")
+            if not any(ind in final_response for ind in failure_indicators):
+                update["final_response"] = f"{final_response}\n\n⚠️ 该操作执行时出现异常，请稍后重试。"
+                update["metadata"]["reflection_result"] = "vehicle_error_guard"
+                update["metadata"]["reflection_reason"] = "车控指令执行失败但回复未提及"
+            else:
+                update["metadata"]["reflection_result"] = "vehicle_passed"
+        else:
+            update["metadata"]["reflection_result"] = "vehicle_passed"
+            update["metadata"]["reflection_reason"] = "车控指令回复校验通过"
+
+        latency_ms = round((perf_counter() - t0) * 1000, 2)
+        update["metadata"]["reflection_latency_ms"] = latency_ms
+        reflection_result = update['metadata']['reflection_result']
+        logger.info(
+            f"Vehicle reflection done: result={reflection_result}, "
+            f"latency={latency_ms}ms"
+        )
+        return update
+
+    # ------------------------------------------------------------------
     # 确定性日期校验
     # ------------------------------------------------------------------
 
     def deterministic_date_check(
         self, user_input: str, response: str,
     ) -> str | None:
-        """确定性日期校验 — 使用正则表达式检测日期错误，无需 LLM 调用。
-
-        检测场景:
-            1. 用户问"明天"，但回复中"明天"后面跟着的日期等于今天的日期
-            2. 用户问"后天"，但回复中"后天"后面跟着的日期等于今天或明天的日期
-            3. 用户问"今天"，但回复中"今天"后面跟着的日期不等于今天的日期
+        """确定性日期校验：作用：正则检测回复中今天/明天/后天日期错误并自动修正；场景：搜索类与闲聊回复的日期一致性校验。
 
         Returns:
             如果检测到错误，返回修正后的回复；否则返回 None 表示无问题。
@@ -300,17 +379,10 @@ class ReflectionNode:
         self, state: SupervisorState, user_input: str,
         final_response: str, search_context: str, t0: float,
     ) -> dict[str, Any]:
-        """搜索类回复反思：检查回复是否基于搜索结果，是否正确传达时效性。
-
-        检查项:
-            1. 回复中的信息是否都能在搜索结果中找到对应（无幻觉）
-            2. 回复是否正确传达了搜索结果的时效性
-            3. 回复是否添加了搜索结果中不存在的具体数据（如温度、时间等）
-        """
+        """搜索类回复反思：作用：LLM校验回复基于搜索结果无幻觉、时效性正确、无编造数据；场景：web_search技能回复的质量校验。"""
         update: dict[str, Any] = {"metadata": {}}
 
-        # 确定性日期校验（正则，无 LLM 调用，即时完成）
-        # 如果检测到日期错误，直接修正并跳过 LLM 反思，大幅减少延迟
+        # 确定性日期校验（正则即时完成，检测到错误直接修正跳过LLM反思）
         date_fix = self.deterministic_date_check(user_input, final_response)
         if date_fix is not None:
             update["final_response"] = date_fix
@@ -355,10 +427,13 @@ class ReflectionNode:
         )
 
         try:
-            response = await self._ctx.chat_model.ainvoke(
-                [{"role": "user", "content": reflection_prompt}],
-                temperature=0.0,
-                max_tokens=500,
+            response = await asyncio.wait_for(
+                self._ctx.chat_model.ainvoke(
+                    [{"role": "user", "content": reflection_prompt}],
+                    temperature=0.0,
+                    max_tokens=500,
+                ),
+                timeout=15.0,
             )
             content = (response.content or "").strip()
 
@@ -390,6 +465,10 @@ class ReflectionNode:
                     update["metadata"]["reflection_result"] = "search_failed_no_suggestion"
                     update["metadata"]["reflection_reason"] = result.get("reason", "")
 
+        except asyncio.TimeoutError:
+            logger.warning("Search reflection LLM call TIMEOUT (15s), skipping reflection")
+            update["metadata"]["reflection_result"] = "search_timeout"
+            update["metadata"]["reflection_reason"] = "LLM 反思超时(15s)，跳过反思"
         except Exception as e:
             logger.error(f"Search reflection LLM call failed: {e}")
             update["metadata"]["reflection_result"] = "search_error"
@@ -405,28 +484,32 @@ class ReflectionNode:
     # 通用闲聊反思
     # ------------------------------------------------------------------
 
+    # 短回复快速跳过阈值（字符数）
+    _FAST_SKIP_MAX_LEN = 100
+    # 失败/兜底关键词 — 短回复含这些词时跳过 LLM 反思
+    _FAILURE_INDICATORS = (
+        "不可用", "无法", "失败", "错误", "不支持", "异常",
+        "暂时", "稍后", "繁忙", "未连接", "离线",
+    )
+
+    def _should_skip_reflection(self, response: str) -> bool:
+        """判断是否可以跳过 LLM 反思。
+
+        对短回复（<100字符）且含失败/兜底关键词的回复，无需 LLM 幻觉检查。
+        这类回复是确定性的兜底消息，不会包含编造信息。
+        """
+        if not response:
+            return True
+        stripped = response.strip()
+        if len(stripped) < self._FAST_SKIP_MAX_LEN:
+            return any(ind in stripped for ind in self._FAILURE_INDICATORS)
+        return False
+
     async def reflect_chat_response(
         self, state: SupervisorState, user_input: str,
         final_response: str, t0: float,
     ) -> dict[str, Any]:
-        """通用闲聊反思：对所有非工具类回复做 LLM 质量校验。
-
-        反思 prompt 注入完整对话历史，防止反思 LLM 误判"编造对话历史"，
-        当用户询问对话历史时，反思 LLM 能对照实际历史记录判断。
-
-        渐进式校验机制（Loop Engineering）:
-            1. 首次反思：检查回复的相关性、准确性、一致性、完整性
-            2. 如果反思不通过且有修正建议 → 直接采用修正建议
-            3. 如果反思不通过但无修正建议 → 带反馈重新生成（最多 1 次重试）
-            4. 重试后再次反思，无论结果如何都返回（防止无限循环）
-
-        检查项:
-            - 相关性：回复是否直接回答了用户的问题
-            - 准确性：回复中是否有明显的 factual error
-            - 一致性：回复是否自相矛盾
-            - 完整性：回复是否过于简短或遗漏关键信息
-            - 无幻觉：回复是否编造了不存在的信息
-        """
+        """通用闲聊反思：作用：注入对话历史防误判，渐进式校验（首次反思→采纳修正建议→带反馈retry），检查相关性/准确性/一致性/完整性/无幻觉；场景：非工具类闲聊回复的LLM质量校验。"""
         update: dict[str, Any] = {"metadata": {}}
 
         # 注入当前时间，防止时间相关的幻觉
@@ -440,6 +523,23 @@ class ReflectionNode:
             update["metadata"]["reflection_result"] = "chat_fallback_empty"
             latency_ms = round((perf_counter() - t0) * 1000, 2)
             update["metadata"]["reflection_latency_ms"] = latency_ms
+            return update
+
+        # 快速跳过：短回复 + 失败关键词 → 确定性兜底，无需 LLM 反思
+        if self._should_skip_reflection(final_response):
+            # 仍做幻觉兜底检查
+            hallucination_fix = self.post_check_chat_response(state, final_response)
+            if hallucination_fix is not None:
+                update["final_response"] = hallucination_fix
+                update["metadata"]["reflection_result"] = "hallucination_guard"
+            else:
+                update["metadata"]["reflection_result"] = "chat_fast_skipped"
+                update["metadata"]["reflection_reason"] = (
+                    f"短回复含失败关键词，跳过 LLM 反思 (len={len(final_response)})"
+                )
+            latency_ms = round((perf_counter() - t0) * 1000, 2)
+            update["metadata"]["reflection_latency_ms"] = latency_ms
+            logger.info(f"Chat reflection FAST-SKIPPED: latency={latency_ms}ms, response='{final_response[:50]}'")
             return update
 
         # 提取对话历史，注入反思 prompt，防止反思 LLM 误判"编造对话历史"
@@ -460,6 +560,7 @@ class ReflectionNode:
 
         reflection_prompt = (
             "你是一个响应质量审查员。请检查助手的回复是否准确、相关、无幻觉。\n\n"
+            f"{_SYSTEM_CAPABILITIES}\n\n"
             f"## 当前准确时间\n{current_date_str}\n\n"
             f"## 当前对话历史（真实记录，用于判断助手是否编造历史）\n{history_str}\n\n"
             f"## 用户问题\n{user_input}\n\n"
@@ -474,17 +575,24 @@ class ReflectionNode:
             "   - 请对照上方'当前对话历史'中的真实记录来验证助手回复\n"
             "   - 如果助手回复中提到的历史问题能在对话历史中找到对应，则**不算编造**，判定为合格\n"
             "   - 只有当助手回复中提到的历史在对话历史中**完全找不到对应**时，才判定为编造\n"
-            "   - 如果对话历史为空（新对话），但助手声称用户之前问过某些问题，才判定为编造\n\n"
-            "请先简要分析，然后输出以下 JSON（只输出 JSON，不要其他内容）:\n"
+            "   - 如果对话历史为空（新对话），但助手声称用户之前问过某些问题，才判定为编造\n"
+            "6. **车载场景合规性**: 回复是否符合车载语音助手的使用场景？\n"
+            "   - 不应包含不适合驾驶场景的内容（如长篇大论、复杂操作步骤）\n"
+            "   - 不应包含可能误导驾驶员的危险建议\n"
+            "   - 车控指令回复应简洁明确，包含执行结果状态\n\n"
+            "请先简要分析，然后输出以下 JSON（只输出 JSON，不要其他内容）：\n"
             '{"valid": true或false, "reason": "简短原因", '
             '"suggested_response": "如果不合格，给出修正后的回复；如果合格则留空"}'
         )
 
         try:
-            response = await self._ctx.chat_model.ainvoke(
-                [{"role": "user", "content": reflection_prompt}],
-                temperature=0.0,
-                max_tokens=500,
+            response = await asyncio.wait_for(
+                self._ctx.chat_model.ainvoke(
+                    [{"role": "user", "content": reflection_prompt}],
+                    temperature=0.0,
+                    max_tokens=500,
+                ),
+                timeout=15.0,
             )
             content = (response.content or "").strip()
 
@@ -528,6 +636,10 @@ class ReflectionNode:
                         update["metadata"]["reflection_result"] = "chat_failed_no_suggestion"
                         update["metadata"]["reflection_reason"] = result.get("reason", "")
 
+        except asyncio.TimeoutError:
+            logger.warning("Chat reflection LLM call TIMEOUT (15s), skipping reflection")
+            update["metadata"]["reflection_result"] = "chat_timeout"
+            update["metadata"]["reflection_reason"] = "LLM 反思超时(15s)，跳过反思"
         except Exception as e:
             logger.error(f"Chat reflection LLM call failed: {e}")
             update["metadata"]["reflection_result"] = "chat_error"
@@ -547,9 +659,7 @@ class ReflectionNode:
         self, state: SupervisorState, user_input: str,
         original_response: str, feedback: str,
     ) -> str | None:
-        """带反思反馈重新生成回复（渐进式校验的 retry 环节）。
-
-        使用压缩后的历史，保存滚动摘要。
+        """带反馈重新生成回复：作用：渐进式校验retry环节，使用压缩历史+反思反馈引导LLM修正；场景：闲聊反思不通过且无修正建议时触发。
 
         Args:
             state: 当前状态
@@ -609,7 +719,8 @@ class ReflectionNode:
             return result
         except Exception as e:
             logger.error(f"Regeneration with feedback failed: {e}")
-            return None
+            # 超时/失败时返回原始回复
+            return original_response
 
     # ------------------------------------------------------------------
     # 闲聊预校验 & 幻觉兜底
@@ -620,11 +731,7 @@ class ReflectionNode:
         return any(p in user_input for p in self._HISTORY_QUERY_PATTERNS)
 
     def has_history(self, state: SupervisorState) -> bool:
-        """检查当前对话是否有历史记录（排除当前这一轮）。
-
-        即使对话被阈值压缩，只要 running_summary 存在，
-        就说明之前有对话历史（只是被折叠为摘要了）。
-        """
+        """作用：检查是否有历史记录（含被压缩为摘要的对话）。"""
         history = state.get("history", [])
         # history 中每轮包含 user + assistant 两条，至少 2 条才算有历史
         if bool(history) and len(history) >= 2:
@@ -637,17 +744,10 @@ class ReflectionNode:
 
     def is_hallucinated_history(self, response: str) -> bool:
         """检测 LLM 回复是否包含编造的对话历史。"""
-        return any(p in response for p in self._HALLUCINATED_HISTORY_PATTERNS)
+        return any(p in response for p in HALLUCINATED_HISTORY_PATTERNS)
 
     def pre_check_chat_response(self, state: SupervisorState) -> str | None:
-        """闲聊预校验 — 在调用 LLM 之前拦截明显的问题。
-
-        只有在「既无对话历史」且「无滚动摘要」时才判定为新对话。
-        如果有滚动摘要（对话被压缩了），不拦截，让 LLM 基于摘要回答。
-
-        检查场景:
-            1. 用户询问对话历史，但当前对话完全无历史且无摘要
-               → 直接返回"这是新对话"，不交给 LLM 编造
+        """闲聊预校验：作用：LLM调用前拦截无历史+无摘要时用户询问对话历史的场景；场景：新对话首轮用户问"我之前问了什么"时直接返回安全回复。
 
         Returns:
             如果拦截成功，返回替代回复文本；否则返回 None 表示需要继续调用 LLM。
@@ -665,14 +765,7 @@ class ReflectionNode:
         return None
 
     def post_check_chat_response(self, state: SupervisorState, response: str) -> str | None:
-        """闲聊后校验 — 在 LLM 回复返回后、呈现给用户前检查。
-
-        只有在「无历史」且「LLM 编造了历史模式」时才判定为幻觉。
-        如果有对话历史，不在此处拦截（交给 LLM 反思校验判断）。
-
-        检查场景:
-            1. 当前对话无历史，但 LLM 回复中出现了"您最初是问"等编造历史的模式
-               → 覆盖为安全回复
+        """闲聊后校验：作用：LLM回复后检测无历史时编造对话历史模式并覆盖安全回复；场景：新对话首轮LLM回复含"您最初是问"等幻觉模式时拦截。
 
         Returns:
             如果检测到问题，返回修正后的回复；否则返回 None 表示原回复可用。
@@ -680,8 +773,6 @@ class ReflectionNode:
         user_input = state.get("user_input", "")
 
         # 场景 1: 无历史但 LLM 编造了对话历史
-        # 只有在确实没有历史的情况下，才检查是否编造了历史
-        # 如果有对话历史，助手引用历史是合理的，不在此处拦截
         if (not self.has_history(state)
                 and self.is_hallucinated_history(response)):
             logger.warning(

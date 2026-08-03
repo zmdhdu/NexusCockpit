@@ -15,7 +15,6 @@ Config Common — 配置模块共享常量与工具函数
 
 from __future__ import annotations
 
-import logging
 import os
 
 # ============================================================

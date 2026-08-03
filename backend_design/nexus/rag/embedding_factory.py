@@ -25,10 +25,7 @@ logger = get_logger(__name__)
 
 
 def build_embedding_service() -> EmbeddingService | LocalEmbeddingService:
-    """根据 EMBEDDING_PROVIDER 配置选择 Embedding 后端。
-
-    根据 EMBEDDING_PROVIDER 配置选择 Embedding 后端。
-    """
+    """根据 EMBEDDING_PROVIDER 配置选择 Embedding 后端。"""
     provider = get_config().providers.normalized().get("embedding", "local")
 
     if provider == "cloud":

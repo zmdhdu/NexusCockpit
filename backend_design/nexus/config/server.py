@@ -45,7 +45,7 @@ class JWTConfig(BaseSettings):
     """JWT 认证配置。"""
 
     secret_key: str = Field(
-        default="nexuscockpit_dev_secret_2026", validation_alias="JWT_SECRET_KEY",
+        default="nexuscockpit_secure_secret_key_2026", validation_alias="JWT_SECRET_KEY",
     )
     algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
     expire_minutes: int = Field(default=1440, validation_alias="JWT_EXPIRE_MINUTES")

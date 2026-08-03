@@ -18,6 +18,7 @@ MySQL 数据库管理器 — 统一数据库访问层
 from __future__ import annotations
 
 import json
+import warnings
 from datetime import datetime
 from typing import Any
 
@@ -27,6 +28,13 @@ from nexus.config import get_config
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
+
+# 抑制 MySQL 'Table already exists' warning —— CREATE TABLE IF NOT EXISTS
+# 对已存在的表会发出 warning，aiomysql 将其转发到 Python warnings 模块，
+# 每次启动都会输出 12+ 条无用 warning。在模块级过滤，保持日志干净。
+warnings.filterwarnings(
+    "ignore", message=r"Table '.*' already exists", category=Warning,
+)
 
 
 class DatabaseManager:
@@ -99,7 +107,6 @@ class DatabaseManager:
         try:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
-                    # 1. 创建 cockpits 表
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS cockpits ("
                         "  cockpit_id VARCHAR(32) PRIMARY KEY,"
@@ -291,6 +298,26 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
                     )
 
+                    # 11.5 创建 chat_logs 表（对话日志持久化 — 用户提问 + AI回复双向存储）
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS chat_logs ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  session_id VARCHAR(128) DEFAULT '',"
+                        "  user_input TEXT NOT NULL,"
+                        "  assistant_response TEXT,"
+                        "  intent VARCHAR(64) DEFAULT '',"
+                        "  action VARCHAR(64) DEFAULT '',"
+                        "  latency_ms FLOAT DEFAULT 0,"
+                        "  cache_hit BOOLEAN DEFAULT FALSE,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit_time (cockpit_id, created_at),"
+                        "  INDEX idx_session (session_id),"
+                        "  INDEX idx_user_time (user_id, created_at)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+                    )
+
                     # 3. 为 chat_logs 表添加 session_id 列（如果不存在）
                     await cur.execute(
                         "SELECT COUNT(*) FROM information_schema.columns "
@@ -308,20 +335,21 @@ class DatabaseManager:
                         logger.info("Auto-migrate: added session_id column to chat_logs")
 
                     # 14. 插入默认座舱和用户数据（ON DUPLICATE KEY UPDATE）
+                    # MySQL 8.0+ 弃用了 VALUES(col) 语法，改用 AS alias + alias.col 语法
                     await cur.execute(
                         "INSERT INTO cockpits (cockpit_id, name, user_id, redis_db, milvus_prefix, theme_color) VALUES "
                         "('cockpit-01', 'Cockpit One', 'user_01', 1, 'cockpit_01', '#4fc3f7'), "
                         "('cockpit-02', 'Cockpit Two', 'user_02', 2, 'cockpit_02', '#66bb6a'), "
-                        "('cockpit-03', 'Cockpit Three', 'user_03', 3, 'cockpit_03', '#ab47bc') "
-                        "ON DUPLICATE KEY UPDATE name=VALUES(name)"
+                        "('cockpit-03', 'Cockpit Three', 'user_03', 3, 'cockpit_03', '#ab47bc') AS new "
+                        "ON DUPLICATE KEY UPDATE name=new.name"
                     )
                     await cur.execute(
                         "INSERT INTO users (user_id, username, cockpit_id, role) VALUES "
                         "('user_01', 'zhang_san', 'cockpit-01', 'cockpit_user'), "
                         "('user_02', 'li_si', 'cockpit-02', 'cockpit_user'), "
                         "('user_03', 'wang_wu', 'cockpit-03', 'cockpit_user'), "
-                        "('admin', 'admin', NULL, 'super_admin') "
-                        "ON DUPLICATE KEY UPDATE username=VALUES(username)"
+                        "('admin', 'admin', NULL, 'super_admin') AS new "
+                        "ON DUPLICATE KEY UPDATE username=new.username"
                     )
 
                     logger.info("Auto-migrate: all v2.1 tables verified + default data inserted")
@@ -916,13 +944,16 @@ class DatabaseManager:
         try:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
+                    # MySQL 8.0+ 弃用了 VALUES(col) 语法，改用 AS new + new.col 语法
+                    # ON DUPLICATE KEY UPDATE 中 hit_count 必须用表名限定，
+                    # 否则 MySQL 无法区分是 existing 行还是 new 行的列（ambiguous 错误）
                     await cur.execute(
                         "INSERT INTO user_habits "
                         "(user_id, cockpit_id, habit_key, habit_value, hit_count, last_used_at) "
-                        "VALUES (%s, %s, %s, %s, 1, NOW()) "
+                        "VALUES (%s, %s, %s, %s, 1, NOW()) AS new "
                         "ON DUPLICATE KEY UPDATE "
-                        "habit_value=VALUES(habit_value), "
-                        "hit_count=hit_count+1, last_used_at=NOW()",
+                        "habit_value=new.habit_value, "
+                        "user_habits.hit_count=user_habits.hit_count+1, last_used_at=NOW()",
                         (user_id, cockpit_id, habit_key, habit_value),
                     )
         except Exception as e:

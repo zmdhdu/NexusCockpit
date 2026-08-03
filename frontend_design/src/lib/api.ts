@@ -40,9 +40,11 @@ import type {
 // 后端 API 基础地址，从环境变量读取，默认 Go 网关 (localhost:8080)
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
-// 默认开发用户 (开发环境不校验密码，直接签发 Token)
-// 可通过环境变量 NEXT_PUBLIC_DEFAULT_USER 覆盖
+// 默认开发用户 (开发环境自动获取 JWT Token)
+// 可通过环境变量 NEXT_PUBLIC_DEFAULT_USER / NEXT_PUBLIC_DEFAULT_PASSWORD 覆盖
+// 密码必须与后端 .env 中 RBAC_USER_PASSWORD 保持一致
 const DEFAULT_USER_ID = process.env.NEXT_PUBLIC_DEFAULT_USER || "nexus_dev";
+const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_DEFAULT_PASSWORD || "";
 const TOKEN_KEY = "nexus_token";
 
 /**
@@ -79,7 +81,7 @@ async function ensureAuthToken(): Promise<string | null> {
     const resp = await fetch(`${API_BASE}/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: DEFAULT_USER_ID, password: "" }),
+      body: JSON.stringify({ user_id: DEFAULT_USER_ID, password: DEFAULT_PASSWORD }),
     });
     if (resp.ok) {
       const data = await resp.json();
@@ -199,7 +201,7 @@ export type {
 // ============================================================
 
 /** 用户登录 — 调用 /auth/token 获取 JWT Token */
-export async function login(userId: string, password: string = ""): Promise<{
+export async function login(userId: string, password: string = DEFAULT_PASSWORD): Promise<{
   access_token: string;
   token_type: string;
   expires_in: number;

@@ -48,12 +48,10 @@ def build_supervisor_graph(
     experts: dict[str, Any] | None = None,
     checkpoint_saver: Any = None,
 ):
-    """构建 Supervisor → Experts → Responder → Reflection → Reviewer 工作流。
+    """构建五层链路 StateGraph。
 
-    图结构:
-        supervisor → [条件分派] → dispatch → responder → reflection → reviewer → END
-                          ↓
-                     responder (澄清/无专家时直连)
+    作用：注册核心节点 + 专家节点 + 条件路由边 + 持久化，编译为 CompiledGraph；
+    场景：SupervisorGraph 初始化时调用，专家节点注册但不通过边触发（由 DispatchNode 并行调用）。
 
     Args:
         supervisor_run: Supervisor 节点可调用对象

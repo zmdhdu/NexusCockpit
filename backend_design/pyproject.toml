@@ -16,16 +16,23 @@ dependencies = [
     "starlette>=0.50.0",
 
     # --- LLM / Agent (LangChain + LangGraph 全栈) ---
+    # 核心: LangGraph StateGraph + checkpoint 持久化
+    # LLM 客户端: langchain-openai ChatOpenAI (替代 openai SDK 直接调用)
+    # 消息管理: langchain-core trim_messages + BaseMessage
+    # 移除: langgraph-prebuilt (ToolNode/create_react_agent 从未在代码中使用)
     "langchain-openai>=1.1.0",
     "langchain-core>=1.2.0",
     "langchain-text-splitters>=1.0.0",
     "langgraph>=1.0.6",
-    "langgraph-prebuilt>=1.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
 
-    # --- RAG / Vector Store (LangChain 集成) ---
-    "langchain-milvus>=0.4.0",
-    "langchain-neo4j>=0.10.0",
+    # --- RAG / Vector Store ---
+    # 向量存储: pymilvus 直接操作 (领域特定 schema)
+    # 图谱存储: neo4j driver 直接操作 (领域特定 Cypher)
+    # 检索器: langchain-community BM25Retriever (替代手写 rank_bm25)
+    # Rerank: sentence-transformers bge-reranker-v2-m3
+    # 移除: langchain-milvus (声明了但未落地, 保留 pymilvus 直接操作)
+    # 移除: langchain-neo4j (声明了但未落地, 保留 neo4j driver 直接操作)
     "langchain-community>=0.4.0",
     "pymilvus>=3.0.0",
     "neo4j>=5.18.0",
@@ -34,9 +41,9 @@ dependencies = [
     # --- Middleware ---
     "redis>=5.0.0",
 
-    # --- Database (MySQL async + ORM) ---
+    # --- Database (MySQL async) ---
+    # 移除: sqlalchemy (声明了但未使用, db_manager 用 aiomysql 原生 SQL)
     "aiomysql>=0.2.0",
-    "sqlalchemy>=2.0.0",
 
     # --- MCP (Model Context Protocol) ---
     "mcp>=2.0.0",
@@ -76,12 +83,12 @@ dependencies = [
 
     # --- Search ---
     "tavily>=1.1.0",
-    "duckduckgo-search>=4.0.0",
+    # 移除: duckduckgo-search (声明了但未使用)
 
     # --- Data Processing ---
     "numpy>=1.26.4",
     "pandas>=2.3.3",
-    "scikit-learn>=1.7.2",
+    # 移除: scikit-learn (声明了但未使用)
 
     # --- NLP ---
     "sentencepiece>=0.2.1",
@@ -107,6 +114,12 @@ line-length = 120
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# main.py: 必须在 import 前执行 warnings 抑制，E402 是有意设计
+"nexus/main.py" = ["E402"]
+# session_store.py: 需在 import os 前定义常量
+"nexus/middleware/session_store.py" = ["E402"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

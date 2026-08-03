@@ -83,9 +83,16 @@ class MemoryManager:
         )
 
     def connect(self) -> None:
-        """连接所有存储后端。"""
-        self.vector_store.connect()
-        self.graph_store.connect()
+        """连接所有存储后端（容错：单个后端失败不影响其他）。"""
+        # 分别 try/except，确保 Milvus 失败不阻止 Neo4j 连接，反之亦然
+        try:
+            self.vector_store.connect()
+        except Exception as e:
+            logger.warning(f"Vector store connect failed (recall will degrade): {e}")
+        try:
+            self.graph_store.connect()
+        except Exception as e:
+            logger.warning(f"Graph store connect failed (graph recall will degrade): {e}")
         logger.info("Memory manager connected (GraphRAG + Rerank pipeline)")
 
     async def recall(
@@ -293,7 +300,8 @@ class MemoryManager:
         return stored_count
 
     async def store_conversation(
-        self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str = ""
+        self, user_input: str, assistant_response: str, user_id: str,
+        cockpit_id: str = "", session_id: str = "",
     ) -> None:
         """将完整对话向量化存储到 Milvus，支持后续语义检索。
 
@@ -305,6 +313,7 @@ class MemoryManager:
             assistant_response: 助手回复
             user_id: 用户 ID
             cockpit_id: 座舱 ID（多租户隔离）
+            session_id: 会话 ID（用于会话级清理，删除会话时联动删除该会话的对话向量）
         """
         # 只存储有意义的对话（过滤短指令和纯车控）
         if len(user_input) < 5 or len(assistant_response) < 5:
@@ -313,10 +322,14 @@ class MemoryManager:
         if user_input.startswith(("打开", "关闭", "调高", "调低", "播放", "暂停")):
             return
 
-        conversation_text = f"用户: {user_input[:500]}\n助手: {assistant_response[:500]}"
+        # Milvus text 字段 max_length=1000，需确保拼接后的总长度不超过限制
+        # 格式 "用户: xxx\n助手: yyy" 的前缀约 15 字符，因此各截取 480 字符
+        conversation_text = f"用户: {user_input[:480]}\n助手: {assistant_response[:480]}"
         try:
-            await self.vector_store.insert_memory(conversation_text, user_id)
-            logger.debug(f"Conversation vectorized and stored for user={user_id}")
+            await self.vector_store.insert_memory(conversation_text, user_id, session_id=session_id)
+            logger.debug(
+                f"Conversation vectorized and stored for user={user_id}, session={session_id or 'N/A'}"
+            )
         except Exception as e:
             logger.error(f"Failed to store conversation vector: {e}")
 
@@ -344,7 +357,8 @@ class MemoryManager:
         return task
 
     def store_conversation_async(
-        self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str = ""
+        self, user_input: str, assistant_response: str, user_id: str,
+        cockpit_id: str = "", session_id: str = "",
     ) -> asyncio.Task | None:
         """非阻塞存储对话向量（fire-and-forget）。
 
@@ -355,6 +369,7 @@ class MemoryManager:
             assistant_response: 助手回复
             user_id: 用户 ID
             cockpit_id: 座舱 ID
+            session_id: 会话 ID（用于会话级清理）
 
         Returns:
             asyncio.Task 对象（可能为 None）
@@ -366,7 +381,7 @@ class MemoryManager:
             return None
 
         task = loop.create_task(
-            self._store_conversation_safe(user_input, assistant_response, user_id, cockpit_id)
+            self._store_conversation_safe(user_input, assistant_response, user_id, cockpit_id, session_id)
         )
         task.add_done_callback(self._task_done_callback("conversation_storage"))
         return task
@@ -392,11 +407,12 @@ class MemoryManager:
                     logger.error(f"Background memory storage permanently failed after {max_retries} retries: {e}")
 
     async def _store_conversation_safe(
-        self, user_input: str, assistant_response: str, user_id: str, cockpit_id: str
+        self, user_input: str, assistant_response: str, user_id: str,
+        cockpit_id: str, session_id: str = "",
     ) -> None:
         """store_conversation 的安全包装，捕获所有异常防止任务静默失败。"""
         try:
-            await self.store_conversation(user_input, assistant_response, user_id, cockpit_id)
+            await self.store_conversation(user_input, assistant_response, user_id, cockpit_id, session_id)
         except Exception as e:
             logger.error(f"Background conversation storage failed: {e}")
 
@@ -414,78 +430,153 @@ class MemoryManager:
     def get_user_profile(self, user_id: str) -> dict[str, Any]:
         """获取用户完整画像（从 Neo4j 图谱）。"""
         return self.graph_store.get_user_profile(user_id)
-    
-    def get_default_user_profile(self) -> dict[str, Any]:
-        """获取默认用户画像 (首次登录时使用).
-        
-        Returns:
-            默认用户画像字典，包含音乐/食物/位置/气候/导航偏好
-        """
-        import json
-        from pathlib import Path
-        
-        default_file = Path("data/preferences/default_user.json")
-        if not default_file.exists():
-            logger.warning(f"Default user profile file not found: {default_file}")
-            return {}
-        
-        try:
-            with open(default_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load default user profile: {e}")
-            return {}
-    
-    def get_cockpit_config(self, cockpit_id: str) -> dict[str, Any] | None:
-        """从数据库查询座舱配置（同步占位实现）。
 
-        当前返回 None，因为 db_manager 全部使用异步方法，
-        而 load_cockpit_config 是同步方法无法直接调用。
-        未来将 load_cockpit_config 改为 async 后，可直接查询 cockpits 表。
-        """
-        return None
+    def delete_session_memories(self, session_id: str, user_id: str = "") -> int:
+        """删除指定会话的记忆向量（会话级清理）。
 
-    def load_cockpit_config(self, cockpit_id: str | None = None) -> dict[str, Any]:
-        """加载座舱配置 (从 MySQL 或默认文件).
-        
+        仅删除该会话产生的对话向量（session_id 匹配），
+        不影响用户级记忆（提取的事实/偏好，session_id 为空）。
+
+        用于删除会话时联动清理 Milvus 中的会话级对话向量。
+
         Args:
-            cockpit_id: 座舱 ID，默认为 None(使用默认座舱)
-        
+            session_id: 会话 ID
+            user_id: 用户 ID（双重校验）
+
         Returns:
-            座舱配置字典
+            删除的记忆条数
         """
-        import json
-        from pathlib import Path
-        
-        # 优先尝试从数据库加载
-        if cockpit_id is None:
-            cockpit_id = "default_cockpit_001"
-        
-        # 先从数据库查询
-        # TODO: 将 load_cockpit_config 改为 async 方法后，可通过 db_manager 查询 cockpits 表
-        result = self.get_cockpit_config(cockpit_id)
-        if result:
-            logger.info(f"Loaded cockpit config from DB: {cockpit_id}")
-            return result
-        
-        # 兜底：加载默认配置文件
-        default_file = Path("data/preferences/default_cockpit.json")
-        if not default_file.exists():
-            logger.warning(f"Default cockpit config file not found: {default_file}")
-            return {}
-        
         try:
-            with open(default_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                # 确保 cockid 匹配
-                config['cockpit_id'] = cockpit_id
-                return config
+            return self.vector_store.delete_memory_by_session(session_id, user_id)
         except Exception as e:
-            logger.error(f"Failed to load cockpit config from default file: {e}")
-            return {}
+            logger.error(f"Failed to delete session memories for session='{session_id}': {e}")
+            return 0
 
     def close(self) -> None:
         """关闭所有连接。"""
+        self._stop_cleanup_task()
         self.vector_store.disconnect()
         self.graph_store.close()
         logger.info("Memory manager closed")
+
+    # ------------------------------------------------------------------
+    # 记忆分层定时清理 — 问题7 修复
+    # ------------------------------------------------------------------
+
+    # 会话级对话向量保留天数（超过此天数的 session_id 向量被清理）
+    _SESSION_VECTOR_TTL_DAYS = 7
+    # 清理间隔（秒）— 每 6 小时执行一次
+    _CLEANUP_INTERVAL = 6 * 3600
+
+    _cleanup_task: asyncio.Task | None = None
+
+    def start_cleanup_task(self) -> None:
+        """启动后台定时清理任务（在 FastAPI startup 事件中调用）。
+
+        定期清理过期的会话级对话向量：
+            - Milvus 中 session_id 非空但超过 _SESSION_VECTOR_TTL_DAYS 天的向量
+            - 保留用户级记忆（session_id 为空的事实/偏好，永久存储）
+        """
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            return  # 已在运行
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning("No running event loop for memory cleanup task")
+            return
+
+        self._cleanup_task = loop.create_task(self._cleanup_loop())
+        logger.info(
+            f"Memory cleanup task started: interval={self._CLEANUP_INTERVAL}s, "
+            f"session_vector_ttl={self._SESSION_VECTOR_TTL_DAYS}d"
+        )
+
+    def _stop_cleanup_task(self) -> None:
+        """停止后台定时清理任务（在 FastAPI shutdown 事件中调用）。"""
+        if self._cleanup_task and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            self._cleanup_task = None
+            logger.info("Memory cleanup task stopped")
+
+    async def _cleanup_loop(self) -> None:
+        """后台清理循环 — 定期清理过期会话级数据。"""
+        while True:
+            try:
+                await asyncio.sleep(self._CLEANUP_INTERVAL)
+                cleaned = await self.cleanup_expired_session_vectors()
+                if cleaned > 0:
+                    logger.info(f"Memory cleanup: removed {cleaned} expired session vectors")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Memory cleanup loop error: {e}")
+
+    async def cleanup_expired_session_vectors(self) -> int:
+        """清理过期的会话级对话向量。
+
+        仅清理 Milvus 中 session_id 非空且超过保留天数的向量。
+        用户级记忆（session_id 为空）永久保留，不受影响。
+
+        清理策略:
+            1. 查询 MySQL chat_sessions 获取所有有效 session_id
+            2. 查询 Milvus 中所有 session_id 非空的向量
+            3. 删除 session_id 不在有效列表中且超过 TTL 的向量
+
+        Returns:
+            清理的向量数量
+        """
+        try:
+            # 获取所有有效 session_id
+            from nexus.core.db_manager import get_db_manager
+            db = get_db_manager()
+            if not db.is_connected:
+                return 0
+
+            valid_rows = await db.execute_query(
+                "SELECT session_id FROM chat_sessions"
+            )
+            valid_session_ids = {r.get("session_id", "") for r in valid_rows if r.get("session_id")}
+
+            # 查询 Milvus 中所有 session_id 非空的向量
+            if not self.vector_store._client:
+                return 0
+
+            # 查询所有会话级向量（session_id 非空）
+            try:
+                from pymilvus import Collection
+                collection = Collection(self.vector_store.config.collection_memory)
+                collection.load()
+
+                # 查询所有非空 session_id 的记录
+                results = collection.query(
+                    expr='session_id != ""',
+                    output_fields=["pk", "session_id", "timestamp"],
+                    limit=16384,
+                )
+
+                # 筛选需要清理的记录: session_id 不在有效列表中
+                orphan_ids = []
+                for r in (results or []):
+                    sid = r.get("session_id", "")
+                    pk = r.get("pk")
+                    if sid and sid not in valid_session_ids and pk:
+                        orphan_ids.append(pk)
+
+                if not orphan_ids:
+                    return 0
+
+                # 批量删除孤儿向量
+                self.vector_store.delete_memory_by_ids(orphan_ids, "system_cleanup")
+                logger.info(
+                    f"Memory cleanup: removed {len(orphan_ids)} orphaned session vectors "
+                    f"(valid_sessions={len(valid_session_ids)})"
+                )
+                return len(orphan_ids)
+
+            except Exception as e:
+                logger.warning(f"Milvus cleanup query failed: {e}")
+                return 0
+
+        except Exception as e:
+            logger.error(f"Memory cleanup failed: {e}")
+            return 0

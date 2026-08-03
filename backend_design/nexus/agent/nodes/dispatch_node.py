@@ -5,12 +5,8 @@
 """
 Dispatch Node — 专家并行分派节点
 
-从 supervisor_graph.py 的 _dispatch_node() 方法抽取。
-
-职责:
-    使用 asyncio.gather 并行调用所有活跃专家的 run() 方法，
-    合并所有 partial updates 为一个最终 update。
-    expert_results 通过 Annotated[list, add] reducer 自动累加。
+作用：使用 asyncio.gather 并行调用所有活跃专家，合并 partial updates 为最终 update；
+场景：Supervisor 分派多个专家并行执行车控/导航/生活等混合意图。
 """
 
 from __future__ import annotations
@@ -84,21 +80,37 @@ class DispatchNode:
                 # 累加 expert_results
                 if "expert_results" in result:
                     merged["expert_results"].extend(result["expert_results"])
-                # 取最后一个非空 skill_action / skill_handled / search_context
+                # 合并 skill_action/skill_handled/search_context
                 for key in ("skill_action", "skill_handled", "search_context"):
-                    if result.get(key) is not None:
-                        if key == "skill_handled" and result[key]:
+                    val = result.get(key)
+                    if val is None:
+                        continue
+                    if key == "skill_handled":
+                        if val:
                             merged[key] = True
-                        elif key == "search_context" and result[key]:
-                            merged[key] = result[key]
-                        elif key == "skill_action" and result[key]:
-                            merged[key] = result[key]
+                    elif key == "search_context":
+                        if val:
+                            if merged.get(key):
+                                merged[key] = f"{merged[key]}\n---\n{val}"
+                            else:
+                                merged[key] = val
+                    elif key == "skill_action":
+                        if val and not merged.get(key):
+                            merged[key] = val
+                        elif val and merged.get(key) and val != merged[key]:
+                            # 多个不同动作 — 记录到 metadata 供调试
+                            merged_metadata.setdefault("multi_actions", []).append(val)
                 # 传递 has_side_effect 标记（车控指令禁止缓存）
                 if result.get("has_side_effect"):
                     merged["has_side_effect"] = True
-                # 传递 tool_result 到顶层 state
+                # 传递 tool_result 到顶层 state（列表收集避免后者覆盖前者）
                 if result.get("tool_result"):
-                    merged["tool_result"] = result["tool_result"]
+                    if "tool_results" not in merged:
+                        merged["tool_results"] = []
+                    merged["tool_results"].append(result["tool_result"])
+                    # 保留首个 tool_result 作为主结果（向后兼容 B2 分支）
+                    if not merged.get("tool_result"):
+                        merged["tool_result"] = result["tool_result"]
                 # 合并 metadata
                 if "metadata" in result:
                     merged_metadata.update(result["metadata"])
@@ -111,9 +123,17 @@ class DispatchNode:
         merged.setdefault("skill_action", "")
         merged.setdefault("search_context", "")
 
+        # 并行调度日志埋点：记录专家列表、结果数、handled状态
+        multi_actions = merged_metadata.get("multi_actions", [])
+        expert_summary = ", ".join(
+            f"{name}={len(r.get('expert_results', [])) if isinstance(r, dict) else 'err'}"
+            for name, r in zip(expert_names, results)
+        )
         logger.info(
             f"Dispatch done: {len(active_experts)} experts, "
             f"{len(merged['expert_results'])} results, "
-            f"handled={merged.get('skill_handled', False)}"
+            f"handled={merged.get('skill_handled', False)}, "
+            f"multi_actions={len(multi_actions)}, "
+            f"experts_detail=[{expert_summary}]"
         )
         return merged

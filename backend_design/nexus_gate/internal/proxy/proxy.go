@@ -37,6 +37,23 @@ func Init() {
 		// 标记请求来源
 		req.Header.Set("X-Forwarded-By", "nexus_gate")
 		req.Header.Set("X-Forwarded-Host", req.Host)
+		// 传递客户端真实 IP，供后端 IP 定位使用
+		// Go 标准库的 ReverseProxy 不会自动设置 X-Forwarded-For，
+		// 需要手动从 RemoteAddr 提取并设置
+		if req.RemoteAddr != "" {
+			// RemoteAddr 格式为 "host:port"，提取 host 部分
+			clientHost := req.RemoteAddr
+			if idx := strings.LastIndex(clientHost, ":"); idx != -1 {
+				clientHost = clientHost[:idx]
+			}
+			// 如果已有 X-Forwarded-For（多层代理），追加到末尾
+			existing := req.Header.Get("X-Forwarded-For")
+			if existing != "" {
+				req.Header.Set("X-Forwarded-For", existing+", "+clientHost)
+			} else {
+				req.Header.Set("X-Forwarded-For", clientHost)
+			}
+		}
 	}
 
 	// 自定义 ModifyResponse: 可在此修改上游响应（如添加头信息）
