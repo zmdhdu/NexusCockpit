@@ -1,6 +1,6 @@
 # 语音交互系统技术文档
 
-> ⚠️ **注意**: 本文档描述的是 v2.1 独立服务架构。v2.2 已将 ASR/TTS 内嵌至主应用，通过 *_PROVIDER 环境变量切换本地/云端模式。请参考 [架构概览](../architecture/overview.md) 获取最新架构信息。
+> ⚠️ **注意**: 本文档描述的是  独立服务架构。已将 ASR/TTS 内嵌至主应用，通过 *_PROVIDER 环境变量切换本地/云端模式。请参考 [架构概览](../architecture/overview.md) 获取最新架构信息。
 
 > NexusCockpit 语音交互系统全链路技术说明
 
@@ -21,7 +21,7 @@
 | 声纹识别 | 3D-Speaker | CAM++ | [voiceprint-guide.md](./voiceprint-guide.md) |
 | 音频管线 | FastAPI StaticFiles + HTML5 Audio | - | [audio-pipeline-guide.md](./audio-pipeline-guide.md) |
 
-## v2.2 变更
+## 变更
 
 ### 新增
 - **PersonalizationService**: 声纹识别后匹配用户偏好，注入到 Prompt

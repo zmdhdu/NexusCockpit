@@ -7,12 +7,12 @@
 提供横切关注点的基础设施：
 - **语义缓存** — Redis 向量搜索实现语义级缓存（含副作用隔离）
 - **限流器** — Redis Lua 脚本原子化滑动窗口限流
-- **任务队列** — asyncio.create_task 进程内异步任务 (v2.2: Celery/RabbitMQ 已移除)
+- **任务队列** — asyncio.create_task 进程内异步任务 (: Celery/RabbitMQ 已移除)
 - **会话存储** — Redis 持久化会话历史（降级内存回退）
 
-## 语义缓存 (redis_cache.py) — v2.0 Redis 8 KNN
+## 语义缓存 (redis_cache.py) — Redis 8 KNN
 
-v2.0 从 O(n) 遍历升级为 RediSearch VECTOR KNN 向量检索 O(log n)。
+从 O(n) 遍历升级为 RediSearch VECTOR KNN 向量检索 O(log n)。
 
 ```python
 from nexus.middleware.redis_cache import SemanticCache
@@ -30,12 +30,12 @@ await cache.set(
     query="把空调调到24度",
     response={"response": "好的，已为您将空调调到24度"},
     user_id="u1",
-    ttl=3600,                # v2.0: TTL 分级（闲聊 1h、知识库 24h）
+    ttl=3600,                # : TTL 分级（闲聊 1h、知识库 24h）
     has_side_effect=False,   # 车控指令必须设为 True，防止缓存命中后不执行
 )
 ```
 
-### 工作原理 (v2.0 KNN)
+### 工作原理 (KNN)
 
 ```
 用户查询
@@ -47,7 +47,7 @@ await cache.set(
 Fallback: RediSearch 不可用时自动回退到 O(n) 遍历模式
 ```
 
-### v2.0 新增特性
+### 新增特性
 
 - **KNN 向量检索**: RediSearch VECTOR FLAT 索引，O(log n) 复杂度
 - **按用户分片**: `user_id` TAG 字段隔离
@@ -113,9 +113,9 @@ await store.async_set("user_123", [
 
 ## 任务队列（已移除）
 
-> **v2.2 简化**: 移除 Celery/RabbitMQ 依赖，改为使用 `asyncio.create_task()` 进程内异步执行。
+> **简化**: 移除 Celery/RabbitMQ 依赖，改为使用 `asyncio.create_task()` 进程内异步执行。
 >
-> **v2.3 进一步精简**: `task_queue.py` 模块已删除（死代码清理）。记忆存储改为在 Reviewer 中直接 `await` 调用 `memory_manager.store_from_text_async()`，无需额外的任务队列封装。
+> **进一步精简**: `task_queue.py` 模块已删除（死代码清理）。记忆存储改为在 Reviewer 中直接 `await` 调用 `memory_manager.store_from_text_async()`，无需额外的任务队列封装。
 
 ## 熔断器 (core/circuit_breaker.py)
 

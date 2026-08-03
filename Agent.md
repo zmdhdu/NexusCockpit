@@ -123,7 +123,7 @@ NexusCockpit/
 │   │   ├── proto/                   #   gRPC Proto 定义 (Phase 2)
 │   │   └── go.mod
 │   ├── tests/                       # 测试用例 (test_api + test_core + test_v21)
-│   ├── scripts/                     # 初始化脚本 + v2.1 迁移 SQL + 混沌测试
+│   ├── scripts/                     # 初始化脚本 +  迁移 SQL + 混沌测试
 │   ├── requirements.txt             # Python 依赖
 │   └── pyproject.toml               # 项目配置
 │

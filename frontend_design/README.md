@@ -72,7 +72,7 @@ src/
 | `/middleware` | 中间件监控 (Redis/Milvus/Neo4j/MySQL 状态) |
 | `/dataplatform` | 数据中台 (跨座舱统计与分析) |
 
-## 设计风格 (v2.0 HUD 科幻风)
+## 设计风格 (HUD 科幻风)
 
 - **HUD 科技风** — 全局深色赛博风、霓虹边框、数据可视化仪表盘
 - **3D 车型** — Three.js 渲染车辆 3D 模型，支持旋转/缩放交互 (`vehicle-3d.tsx`)

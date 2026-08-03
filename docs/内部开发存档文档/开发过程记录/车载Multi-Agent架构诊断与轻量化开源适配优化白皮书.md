@@ -15,13 +15,13 @@
 
 | # | 整改项 | 完成内容 | 影响范围 |
 |---|--------|---------|---------|
-| P0-2 | **`supervisor_graph.py` 拆分** | ~1725 行上帝类拆解为 6 个文件 (graph_builder + 4 个 node 文件 + 瘦身后的 supervisor_graph)，supervisor_graph.py 从 ~1725 行瘦身到 ~280 行 | `agent/` 全部 |
-| P1-1 | **LLM 调用统一到 ChatOpenAI** | 7 处 `llm_client.chat.completions.create()` 全部迁移为 `chat_model.ainvoke()` / `chat_model.astream()`，token 用量从 `usage.prompt_tokens` 迁移到 `usage_metadata.input_tokens` | `agent/` |
-| P1-2 | **LangGraph 图编排优化** | `graph_builder.py` 的 `build_supervisor_graph()` 替代 `supervisor_graph.py` 内部 `_build_graph()` | `agent/` |
-| P1-4 | **MCP SDK 落地** | `vehicle/mcp.py` 中自研 `StdioJsonRpcTransport` 替换为 MCP SDK 的 `mcp.ClientSession` + `mcp.StdioServerParameters`，通过后台 asyncio 事件循环桥接同步接口，`MCPStdioVehicleAdapter` 接口不变 | `vehicle/` |
-| P2-1 | **Windows 后台常驻部署** | 新增 `scripts/start-all.ps1` (一键后台启动) + `scripts/install-autostart.ps1` (Task Scheduler 自启注册) + `scripts/stop-all.ps1` (全部停止) | `scripts/` |
-| P2-4 | **default.yaml 技能配置重定位** | `skills/default.yaml` 头部添加显著注释标记为技能开发参考文档，不在运行时加载；`skills/__init__.py` 同步更新说明 | `skills/` |
-| P2-5 | **交付文档补齐** | 白皮书 v3.0 更新，移除已落地项和保留状态参考表，仅保留待确认项和验收/部署规范 | `docs/` |
+|  | **`supervisor_graph.py` 拆分** | ~1725 行上帝类拆解为 6 个文件 (graph_builder + 4 个 node 文件 + 瘦身后的 supervisor_graph)，supervisor_graph.py 从 ~1725 行瘦身到 ~280 行 | `agent/` 全部 |
+|  | **LLM 调用统一到 ChatOpenAI** | 7 处 `llm_client.chat.completions.create()` 全部迁移为 `chat_model.ainvoke()` / `chat_model.astream()`，token 用量从 `usage.prompt_tokens` 迁移到 `usage_metadata.input_tokens` | `agent/` |
+|  | **LangGraph 图编排优化** | `graph_builder.py` 的 `build_supervisor_graph()` 替代 `supervisor_graph.py` 内部 `_build_graph()` | `agent/` |
+|  | **MCP SDK 落地** | `vehicle/mcp.py` 中自研 `StdioJsonRpcTransport` 替换为 MCP SDK 的 `mcp.ClientSession` + `mcp.StdioServerParameters`，通过后台 asyncio 事件循环桥接同步接口，`MCPStdioVehicleAdapter` 接口不变 | `vehicle/` |
+|  | **Windows 后台常驻部署** | 新增 `scripts/start-all.ps1` (一键后台启动) + `scripts/install-autostart.ps1` (Task Scheduler 自启注册) + `scripts/stop-all.ps1` (全部停止) | `scripts/` |
+|  | **default.yaml 技能配置重定位** | `skills/default.yaml` 头部添加显著注释标记为技能开发参考文档，不在运行时加载；`skills/__init__.py` 同步更新说明 | `skills/` |
+|  | **交付文档补齐** | 白皮书 v3.0 更新，移除已落地项和保留状态参考表，仅保留待确认项和验收/部署规范 | `docs/` |
 | LC-1 | **LangChain ChatPromptTemplate 接入** | `PromptManager` 从手动 `string.replace()` 迁移到 `ChatPromptTemplate.from_template().format()`，模板文件无需修改 | `prompts/` |
 | LC-2 | **LangChain StructuredTool 接入** | `BaseSkill` 新增 `to_structured_tool()` 方法，动态创建 Pydantic `args_schema` 并包装 `execute()` 为 `StructuredTool`；`SkillRegistry` 新增 `get_structured_tools()` | `skills/` |
 
@@ -44,23 +44,23 @@
 
 | # | 整改项 | 状态 | 完成内容 |
 |---|--------|------|---------|
-| P0-2 | **`supervisor_graph.py` 拆分** | ✅ 已完成 | 拆解为 6 个文件：context.py + supervisor_node.py + dispatch_node.py + responder_node.py + reflection_node.py + graph_builder.py，supervisor_graph.py 瘦身为编排入口 |
+|  | **`supervisor_graph.py` 拆分** | ✅ 已完成 | 拆解为 6 个文件：context.py + supervisor_node.py + dispatch_node.py + responder_node.py + reflection_node.py + graph_builder.py，supervisor_graph.py 瘦身为编排入口 |
 
 ### 中优 (P1 — 架构规范化优化，提升可维护性)
 
 | # | 整改项 | 状态 | 完成内容 |
 |---|--------|------|---------|
-| P1-1 | **LLM 调用统一到 ChatOpenAI** | ✅ 已完成 | responder_node.py (3处) + reflection_node.py (4处) 共 7 处 `llm_client.chat.completions.create()` 迁移为 `chat_model.ainvoke()` / `astream()` |
-| P1-2 | **LangGraph 图编排优化** | ✅ 已完成 | `build_supervisor_graph()` 替代内部 `_build_graph()`，graph_builder.py 正式承担图构建职责 |
-| P1-4 | **MCP SDK 落地** | ✅ 已完成 | `_MCPBackgroundRunner` 后台线程运行 MCP SDK 异步上下文，`MCPStdioVehicleAdapter` 同步接口不变 |
+|  | **LLM 调用统一到 ChatOpenAI** | ✅ 已完成 | responder_node.py (3处) + reflection_node.py (4处) 共 7 处 `llm_client.chat.completions.create()` 迁移为 `chat_model.ainvoke()` / `astream()` |
+|  | **LangGraph 图编排优化** | ✅ 已完成 | `build_supervisor_graph()` 替代内部 `_build_graph()`，graph_builder.py 正式承担图构建职责 |
+|  | **MCP SDK 落地** | ✅ 已完成 | `_MCPBackgroundRunner` 后台线程运行 MCP SDK 异步上下文，`MCPStdioVehicleAdapter` 同步接口不变 |
 
 ### 低优 (P2 — 可选迭代优化)
 
 | # | 整改项 | 状态 | 完成内容 |
 |---|--------|------|---------|
-| P2-1 | **Windows 后台常驻部署** | ✅ 已完成 | `scripts/start-all.ps1` + `install-autostart.ps1` + `stop-all.ps1`，Task Scheduler 登录自启 |
-| P2-4 | **default.yaml 技能配置重定位** | ✅ 已完成 | 文件头部注释标记为开发参考文档，`skills/__init__.py` 同步说明 |
-| P2-5 | **交付文档补齐** | ✅ 已完成 | 白皮书 v3.0 精简更新 |
+|  | **Windows 后台常驻部署** | ✅ 已完成 | `scripts/start-all.ps1` + `install-autostart.ps1` + `stop-all.ps1`，Task Scheduler 登录自启 |
+|  | **default.yaml 技能配置重定位** | ✅ 已完成 | 文件头部注释标记为开发参考文档，`skills/__init__.py` 同步说明 |
+|  | **交付文档补齐** | ✅ 已完成 | 白皮书 v3.0 精简更新 |
 
 ---
 
@@ -122,7 +122,7 @@ models/
 └── tts/cosyvoice/           # TTS 模型 (~1.5GB)
 ```
 
-### Windows 开机自启方案 (P2-1 已落地)
+### Windows 开机自启方案 ( 已落地)
 
 **方案 A — Task Scheduler (已实现)**:
 1. `scripts/start-all.ps1` — 一键后台启动 Backend + Gateway + Frontend，各进程独立日志捕获

@@ -87,7 +87,7 @@ store = build_graph_store()
 - `Neo4jGraphStore` 继承基类，本地 Docker 部署
 - `AuraGraphStore` 继承 Neo4jGraphStore，仅覆写 connect() 使用 neo4j+s:// 加密 URI
 
-### retriever.py — GraphRAG 三路融合检索器 (v2.0)
+### retriever.py — GraphRAG 三路融合检索器 
 
 ```python
 from nexus.rag.retriever import GraphRAGRetriever
@@ -104,14 +104,14 @@ results = await retriever.retrieve_memories(
 )
 ```
 
-v2.0 三路融合检索:
+三路融合检索:
 - **向量路**: Milvus 语义相似度召回（基于文本含义匹配）
 - **图谱路**: Neo4j 关系遍历召回（基于实体关系匹配）
 - **BM25路**: 全文关键词匹配召回（基于词频精确匹配）
 - **融合策略**: RRF (Reciprocal Rank Fusion) 三路融合排序
 - **后处理**: `bge-reranker-v2-m3` Rerank 模型重排 Top-N
 
-### reranker.py / reranker_base.py / reranker_factory.py — Rerank 重排服务 (v2.0 + 双模式)
+### reranker.py / reranker_base.py / reranker_factory.py — Rerank 重排服务 (+ 双模式)
 
 ```python
 from nexus.rag.reranker_factory import build_reranker
@@ -133,7 +133,7 @@ reranked = reranker.rerank(query="故障灯亮了", documents=results, top_k=5)
 - `build_reranker()` 工厂函数按 `RERANKER_PROVIDER` 分发
 - 向后兼容: `from nexus.rag.reranker import RerankerService` 仍可用 (别名指向 LocalReranker)
 
-### cherry_kb.py — Cherry 知识库 (v2.0 新增)
+### cherry_kb.py — Cherry 知识库 (新增)
 
 ```python
 from nexus.rag.cherry_kb import CherryKnowledgeBase
@@ -149,7 +149,7 @@ results = kb.search("发动机故障灯", top_k=5)
 - 按类别管理 (manual/dtc/faq/maintenance)
 - 文档分块使用 langchain_text_splitters 1.0+ 的 RecursiveCharacterTextSplitter（中英文多级分隔符递归分割，未安装时降级为滑动窗口）
 
-### unified_retriever.py — 统一检索路由 (v2.0 新增)
+### unified_retriever.py — 统一检索路由 (新增)
 
 ```python
 from nexus.rag.unified_retriever import UnifiedRetriever
@@ -174,7 +174,7 @@ from nexus.memory.manager import MemoryManager
 manager = MemoryManager(vector_store, graph_store)
 manager.connect()
 
-# 召回记忆（v2.1: GraphRAG 三路融合 + Rerank + 渐进式披露）
+# 召回记忆（: GraphRAG 三路融合 + Rerank + 渐进式披露）
 memories = await manager.recall(query="空调温度", user_id="u1", top_k=5)
 
 # 从用户文本提取记忆并存储（三元组 → Milvus + Neo4j）
@@ -190,13 +190,13 @@ manager.store_conversation_async(
 )
 ```
 
-- v2.1: `recall()` 使用 GraphRAGRetriever 三路融合 + Rerank 管道
-- v2.1: `store_from_text_async()` / `store_conversation_async()` 使用 `asyncio.create_task()` 非阻塞调度
-  - v2.1.1 修复: 原线程+新事件循环方案导致 `httpx.AsyncClient` 跨循环报 "Event loop is closed"，改为共享当前事件循环
-- v2.1: 渐进式披露 — 简单指令召回 3 条，复杂查询召回 8 条
-- v2.1: 用户习惯注入 — 从 MySQL `user_habits` 表加载高频操作
+- : `recall()` 使用 GraphRAGRetriever 三路融合 + Rerank 管道
+- : `store_from_text_async()` / `store_conversation_async()` 使用 `asyncio.create_task()` 非阻塞调度
+  - .1 修复: 原线程+新事件循环方案导致 `httpx.AsyncClient` 跨循环报 "Event loop is closed"，改为共享当前事件循环
+- : 渐进式披露 — 简单指令召回 3 条，复杂查询召回 8 条
+- : 用户习惯注入 — 从 MySQL `user_habits` 表加载高频操作
 
-### compressor.py — 上下文压缩 (v2.0 增强)
+### compressor.py — 上下文压缩 (增强)
 
 ```python
 from nexus.memory.compressor import ContextCompressor
@@ -205,7 +205,7 @@ compressor = ContextCompressor()
 compressed = compressor.compress(history, max_tokens=2000)
 ```
 
-- v2.0: 基于 `tiktoken` 精准 Token 计数（替代粗略字数估算）
+- : 基于 `tiktoken` 精准 Token 计数（替代粗略字数估算）
 - 动态上下文窗口: 根据模型 max_tokens 自适应截断
 - 保留关键信息，控制 Token 消耗
 
@@ -221,14 +221,14 @@ conflict = detector.check(new_memory, existing_memories)
 
 ## 数据模型 (nexus/models/)
 
-### state.py — Agent 状态 (v2.0 TypedDict)
+### state.py — Agent 状态 (TypedDict)
 
-v2.0 从 `@dataclass` 改为 `TypedDict`（LangGraph 原生支持），使用 `Annotated` reducer 处理并行写入：
+从 `@dataclass` 改为 `TypedDict`（LangGraph 原生支持），使用 `Annotated` reducer 处理并行写入：
 - `user_input` — 用户输入文本
 - `intent` — 识别的意图
 - `active_experts` — Supervisor 决定分派给哪些专家
 - `expert_results` — 专家并行输出（`Annotated[list, add]` 累加）
-- `skill_result` / `skill_handled` / `skill_action` — 兼容 v1.0 技能字段
+- `skill_result` / `skill_handled` / `skill_action` — 兼容 技能字段
 - `has_side_effect` — 副作用标记（车控指令禁止缓存）
 - `final_response` — 最终响应
 - `metadata` — 元数据（`Annotated[dict, merge_dict]` 合并）

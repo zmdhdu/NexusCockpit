@@ -20,7 +20,7 @@
 
 | 问题 | 位置 | 风险等级 | 影响 | 状态 |
 |------|------|----------|------|------|
-| 项目使用 5 种数据库（MySQL/Redis/Milvus/Neo4j/SQLite），但 `v2.1_migration.sql` 仅覆盖 MySQL，需手动执行，未在 `lifespan` 启动流程中自动化检测 | `scripts/v2.1_migration.sql` + `main.py` | **高** | 新环境部署遗漏 SQL 执行将导致 `db_manager` 所有写入操作静默失败（`is_connected=False` 返回 None/空列表） | ✅ 已修复：`db_manager._auto_migrate_tables()` 启动时自动创建全部 14 张表 + 插入默认座舱/用户数据，`v2.1_migration.sql` 降级为参考脚本 |
+| 项目使用 5 种数据库（MySQL/Redis/Milvus/Neo4j/SQLite），但 `_migration.sql` 仅覆盖 MySQL，需手动执行，未在 `lifespan` 启动流程中自动化检测 | `scripts/_migration.sql` + `main.py` | **高** | 新环境部署遗漏 SQL 执行将导致 `db_manager` 所有写入操作静默失败（`is_connected=False` 返回 None/空列表） | ✅ 已修复：`db_manager._auto_migrate_tables()` 启动时自动创建全部 14 张表 + 插入默认座舱/用户数据，`_migration.sql` 降级为参考脚本 |
 | Milvus/Neo4j 连接失败时仅 `logger.error` 后继续启动，未做健康状态标记，后续 `MemoryManager.recall()` 会持续抛异常被 except 吞掉，用户无感知记忆功能已失效 | `main.py:103-115`、`memory/manager.py:117-119` | **高** | 记忆召回静默返回空列表，用户感觉"AI 没记性"但无任何报错 | ✅ 已修复：`db_manager.is_connected` 健康标记属性 + 前端中间件状态面板展示连接状态 |
 
 ### 1.2 短期记忆 TTL 过短、无续期机制
@@ -201,7 +201,7 @@
 
 | 问题 | 位置 | 风险等级 | 影响 | 状态 |
 |------|------|----------|------|------|
-| `v2.1_migration.sql` 包含完整的建表 + 默认数据插入，但需手动执行 `mysql -u root -p < v2.1_migration.sql`，未集成到 `lifespan` 启动流程或 `start-all.ps1` 脚本中 | `scripts/v2.1_migration.sql` + `main.py` | **高** | 新环境部署遗漏此步骤将导致 MySQL 表不存在，`db_manager` 所有操作静默失败 | ✅ 已修复：`db_manager._auto_migrate_tables()` 启动时自动创建全部 14 张表（`CREATE TABLE IF NOT EXISTS`）+ 插入默认座舱和用户数据（`ON DUPLICATE KEY UPDATE`）+ 自动修复中文用户名 |
+| `_migration.sql` 包含完整的建表 + 默认数据插入，但需手动执行 `mysql -u root -p < _migration.sql`，未集成到 `lifespan` 启动流程或 `start-all.ps1` 脚本中 | `scripts/_migration.sql` + `main.py` | **高** | 新环境部署遗漏此步骤将导致 MySQL 表不存在，`db_manager` 所有操作静默失败 | ✅ 已修复：`db_manager._auto_migrate_tables()` 启动时自动创建全部 14 张表（`CREATE TABLE IF NOT EXISTS`）+ 插入默认座舱和用户数据（`ON DUPLICATE KEY UPDATE`）+ 自动修复中文用户名 |
 
 ### 8.2 知识库初始化脚本不完整
 
@@ -376,55 +376,55 @@
 
 | # | 问题 | 修复内容 | 涉及文件 |
 |---|------|----------|----------|
-| P0-1 | `MemoryManager.load_cockpit_config()` 调用不存在的 `get_cockpit_config()` | 实现 `get_cockpit_config()` 占位方法返回 None，移除 try-except 包裹 | `memory/manager.py` |
-| P0-2 | `test_agent.py` 方法名错误 | `get_langchain_tools()` → `get_structured_tools()`，`to_langchain_tool()` → `to_structured_tool()` | `tests/test_agent.py` |
-| P0-7 | `reminder.py` 同步 Redis 阻塞事件循环 | `_get_redis()` 改为 `redis.asyncio.Redis`，所有 Redis 调用添加 `await` | `skills/reminder.py` |
-| P0-8 | `AmapPoiSearchSkill` 同步 `httpx.get()` | 改为 `async with httpx.AsyncClient()` + `await client.get()` | `skills/special.py` |
-| P1-13 | 沙箱未覆盖 `vehicle_navigation`/`vehicle_media` | `HIGH_RISK_TOOLS` 集合扩展 | `core/sandbox.py` |
-| P1-14 | `SANDBOX_ENABLED` 配置开关未实现 | `__init__` 中读取环境变量，`inspect()` 中检查开关 | `core/sandbox.py` |
-| P2-25 | `_query_lower` 未使用变量 | 删除冗余赋值 | `memory/manager.py` |
-| P2-26 | `default.yaml` 拼写错误 | `prefernce` → `preference` | `skills/default.yaml` |
+|  | `MemoryManager.load_cockpit_config()` 调用不存在的 `get_cockpit_config()` | 实现 `get_cockpit_config()` 占位方法返回 None，移除 try-except 包裹 | `memory/manager.py` |
+|  | `test_agent.py` 方法名错误 | `get_langchain_tools()` → `get_structured_tools()`，`to_langchain_tool()` → `to_structured_tool()` | `tests/test_agent.py` |
+|  | `reminder.py` 同步 Redis 阻塞事件循环 | `_get_redis()` 改为 `redis.asyncio.Redis`，所有 Redis 调用添加 `await` | `skills/reminder.py` |
+|  | `AmapPoiSearchSkill` 同步 `httpx.get()` | 改为 `async with httpx.AsyncClient()` + `await client.get()` | `skills/special.py` |
+| 3 | 沙箱未覆盖 `vehicle_navigation`/`vehicle_media` | `HIGH_RISK_TOOLS` 集合扩展 | `core/sandbox.py` |
+| 4 | `SANDBOX_ENABLED` 配置开关未实现 | `__init__` 中读取环境变量，`inspect()` 中检查开关 | `core/sandbox.py` |
+| 5 | `_query_lower` 未使用变量 | 删除冗余赋值 | `memory/manager.py` |
+| 6 | `default.yaml` 拼写错误 | `prefernce` → `preference` | `skills/default.yaml` |
 
 ### 第二轮修复（21 项 — 确认方案后执行）
 
 | # | 问题 | 修复内容 | 涉及文件 |
 |---|------|----------|----------|
-| P0-3 | 9 个技能无法触发 | 添加 `Health_Action`/`Habit_Action`/`Reminder_Action` 意图字段 + 9 个 `_tool_to_intent()` 映射 + `_determine_experts()` 路由 + LLM prompt 约束 + HealthExpert/ChatExpert/LifestyleExpert 执行逻辑 | `intent/router.py`, `agent/nodes/supervisor_node.py`, `intent/llm_router.py`, `agent/experts/health_expert.py`, `agent/experts/chat_expert.py`, `agent/experts/lifestyle_expert.py` |
-| P0-4 | MCP 服务端未实现 | 创建 `MCPServer` 骨架，含任务分发/状态同步/结果回调/异常上报/心跳保活五类标准接口 | `nexus/mcp/__init__.py`, `nexus/mcp/server.py` |
-| P0-5 | 数据库初始化未自动化 | 扩展 `_auto_migrate_tables()` 自动创建全部 14 张表 + 插入默认座舱和用户数据 | `core/db_manager.py` |
-| P0-6 | 提醒后台推送未实现 | 创建 `ReminderScanner` 后台扫描器，30 秒间隔扫描 Redis Sorted Set 到期提醒 | `skills/reminder_scanner.py` |
-| P0-9 | DeepAgents 未落地 | 文档标注移除 DeepAgents 宣称，实际使用 `VehicleCommandSandbox` 作为安全沙箱 | 文档更新 |
-| P1-10 | CircuitBreaker 未使用 | 熔断器定义完整，架构就绪可在 LLM/Milvus 关键路径随时接入 | `core/circuit_breaker.py`（无需改动） |
-| P1-11 | ObservabilityHub 未使用 | `main.py` 中 `setup_logging()` + `init_metrics()` 替换为 `obs.setup()` 统一门面 | `main.py` |
-| P1-12 | 沙箱审计日志仅内存 | `log_result()` 添加 MySQL `audit_logs` 表异步持久化 | `core/sandbox.py` |
-| P1-15 | 沙箱阈值硬编码 | 温度/车窗/风速/座椅阈值通过 `os.getenv()` 从 `.env` 读取 | `core/sandbox.py` |
-| P1-16 | default.yaml 技能名脱节 | 拼写已修复，YAML 头部已标注"仅开发参考文档" | `skills/default.yaml` |
-| P1-17 | NavExpert 无结果验证 | NavExpert 添加 `_verify_result()` 方法，检查错误状态和空消息 | `agent/experts/nav_expert.py` |
-| P1-18 | LLM JSON 无 schema 验证 | 创建 `IntentDecision` 和 `ReflectionResult` Pydantic 模型 + 安全解析函数 | `intent/schema.py` |
-| P1-19 | DB 连接无健康标记 | `db_manager.is_connected` 已是健康标记属性，前端可查询 | `core/db_manager.py` |
-| P1-20 | 知识库未自动加载 | Cherry KB 已在 main.py 初始化，health.py [STUB] 已标注待接入 | `skills/health.py` |
-| P1-21 | Go 网关无 trace_id | Go 代理 `Director` 中生成 16 字节随机 hex `X-Trace-Id` 并注入请求头 | `nexus_gate/internal/proxy/proxy.go` |
-| P2-23 | Session TTL 无续期 | `async_get()` 读取时自动 `expire()` 续期 + 新增 `async_touch()` 方法 | `middleware/session_store.py` |
-| P2-24 | ssl_fix.py 疑似遗留 | 确认为必要 Windows conda SSL 补丁，添加详细文档说明 | `core/ssl_fix.py` |
-| P2-27 | 缺失架构文档 | 创建 5 张架构流程图（Multi-Agent 流转/记忆体系/ER 关系/MCP 协同/安全沙箱） | `docs/架构详细设计/NexusCockpit架构流程图.md` |
-| P2-28 | Session TTL 可配置化 | `_SESSION_TTL` 通过 `SESSION_TTL_SECONDS` 环境变量配置 | `middleware/session_store.py` |
-| P2-29 | 多 Agent 并行冲突检测 | 创建 `ConflictDetector` 模块，检测+解决同维度并行冲突 | `agent/nodes/conflict_detector.py` |
-| 7.3 | 工程化能力缺失 | trace_id 传播已实现（P1-21 联动），OpenTelemetry/配置热更新/灰度发布留后续迭代 | `nexus_gate/internal/proxy/proxy.go` |
+|  | 9 个技能无法触发 | 添加 `Health_Action`/`Habit_Action`/`Reminder_Action` 意图字段 + 9 个 `_tool_to_intent()` 映射 + `_determine_experts()` 路由 + LLM prompt 约束 + HealthExpert/ChatExpert/LifestyleExpert 执行逻辑 | `intent/router.py`, `agent/nodes/supervisor_node.py`, `intent/llm_router.py`, `agent/experts/health_expert.py`, `agent/experts/chat_expert.py`, `agent/experts/lifestyle_expert.py` |
+|  | MCP 服务端未实现 | 创建 `MCPServer` 骨架，含任务分发/状态同步/结果回调/异常上报/心跳保活五类标准接口 | `nexus/mcp/__init__.py`, `nexus/mcp/server.py` |
+|  | 数据库初始化未自动化 | 扩展 `_auto_migrate_tables()` 自动创建全部 14 张表 + 插入默认座舱和用户数据 | `core/db_manager.py` |
+|  | 提醒后台推送未实现 | 创建 `ReminderScanner` 后台扫描器，30 秒间隔扫描 Redis Sorted Set 到期提醒 | `skills/reminder_scanner.py` |
+|  | DeepAgents 未落地 | 文档标注移除 DeepAgents 宣称，实际使用 `VehicleCommandSandbox` 作为安全沙箱 | 文档更新 |
+| 0 | CircuitBreaker 未使用 | 熔断器定义完整，架构就绪可在 LLM/Milvus 关键路径随时接入 | `core/circuit_breaker.py`（无需改动） |
+| 1 | ObservabilityHub 未使用 | `main.py` 中 `setup_logging()` + `init_metrics()` 替换为 `obs.setup()` 统一门面 | `main.py` |
+| 2 | 沙箱审计日志仅内存 | `log_result()` 添加 MySQL `audit_logs` 表异步持久化 | `core/sandbox.py` |
+| 5 | 沙箱阈值硬编码 | 温度/车窗/风速/座椅阈值通过 `os.getenv()` 从 `.env` 读取 | `core/sandbox.py` |
+| 6 | default.yaml 技能名脱节 | 拼写已修复，YAML 头部已标注"仅开发参考文档" | `skills/default.yaml` |
+| 7 | NavExpert 无结果验证 | NavExpert 添加 `_verify_result()` 方法，检查错误状态和空消息 | `agent/experts/nav_expert.py` |
+| 8 | LLM JSON 无 schema 验证 | 创建 `IntentDecision` 和 `ReflectionResult` Pydantic 模型 + 安全解析函数 | `intent/schema.py` |
+| 9 | DB 连接无健康标记 | `db_manager.is_connected` 已是健康标记属性，前端可查询 | `core/db_manager.py` |
+| 0 | 知识库未自动加载 | Cherry KB 已在 main.py 初始化，health.py [STUB] 已标注待接入 | `skills/health.py` |
+| 1 | Go 网关无 trace_id | Go 代理 `Director` 中生成 16 字节随机 hex `X-Trace-Id` 并注入请求头 | `nexus_gate/internal/proxy/proxy.go` |
+| 3 | Session TTL 无续期 | `async_get()` 读取时自动 `expire()` 续期 + 新增 `async_touch()` 方法 | `middleware/session_store.py` |
+| 4 | ssl_fix.py 疑似遗留 | 确认为必要 Windows conda SSL 补丁，添加详细文档说明 | `core/ssl_fix.py` |
+| 7 | 缺失架构文档 | 创建 5 张架构流程图（Multi-Agent 流转/记忆体系/ER 关系/MCP 协同/安全沙箱） | `docs/架构详细设计/NexusCockpit架构流程图.md` |
+| 8 | Session TTL 可配置化 | `_SESSION_TTL` 通过 `SESSION_TTL_SECONDS` 环境变量配置 | `middleware/session_store.py` |
+| 9 | 多 Agent 并行冲突检测 | 创建 `ConflictDetector` 模块，检测+解决同维度并行冲突 | `agent/nodes/conflict_detector.py` |
+| 7.3 | 工程化能力缺失 | trace_id 传播已实现（1 联动），OpenTelemetry/配置热更新/灰度发布留后续迭代 | `nexus_gate/internal/proxy/proxy.go` |
 
 ### 第三轮修复（14 项 — 全域清零，深度工程化）
 
 | # | 问题 | 修复内容 | 涉及文件 |
 |---|------|----------|----------|
-| P3-30 | `SkillRegistry.execute()` 无超时控制 | `asyncio.wait_for` 超时保护（从 `BaseSkill.timeout_ms` 读取，最小 3s）+ 瞬时故障最多 2 次重试 + `idempotent` 属性控制可重试性 | `skills/registry.py` |
-| P3-31 | `SkillRegistry` 无批量执行接口 | 新增 `execute_batch(tasks)` 方法，`asyncio.gather` 并行执行 + 异常安全包装返回 `SkillResult` 列表 | `skills/registry.py` |
-| P3-32 | `AmapPoiSearchSkill` 硬编码 `timeout=5.0` | 添加 `timeout_ms = 5000` 类属性，httpx 调用改为 `timeout=self.timeout_ms / 1000.0`，与 `BaseSkill.timeout_ms` 体系对齐 | `skills/special.py` |
-| P3-33 | `store_from_text()` Milvus/Neo4j 写入无回滚 | 双向写入带补偿回滚——Neo4j 写入失败时自动 `delete_memory_by_ids()` 删除已写入的 Milvus 记录，保证向量库与图谱数据一致性 | `memory/manager.py` |
-| P3-34 | `store_from_text_async()` 无重试队列 | `_store_from_text_safe()` 增加最多 2 次重试 + 1 秒间隔，覆盖瞬时网络故障导致的 LLM 提取失败 | `memory/manager.py` |
-| P3-35 | `CircuitBreaker` 从未实例化 | `llm_client_factory.py` 创建 `_llm_circuit` 熔断器实例（failure_threshold=5, recovery_period=30s），`call_llm_with_fallback()` 通过 `_llm_circuit.call()` 保护主 LLM 调用，熔断时直接降级到 fallback LLM | `agent/llm_client_factory.py` |
-| P3-36 | `LifestyleExpert`/`ChatExpert` 无 `_verify_result()` | 两个专家添加 `_verify_result()` 方法，检查 error 状态和空消息，失败时返回友好提示 | `agent/experts/lifestyle_expert.py`, `agent/experts/chat_expert.py` |
-| P3-37 | `LLMIntentRouter._parse_json()` 无 Pydantic 验证 | `_parse_json()` 方法接入 `intent/schema.py` 的 `parse_intent_decision()` Pydantic 验证，格式异常返回 None 触发重试机制 | `intent/llm_router.py` |
-| P3-38 | `ReflectionNode` 无 schema 验证 | 反思节点接入 `parse_reflection_result()` Pydantic 验证，解析失败返回 `parse_failed` 状态而非静默跳过 | `agent/nodes/reflection_node.py` |
-| P3-39 | 沙箱频率限制进程内状态 | `_get_redis()` 懒加载 Redis 客户端，支持多实例共享限流状态；Redis 不可用时降级为进程内限流 | `core/sandbox.py` |
+| 0 | `SkillRegistry.execute()` 无超时控制 | `asyncio.wait_for` 超时保护（从 `BaseSkill.timeout_ms` 读取，最小 3s）+ 瞬时故障最多 2 次重试 + `idempotent` 属性控制可重试性 | `skills/registry.py` |
+| 1 | `SkillRegistry` 无批量执行接口 | 新增 `execute_batch(tasks)` 方法，`asyncio.gather` 并行执行 + 异常安全包装返回 `SkillResult` 列表 | `skills/registry.py` |
+| 2 | `AmapPoiSearchSkill` 硬编码 `timeout=5.0` | 添加 `timeout_ms = 5000` 类属性，httpx 调用改为 `timeout=self.timeout_ms / 1000.0`，与 `BaseSkill.timeout_ms` 体系对齐 | `skills/special.py` |
+| 3 | `store_from_text()` Milvus/Neo4j 写入无回滚 | 双向写入带补偿回滚——Neo4j 写入失败时自动 `delete_memory_by_ids()` 删除已写入的 Milvus 记录，保证向量库与图谱数据一致性 | `memory/manager.py` |
+| 4 | `store_from_text_async()` 无重试队列 | `_store_from_text_safe()` 增加最多 2 次重试 + 1 秒间隔，覆盖瞬时网络故障导致的 LLM 提取失败 | `memory/manager.py` |
+| 5 | `CircuitBreaker` 从未实例化 | `llm_client_factory.py` 创建 `_llm_circuit` 熔断器实例（failure_threshold=5, recovery_period=30s），`call_llm_with_fallback()` 通过 `_llm_circuit.call()` 保护主 LLM 调用，熔断时直接降级到 fallback LLM | `agent/llm_client_factory.py` |
+| 6 | `LifestyleExpert`/`ChatExpert` 无 `_verify_result()` | 两个专家添加 `_verify_result()` 方法，检查 error 状态和空消息，失败时返回友好提示 | `agent/experts/lifestyle_expert.py`, `agent/experts/chat_expert.py` |
+| 7 | `LLMIntentRouter._parse_json()` 无 Pydantic 验证 | `_parse_json()` 方法接入 `intent/schema.py` 的 `parse_intent_decision()` Pydantic 验证，格式异常返回 None 触发重试机制 | `intent/llm_router.py` |
+| 8 | `ReflectionNode` 无 schema 验证 | 反思节点接入 `parse_reflection_result()` Pydantic 验证，解析失败返回 `parse_failed` 状态而非静默跳过 | `agent/nodes/reflection_node.py` |
+| 9 | 沙箱频率限制进程内状态 | `_get_redis()` 懒加载 Redis 客户端，支持多实例共享限流状态；Redis 不可用时降级为进程内限流 | `core/sandbox.py` |
 | P3-40 | `main.py` 未启动 `MCPServer` | lifespan 中 `await mcp_server.start()` + 关闭时 `await mcp_server.stop()`，MCP 五类标准接口在服务运行期间可用 | `main.py` |
 | P3-41 | `main.py` 未启动 `ReminderScanner` | lifespan 中 `await reminder_scanner.start()` + 关闭时 `await reminder_scanner.stop()`，30 秒间隔后台扫描到期提醒 | `main.py` |
 | P3-42 | 专家优先级控制 | `_determine_experts()` 中专家按固定优先级排序（vehicle → navigation → lifestyle → health → chat），`ConflictDetector.resolve()` 保留首专家结果丢弃后续 | `agent/nodes/supervisor_node.py`, `agent/nodes/conflict_detector.py` |

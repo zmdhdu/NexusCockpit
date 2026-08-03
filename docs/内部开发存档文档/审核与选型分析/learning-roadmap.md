@@ -330,7 +330,7 @@ graph.add_edge("reviewer", END)
 
 | 顺序 | 文件 | 学到什么 | 重点 |
 |------|------|----------|------|
-| ① | `backend_design/scripts/v2.1_migration.sql` | 数据库迁移 | 建表语句、索引、外键 |
+| ① | `backend_design/scripts/_migration.sql` | 数据库迁移 | 建表语句、索引、外键 |
 | ② | `backend_design/nexus/core/db_manager.py` | 异步数据库管理 | MySQL 连接池、CRUD 操作 |
 
 ### 6.4 测试与脚本 (30 分钟)

@@ -1,6 +1,6 @@
 # ASR 语音识别技术文档
 
-> ⚠️ **注意**: 本文档描述的是 v2.1 独立服务架构。v2.2 已将 ASR/TTS 内嵌至主应用，通过 *_PROVIDER 环境变量切换本地/云端模式。请参考 [架构概览](../architecture/overview.md) 获取最新架构信息。
+> ⚠️ **注意**: 本文档描述的是  独立服务架构。已将 ASR/TTS 内嵌至主应用，通过 *_PROVIDER 环境变量切换本地/云端模式。请参考 [架构概览](../architecture/overview.md) 获取最新架构信息。
 
 > 基于 FunASR + SenseVoice-Small 的车载语音识别
 
@@ -57,7 +57,7 @@ file: <audio.wav>
 FUNASR_MODEL_PATH=./models/asr/sensevoice
 ```
 
-## v2.2 变更
+## 变更
 
 - 移除了 `asr/engine.py` 中的 `SpeakerVerifier` 类
 - 声纹验证统一由 `core/voiceprint.py` 的 `VoiceprintService` 处理

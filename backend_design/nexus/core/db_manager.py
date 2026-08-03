@@ -1,18 +1,18 @@
-# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+﻿# Copyright (c) 2026 zhangmengdi (NexusCockpit)
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-MySQL 数据库管理器 — 统一数据库访问层
+MySQL 鏁版嵁搴撶鐞嗗櫒 鈥?缁熶竴鏁版嵁搴撹闂眰
 
-提供连接池管理和所有 MySQL 表的 CRUD 操作：
-- SubAgent/MainAgent 巡检日志
-- 审计日志
-- LLM 成本追踪
-- 用户管理（RBAC）
-- 对话历史
+鎻愪緵杩炴帴姹犵鐞嗗拰鎵€鏈?MySQL 琛ㄧ殑 CRUD 鎿嶄綔锛?
+- SubAgent/MainAgent 宸℃鏃ュ織
+- 瀹¤鏃ュ織
+- LLM 鎴愭湰杩借釜
+- 鐢ㄦ埛绠＄悊锛圧BAC锛?
+- 瀵硅瘽鍘嗗彶
 
-使用 aiomysql 异步驱动，支持连接池。
+浣跨敤 aiomysql 寮傛椹卞姩锛屾敮鎸佽繛鎺ユ睜銆?
 """
 
 from __future__ import annotations
@@ -29,19 +29,19 @@ from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 抑制 MySQL 'Table already exists' warning —— CREATE TABLE IF NOT EXISTS
-# 对已存在的表会发出 warning，aiomysql 将其转发到 Python warnings 模块，
-# 每次启动都会输出 12+ 条无用 warning。在模块级过滤，保持日志干净。
+# 鎶戝埗 MySQL 'Table already exists' warning 鈥斺€?CREATE TABLE IF NOT EXISTS
+# 瀵瑰凡瀛樺湪鐨勮〃浼氬彂鍑?warning锛宎iomysql 灏嗗叾杞彂鍒?Python warnings 妯″潡锛?
+# 姣忔鍚姩閮戒細杈撳嚭 12+ 鏉℃棤鐢?warning銆傚湪妯″潡绾ц繃婊わ紝淇濇寔鏃ュ織骞插噣銆?
 warnings.filterwarnings(
     "ignore", message=r"Table '.*' already exists", category=Warning,
 )
 
 
 class DatabaseManager:
-    """MySQL 数据库管理器单例。
+    """MySQL 鏁版嵁搴撶鐞嗗櫒鍗曚緥銆?
 
-    使用 aiomysql.create_pool 创建连接池，
-    所有查询通过池化连接执行，避免频繁创建/销毁连接。
+    浣跨敤 aiomysql.create_pool 鍒涘缓杩炴帴姹狅紝
+    鎵€鏈夋煡璇㈤€氳繃姹犲寲杩炴帴鎵ц锛岄伩鍏嶉绻佸垱寤?閿€姣佽繛鎺ャ€?
 
     Usage:
         db = DatabaseManager()
@@ -54,7 +54,7 @@ class DatabaseManager:
         self._connected = False
 
     async def connect(self) -> None:
-        """初始化连接池。"""
+        """鍒濆鍖栬繛鎺ユ睜銆?""
         if self._connected:
             return
 
@@ -74,33 +74,33 @@ class DatabaseManager:
             self._connected = True
             logger.info(f"MySQL pool connected: {config.host}:{config.port}/{config.database}")
 
-            # 自动迁移：确保多会话表和列存在
+            # 鑷姩杩佺Щ锛氱‘淇濆浼氳瘽琛ㄥ拰鍒楀瓨鍦?
             await self._auto_migrate_tables()
 
-            # 自动修复已有中文用户名 → 英文（避免编码乱码）
+            # 鑷姩淇宸叉湁涓枃鐢ㄦ埛鍚?鈫?鑻辨枃锛堥伩鍏嶇紪鐮佷贡鐮侊級
             await self._auto_fix_chinese_usernames()
         except Exception as e:
             logger.error(f"MySQL connection failed: {e}")
             self._connected = False
 
     async def _auto_migrate_tables(self) -> None:
-        """启动时自动迁移 — 确保 v2.1 全部表和列存在。
+        """鍚姩鏃惰嚜鍔ㄨ縼绉?鈥?纭繚 鍏ㄩ儴琛ㄥ拰鍒楀瓨鍦ㄣ€?
 
-        自动创建以下表（IF NOT EXISTS）:
-        1. cockpits — 座舱表
-        2. users — 用户表（RBAC 四级角色）
-        3. chat_history — 对话历史表
-        4. cockpit_stats — 座舱使用统计表
-        5. subagent_logs — SubAgent 巡检日志
-        6. mainagent_logs — MainAgent 确认日志
-        7. audit_logs — 审计日志表
-        8. agent_feedback — 用户反馈表
-        9. llm_cost_tracking — LLM 成本追踪表
-        10. voiceprint_enrollments — 声纹注册记录表
-        11. chat_sessions — 多会话管理表
-        12. user_habits — 用户习惯记录表
-        13. chat_logs 表的 session_id 列（会话消息关联）
-        14. 插入默认座舱和用户数据
+        鑷姩鍒涘缓浠ヤ笅琛紙IF NOT EXISTS锛?
+        1. cockpits 鈥?搴ц埍琛?
+        2. users 鈥?鐢ㄦ埛琛紙RBAC 鍥涚骇瑙掕壊锛?
+        3. chat_history 鈥?瀵硅瘽鍘嗗彶琛?
+        4. cockpit_stats 鈥?搴ц埍浣跨敤缁熻琛?
+        5. subagent_logs 鈥?SubAgent 宸℃鏃ュ織
+        6. mainagent_logs 鈥?MainAgent 纭鏃ュ織
+        7. audit_logs 鈥?瀹¤鏃ュ織琛?
+        8. agent_feedback 鈥?鐢ㄦ埛鍙嶉琛?
+        9. llm_cost_tracking 鈥?LLM 鎴愭湰杩借釜琛?
+        10. voiceprint_enrollments 鈥?澹扮汗娉ㄥ唽璁板綍琛?
+        11. chat_sessions 鈥?澶氫細璇濈鐞嗚〃
+        12. user_habits 鈥?鐢ㄦ埛涔犳儻璁板綍琛?
+        13. chat_logs 琛ㄧ殑 session_id 鍒楋紙浼氳瘽娑堟伅鍏宠仈锛?
+        14. 鎻掑叆榛樿搴ц埍鍜岀敤鎴锋暟鎹?
         """
         if not self.is_connected:
             return
@@ -123,7 +123,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 2. 创建 users 表
+                    # 2. 鍒涘缓 users 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS users ("
                         "  user_id VARCHAR(64) PRIMARY KEY,"
@@ -138,7 +138,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 3. 创建 chat_history 表
+                    # 3. 鍒涘缓 chat_history 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS chat_history ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -158,7 +158,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 4. 创建 cockpit_stats 表
+                    # 4. 鍒涘缓 cockpit_stats 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS cockpit_stats ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -175,7 +175,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 5. 创建 subagent_logs 表
+                    # 5. 鍒涘缓 subagent_logs 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS subagent_logs ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -189,7 +189,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 6. 创建 mainagent_logs 表
+                    # 6. 鍒涘缓 mainagent_logs 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS mainagent_logs ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -205,7 +205,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 7. 创建 audit_logs 表
+                    # 7. 鍒涘缓 audit_logs 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS audit_logs ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -220,7 +220,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 8. 创建 agent_feedback 表
+                    # 8. 鍒涘缓 agent_feedback 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS agent_feedback ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -234,7 +234,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 9. 创建 llm_cost_tracking 表
+                    # 9. 鍒涘缓 llm_cost_tracking 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS llm_cost_tracking ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -250,7 +250,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 10. 创建 voiceprint_enrollments 表
+                    # 10. 鍒涘缓 voiceprint_enrollments 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS voiceprint_enrollments ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -266,14 +266,14 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                     )
 
-                    # 11. 创建 chat_sessions 表
+                    # 11. 鍒涘缓 chat_sessions 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS chat_sessions ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
                         "  session_id VARCHAR(128) NOT NULL UNIQUE,"
                         "  cockpit_id VARCHAR(32) NOT NULL,"
                         "  user_id VARCHAR(64) NOT NULL,"
-                        "  title VARCHAR(128) DEFAULT '新对话',"
+                        "  title VARCHAR(128) DEFAULT '鏂板璇?,"
                         "  message_count INT DEFAULT 0,"
                         "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
                         "  last_message_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
@@ -282,7 +282,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
                     )
 
-                    # 12. 创建 user_habits 表
+                    # 12. 鍒涘缓 user_habits 琛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS user_habits ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -298,7 +298,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
                     )
 
-                    # 11.5 创建 chat_logs 表（对话日志持久化 — 用户提问 + AI回复双向存储）
+                    # 11.5 鍒涘缓 chat_logs 琛紙瀵硅瘽鏃ュ織鎸佷箙鍖?鈥?鐢ㄦ埛鎻愰棶 + AI鍥炲鍙屽悜瀛樺偍锛?
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS chat_logs ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -318,7 +318,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
                     )
 
-                    # 3. 为 chat_logs 表添加 session_id 列（如果不存在）
+                    # 3. 涓?chat_logs 琛ㄦ坊鍔?session_id 鍒楋紙濡傛灉涓嶅瓨鍦級
                     await cur.execute(
                         "SELECT COUNT(*) FROM information_schema.columns "
                         "WHERE table_schema = DATABASE() AND table_name = 'chat_logs' "
@@ -334,8 +334,8 @@ class DatabaseManager:
                         )
                         logger.info("Auto-migrate: added session_id column to chat_logs")
 
-                    # 14. 插入默认座舱和用户数据（ON DUPLICATE KEY UPDATE）
-                    # MySQL 8.0+ 弃用了 VALUES(col) 语法，改用 AS alias + alias.col 语法
+                    # 14. 鎻掑叆榛樿搴ц埍鍜岀敤鎴锋暟鎹紙ON DUPLICATE KEY UPDATE锛?
+                    # MySQL 8.0+ 寮冪敤浜?VALUES(col) 璇硶锛屾敼鐢?AS alias + alias.col 璇硶
                     await cur.execute(
                         "INSERT INTO cockpits (cockpit_id, name, user_id, redis_db, milvus_prefix, theme_color) VALUES "
                         "('cockpit-01', 'Cockpit One', 'user_01', 1, 'cockpit_01', '#4fc3f7'), "
@@ -352,22 +352,22 @@ class DatabaseManager:
                         "ON DUPLICATE KEY UPDATE username=new.username"
                     )
 
-                    logger.info("Auto-migrate: all v2.1 tables verified + default data inserted")
+                    logger.info("Auto-migrate: all tables verified + default data inserted")
         except Exception as e:
             logger.warning(f"Auto-migrate tables failed (non-fatal): {e}")
 
     async def _auto_fix_chinese_usernames(self) -> None:
-        """启动时自动修复中文用户名 → 英文（避免编码乱码）。
+        """鍚姩鏃惰嚜鍔ㄤ慨澶嶄腑鏂囩敤鎴峰悕 鈫?鑻辨枃锛堥伩鍏嶇紪鐮佷贡鐮侊級銆?
 
-        将数据库中已有的中文用户名（张三/李四/王五/超级管理员等）
-        更新为纯 ASCII 英文名，同时修复中文座舱名。
+        灏嗘暟鎹簱涓凡鏈夌殑涓枃鐢ㄦ埛鍚嶏紙寮犱笁/鏉庡洓/鐜嬩簲/瓒呯骇绠＄悊鍛樼瓑锛?
+        鏇存柊涓虹函 ASCII 鑻辨枃鍚嶏紝鍚屾椂淇涓枃搴ц埍鍚嶃€?
         """
         if not self.is_connected:
             return
         try:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
-                    # 修复中文用户名
+                    # 淇涓枃鐢ㄦ埛鍚?
                     fixes = [
                         ("user_01", "zhang_san"),
                         ("user_02", "li_si"),
@@ -379,7 +379,7 @@ class DatabaseManager:
                             "UPDATE users SET username = %s WHERE user_id = %s AND username != %s",
                             (new_name, user_id, new_name),
                         )
-                    # 修复中文座舱名
+                    # 淇涓枃搴ц埍鍚?
                     cockpit_fixes = [
                         ("cockpit-01", "Cockpit One"),
                         ("cockpit-02", "Cockpit Two"),
@@ -395,7 +395,7 @@ class DatabaseManager:
             logger.warning(f"Auto-fix Chinese usernames failed (non-fatal): {e}")
 
     async def close(self) -> None:
-        """关闭连接池。"""
+        """鍏抽棴杩炴帴姹犮€?""
         if self._pool:
             self._pool.close()
             await self._pool.wait_closed()
@@ -405,17 +405,17 @@ class DatabaseManager:
 
     @property
     def is_connected(self) -> bool:
-        """是否已连接。"""
+        """鏄惁宸茶繛鎺ャ€?""
         return self._connected and self._pool is not None
 
     def _get_conn(self):
-        """从连接池获取连接上下文管理器。"""
+        """浠庤繛鎺ユ睜鑾峰彇杩炴帴涓婁笅鏂囩鐞嗗櫒銆?""
         if not self._pool:
             raise RuntimeError("Database pool not initialized")
         return self._pool.acquire()
 
     # ============================================================
-    # SubAgent 日志
+    # SubAgent 鏃ュ織
     # ============================================================
 
     async def insert_subagent_log(
@@ -426,17 +426,17 @@ class DatabaseManager:
         decision_trace: dict[str, Any] | None = None,
         is_anomaly: bool = False,
     ) -> int | None:
-        """写入 SubAgent 巡检日志。
+        """鍐欏叆 SubAgent 宸℃鏃ュ織銆?
 
         Args:
-            cockpit_id: 座舱 ID
-            check_items: 采集的状态指标
-            llm_judgment: LLM 判断结果
-            decision_trace: 决策链路追踪
-            is_anomaly: 是否异常
+            cockpit_id: 搴ц埍 ID
+            check_items: 閲囬泦鐨勭姸鎬佹寚鏍?
+            llm_judgment: LLM 鍒ゆ柇缁撴灉
+            decision_trace: 鍐崇瓥閾捐矾杩借釜
+            is_anomaly: 鏄惁寮傚父
 
         Returns:
-            插入的行 ID，失败返回 None
+            鎻掑叆鐨勮 ID锛屽け璐ヨ繑鍥?None
         """
         if not self.is_connected:
             return None
@@ -447,7 +447,7 @@ class DatabaseManager:
             "VALUES (%s, %s, %s, %s, %s, %s)"
         )
         try:
-            # 使用东八区时间，避免 Docker 容器 UTC 时区导致时间偏差
+            # 浣跨敤涓滃叓鍖烘椂闂达紝閬垮厤 Docker 瀹瑰櫒 UTC 鏃跺尯瀵艰嚧鏃堕棿鍋忓樊
             from datetime import timedelta, timezone
             cn_tz = timezone(timedelta(hours=8))
             async with self._get_conn() as conn:
@@ -466,7 +466,7 @@ class DatabaseManager:
             return None
 
     # ============================================================
-    # MainAgent 日志
+    # MainAgent 鏃ュ織
     # ============================================================
 
     async def insert_mainagent_log(
@@ -480,20 +480,20 @@ class DatabaseManager:
         alert_time: float | None = None,
         confirm_time: float | None = None,
     ) -> int | None:
-        """写入 MainAgent 确认日志。
+        """鍐欏叆 MainAgent 纭鏃ュ織銆?
 
         Args:
-            cockpit_id: 座舱 ID
-            alert_type: 告警类型
-            severity: 严重程度
-            subagent_judgment: SubAgent 判断结果
-            mainagent_judgment: MainAgent 确认结果
-            action_taken: 执行的动作
-            alert_time: 告警时间戳
-            confirm_time: 确认时间戳
+            cockpit_id: 搴ц埍 ID
+            alert_type: 鍛婅绫诲瀷
+            severity: 涓ラ噸绋嬪害
+            subagent_judgment: SubAgent 鍒ゆ柇缁撴灉
+            mainagent_judgment: MainAgent 纭缁撴灉
+            action_taken: 鎵ц鐨勫姩浣?
+            alert_time: 鍛婅鏃堕棿鎴?
+            confirm_time: 纭鏃堕棿鎴?
 
         Returns:
-            插入的行 ID，失败返回 None
+            鎻掑叆鐨勮 ID锛屽け璐ヨ繑鍥?None
         """
         if not self.is_connected:
             return None
@@ -523,7 +523,7 @@ class DatabaseManager:
             return None
 
     # ============================================================
-    # 审计日志
+    # 瀹¤鏃ュ織
     # ============================================================
 
     async def insert_audit_log(
@@ -534,17 +534,17 @@ class DatabaseManager:
         detail: dict[str, Any] | None = None,
         ip_address: str | None = None,
     ) -> int | None:
-        """写入审计日志。
+        """鍐欏叆瀹¤鏃ュ織銆?
 
         Args:
-            cockpit_id: 座舱 ID
-            user_id: 用户 ID
-            action: 操作类型
-            detail: 操作详情
-            ip_address: 请求 IP
+            cockpit_id: 搴ц埍 ID
+            user_id: 鐢ㄦ埛 ID
+            action: 鎿嶄綔绫诲瀷
+            detail: 鎿嶄綔璇︽儏
+            ip_address: 璇锋眰 IP
 
         Returns:
-            插入的行 ID，失败返回 None
+            鎻掑叆鐨勮 ID锛屽け璐ヨ繑鍥?None
         """
         if not self.is_connected:
             return None
@@ -570,7 +570,7 @@ class DatabaseManager:
             return None
 
     # ============================================================
-    # LLM 成本追踪
+    # LLM 鎴愭湰杩借釜
     # ============================================================
 
     async def insert_llm_cost(
@@ -582,18 +582,18 @@ class DatabaseManager:
         completion_tokens: int = 0,
         cost_yuan: float = 0.0,
     ) -> int | None:
-        """记录 LLM 调用成本。
+        """璁板綍 LLM 璋冪敤鎴愭湰銆?
 
         Args:
-            cockpit_id: 座舱 ID
-            request_type: 请求类型（chat/reflection/tool_synthesis）
-            model_name: 模型名称
-            prompt_tokens: 输入 token 数
-            completion_tokens: 输出 token 数
-            cost_yuan: 成本（元）
+            cockpit_id: 搴ц埍 ID
+            request_type: 璇锋眰绫诲瀷锛坈hat/reflection/tool_synthesis锛?
+            model_name: 妯″瀷鍚嶇О
+            prompt_tokens: 杈撳叆 token 鏁?
+            completion_tokens: 杈撳嚭 token 鏁?
+            cost_yuan: 鎴愭湰锛堝厓锛?
 
         Returns:
-            插入的行 ID，失败返回 None
+            鎻掑叆鐨勮 ID锛屽け璐ヨ繑鍥?None
         """
         if not self.is_connected:
             return None
@@ -622,14 +622,14 @@ class DatabaseManager:
     async def get_llm_cost_summary(
         self, cockpit_id: str | None = None, hours: int = 24
     ) -> dict[str, Any]:
-        """获取 LLM 成本汇总。
+        """鑾峰彇 LLM 鎴愭湰姹囨€汇€?
 
         Args:
-            cockpit_id: 座舱 ID（为空则查询所有）
-            hours: 查询最近多少小时
+            cockpit_id: 搴ц埍 ID锛堜负绌哄垯鏌ヨ鎵€鏈夛級
+            hours: 鏌ヨ鏈€杩戝灏戝皬鏃?
 
         Returns:
-            成本汇总字典
+            鎴愭湰姹囨€诲瓧鍏?
         """
         if not self.is_connected:
             return {"total_cost": 0, "total_tokens": 0, "by_cockpit": {}}
@@ -657,7 +657,7 @@ class DatabaseManager:
                         )
                     summary = await cur.fetchone()
 
-                    # 按座舱分组
+                    # 鎸夊骇鑸卞垎缁?
                     await cur.execute(
                         "SELECT cockpit_id, SUM(cost_yuan) as cost, "
                         "SUM(prompt_tokens + completion_tokens) as tokens "
@@ -682,11 +682,11 @@ class DatabaseManager:
             return {"total_cost": 0, "total_tokens": 0, "by_cockpit": {}}
 
     # ============================================================
-    # 用户管理（RBAC）
+    # 鐢ㄦ埛绠＄悊锛圧BAC锛?
     # ============================================================
 
     async def list_users(self) -> list[dict[str, Any]]:
-        """列出所有用户。"""
+        """鍒楀嚭鎵€鏈夌敤鎴枫€?""
         if not self.is_connected:
             return []
 
@@ -713,7 +713,7 @@ class DatabaseManager:
             return []
 
     async def get_user(self, user_id: str) -> dict[str, Any] | None:
-        """查询单个用户。"""
+        """鏌ヨ鍗曚釜鐢ㄦ埛銆?""
         if not self.is_connected:
             return None
 
@@ -748,10 +748,10 @@ class DatabaseManager:
         role: str = "cockpit_user",
         password_hash: str | None = None,
     ) -> dict[str, Any] | None:
-        """创建用户。
+        """鍒涘缓鐢ㄦ埛銆?
 
         Returns:
-            创建的用户字典，失败返回 None
+            鍒涘缓鐨勭敤鎴峰瓧鍏革紝澶辫触杩斿洖 None
         """
         if not self.is_connected:
             return None
@@ -781,7 +781,7 @@ class DatabaseManager:
             return None
 
     async def delete_user(self, user_id: str) -> bool:
-        """删除用户。"""
+        """鍒犻櫎鐢ㄦ埛銆?""
         if not self.is_connected:
             return False
 
@@ -795,7 +795,7 @@ class DatabaseManager:
             return False
 
     async def update_user_password(self, user_id: str, password_hash: str) -> bool:
-        """更新用户密码哈希。"""
+        """鏇存柊鐢ㄦ埛瀵嗙爜鍝堝笇銆?""
         if not self.is_connected:
             return False
 
@@ -812,7 +812,7 @@ class DatabaseManager:
             return False
 
     # ============================================================
-    # 对话历史
+    # 瀵硅瘽鍘嗗彶
     # ============================================================
 
     async def insert_chat_history(
@@ -827,7 +827,7 @@ class DatabaseManager:
         latency_ms: float = 0,
         cache_hit: bool = False,
     ) -> int | None:
-        """写入对话历史。"""
+        """鍐欏叆瀵硅瘽鍘嗗彶銆?""
         if not self.is_connected:
             return None
 
@@ -862,7 +862,7 @@ class DatabaseManager:
         user_id: str | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """获取对话历史。"""
+        """鑾峰彇瀵硅瘽鍘嗗彶銆?""
         if not self.is_connected:
             return []
 
@@ -889,13 +889,13 @@ class DatabaseManager:
             return []
 
     # ============================================================
-    # 通用查询
+    # 閫氱敤鏌ヨ
     # ============================================================
 
     async def execute_query(
         self, sql: str, params: tuple = ()
     ) -> list[dict[str, Any]]:
-        """执行查询并返回结果。"""
+        """鎵ц鏌ヨ骞惰繑鍥炵粨鏋溿€?""
         if not self.is_connected:
             return []
 
@@ -911,7 +911,7 @@ class DatabaseManager:
     async def execute_update(
         self, sql: str, params: tuple = ()
     ) -> int:
-        """执行 INSERT/UPDATE/DELETE 并返回受影响行数。"""
+        """鎵ц INSERT/UPDATE/DELETE 骞惰繑鍥炲彈褰卞搷琛屾暟銆?""
         if not self.is_connected:
             return 0
 
@@ -925,28 +925,28 @@ class DatabaseManager:
             return 0
 
     # ============================================================
-    # 用户习惯
+    # 鐢ㄦ埛涔犳儻
     # ============================================================
 
     async def record_user_habit(
         self, user_id: str, cockpit_id: str, habit_key: str, habit_value: str = ""
     ) -> None:
-        """记录用户习惯（UPSERT，已存在则 hit_count+1）。
+        """璁板綍鐢ㄦ埛涔犳儻锛圲PSERT锛屽凡瀛樺湪鍒?hit_count+1锛夈€?
 
         Args:
-            user_id: 用户 ID
-            cockpit_id: 座舱 ID
-            habit_key: 习惯键名（如 preferred_temp、favorite_music）
-            habit_value: 习惯值
+            user_id: 鐢ㄦ埛 ID
+            cockpit_id: 搴ц埍 ID
+            habit_key: 涔犳儻閿悕锛堝 preferred_temp銆乫avorite_music锛?
+            habit_value: 涔犳儻鍊?
         """
         if not self.is_connected:
             return
         try:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
-                    # MySQL 8.0+ 弃用了 VALUES(col) 语法，改用 AS new + new.col 语法
-                    # ON DUPLICATE KEY UPDATE 中 hit_count 必须用表名限定，
-                    # 否则 MySQL 无法区分是 existing 行还是 new 行的列（ambiguous 错误）
+                    # MySQL 8.0+ 寮冪敤浜?VALUES(col) 璇硶锛屾敼鐢?AS new + new.col 璇硶
+                    # ON DUPLICATE KEY UPDATE 涓?hit_count 蹇呴』鐢ㄨ〃鍚嶉檺瀹氾紝
+                    # 鍚﹀垯 MySQL 鏃犳硶鍖哄垎鏄?existing 琛岃繕鏄?new 琛岀殑鍒楋紙ambiguous 閿欒锛?
                     await cur.execute(
                         "INSERT INTO user_habits "
                         "(user_id, cockpit_id, habit_key, habit_value, hit_count, last_used_at) "
@@ -962,7 +962,7 @@ class DatabaseManager:
     async def get_user_habits(
         self, user_id: str, cockpit_id: str = ""
     ) -> list[dict[str, Any]]:
-        """获取用户习惯列表。"""
+        """鑾峰彇鐢ㄦ埛涔犳儻鍒楄〃銆?""
         if not self.is_connected:
             return []
         try:
@@ -978,12 +978,12 @@ class DatabaseManager:
             return []
 
 
-# 全局单例
+# 鍏ㄥ眬鍗曚緥
 _db_manager: DatabaseManager | None = None
 
 
 def get_db_manager() -> DatabaseManager:
-    """获取数据库管理器全局单例。"""
+    """鑾峰彇鏁版嵁搴撶鐞嗗櫒鍏ㄥ眬鍗曚緥銆?""
     global _db_manager
     if _db_manager is None:
         _db_manager = DatabaseManager()

@@ -175,7 +175,7 @@ docker compose ps
 
 预期输出：`milvus`、`neo4j`、`redis`、`mysql`、`prometheus`、`grafana`、`loki` 均为 `running` 状态。
 
-> **本地化部署**：v2.2 已移除云端托管模式，固定使用本地 Docker 全栈中间件。LLM 仍可选云端 API（硅基流动/火山方舟）或本地 llama.cpp 降级。
+> **本地化部署**：已移除云端托管模式，固定使用本地 Docker 全栈中间件。LLM 仍可选云端 API（硅基流动/火山方舟）或本地 llama.cpp 降级。
 
 ### 3. 安装后端环境
 

@@ -26,11 +26,11 @@
 | `/chat/sessions/{id}/messages` | GET | 获取会话消息记录 |
 | `/vehicle/command` | POST | 车控命令 (JWT 认证) |
 | `/vehicle/status` | GET | 车辆状态查询 (JWT 认证) |
-| `/cockpit/{cockpit_id}/status` | GET | 座舱状态查询 (v2.1) |
-| `/cockpit/{cockpit_id}/chat` | POST | 座舱级文本对话 (v2.1) |
-| `/cockpit/{cockpit_id}/chat/stream` | POST | 座舱级 SSE 流式 (v2.1) |
-| `/cockpit/{cockpit_id}/vehicle/cmd` | POST | 座舱级车控命令 (v2.1) |
-| `/cockpit/{cockpit_id}/vehicle/status` | GET | 座舱级车辆状态 (v2.1) |
+| `/cockpit/{cockpit_id}/status` | GET | 座舱状态查询 () |
+| `/cockpit/{cockpit_id}/chat` | POST | 座舱级文本对话 () |
+| `/cockpit/{cockpit_id}/chat/stream` | POST | 座舱级 SSE 流式 () |
+| `/cockpit/{cockpit_id}/vehicle/cmd` | POST | 座舱级车控命令 () |
+| `/cockpit/{cockpit_id}/vehicle/status` | GET | 座舱级车辆状态 () |
 | `/auth/token` | POST | JWT 令牌签发 |
 | `/auth/me` | GET | 当前用户信息 (JWT 认证) |
 | `/auth/change-password` | POST | 修改密码 (JWT 认证) |
@@ -42,28 +42,28 @@
 | `/admin/kb/upload` | POST | 知识库上传 (JWT 认证) |
 | `/admin/kb/reindex` | POST | 知识库重建索引 (JWT 认证) |
 | `/admin/kb/stats` | GET | 知识库统计 (JWT 认证) |
-| `/settings/cockpits` | GET/POST | 座舱管理 (v2.1) |
-| `/settings/cockpits/{id}` | PUT/DELETE | 座舱修改/删除 (v2.1) |
-| `/settings/users` | GET/POST | 用户管理 (v2.1) |
-| `/settings/users/{id}` | DELETE | 用户删除 (v2.1) |
-| `/settings/middleware` | GET/PUT | 中间件配置 (v2.1) |
-| `/settings/voiceprint/status` | GET | 声纹状态 (v2.1) |
-| `/settings/voiceprint/enroll` | POST | 声纹注册 (v2.1) |
-| `/settings/voiceprint/verify` | POST | 声纹验证 (v2.1) |
-| `/dataplatform/overview` | GET | 数据中台概览 (v2.1) |
-| `/dataplatform/cockpit/{id}` | GET | 座舱详情 (v2.1) |
-| `/dataplatform/concurrency` | GET | 并发监控 (v2.1) |
-| `/dataplatform/alerts` | GET | 告警历史 (v2.1) |
-| `/dataplatform/agent/activity` | GET | Agent 活动统计 (v2.1) |
-| `/dataplatform/comparison` | GET | 座舱对比 (v2.1) |
-| `/middleware` | GET | 中间件状态汇总 (v2.1) |
-| `/middleware/redis` | GET | Redis 状态 (v2.1) |
-| `/middleware/milvus` | GET | Milvus 状态 (v2.1) |
-| `/middleware/neo4j` | GET | Neo4j 状态 (v2.1) |
-| `/middleware/rabbitmq` | GET | RabbitMQ 状态 (v2.1，已废弃) |
-| `/middleware/mysql` | GET | MySQL 状态 (v2.1) |
-| `/asr/transcribe` | POST | 语音识别 (v2.1) |
-| `/asr/status` | GET | ASR 引擎状态 (v2.1) |
+| `/settings/cockpits` | GET/POST | 座舱管理 () |
+| `/settings/cockpits/{id}` | PUT/DELETE | 座舱修改/删除 () |
+| `/settings/users` | GET/POST | 用户管理 () |
+| `/settings/users/{id}` | DELETE | 用户删除 () |
+| `/settings/middleware` | GET/PUT | 中间件配置 () |
+| `/settings/voiceprint/status` | GET | 声纹状态 () |
+| `/settings/voiceprint/enroll` | POST | 声纹注册 () |
+| `/settings/voiceprint/verify` | POST | 声纹验证 () |
+| `/dataplatform/overview` | GET | 数据中台概览 () |
+| `/dataplatform/cockpit/{id}` | GET | 座舱详情 () |
+| `/dataplatform/concurrency` | GET | 并发监控 () |
+| `/dataplatform/alerts` | GET | 告警历史 () |
+| `/dataplatform/agent/activity` | GET | Agent 活动统计 () |
+| `/dataplatform/comparison` | GET | 座舱对比 () |
+| `/middleware` | GET | 中间件状态汇总 () |
+| `/middleware/redis` | GET | Redis 状态 () |
+| `/middleware/milvus` | GET | Milvus 状态 () |
+| `/middleware/neo4j` | GET | Neo4j 状态 () |
+| `/middleware/rabbitmq` | GET | RabbitMQ 状态 (，已废弃) |
+| `/middleware/mysql` | GET | MySQL 状态 () |
+| `/asr/transcribe` | POST | 语音识别 () |
+| `/asr/status` | GET | ASR 引擎状态 () |
 | `/ws/chat` | WS | WebSocket 实时通信 (JWT via query param) |
 | `/metrics` | GET | Prometheus 指标 |
 | `/audio/{path}` | GET | 静态音频文件 |
@@ -98,7 +98,7 @@ from nexus.main import app
 # 3. 初始化向量存储 (工厂模式: 本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定)
 # 4. 初始化图谱存储 (工厂模式: 本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定)
 # 5. 构建车控适配器 (mock/http/mcp)
-# 6. v2.2 简化: OSS 对象存储已移除（未集成，过度设计）
+# 6. 简化: OSS 对象存储已移除（未集成，过度设计）
 # 7. 连接 Redis 语义缓存
 # 8. 初始化限流器 (Lua 脚本原子化)
 # 9. 初始化会话历史存储 (SessionStore, Redis 持久化)
@@ -136,13 +136,13 @@ POST /chat/stream
 → data: {"type": "done", "data": {"response": "今天天气..."}}
 ```
 
-> **v2.2.4 会话并发锁**: 同一 session_id 的请求通过 `asyncio.Lock` 串行化，
+> **.4 会话并发锁**: 同一 session_id 的请求通过 `asyncio.Lock` 串行化，
 > 防止并发请求交叉污染会话历史。锁上限 500 个，超限时自动清理空闲锁。
 >
-> **v2.2.5 会话隔离修复**: `session_id` 为空时生成唯一临时 ID（`temp_xxx`），
+> ** 会话隔离修复**: `session_id` 为空时生成唯一临时 ID（`temp_xxx`），
 > 禁止回退到 `user_id`，确保不同对话之间的历史完全隔离。
 >
-> **v2.2.2 多会话管理**: 支持 POST/GET/DELETE `/chat/sessions` 管理会话，
+> **.2 多会话管理**: 支持 POST/GET/DELETE `/chat/sessions` 管理会话，
 > 消息记录持久化到 MySQL `chat_logs` 表（按 `cockpit_id` + `session_id` 隔离）。
 
 ### routes/vehicle.py — 车控 API

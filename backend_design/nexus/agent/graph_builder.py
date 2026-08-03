@@ -22,8 +22,8 @@ Graph Builder — LangGraph 图构建器
   - 专家节点 (vehicle_expert 等) 虽注册到图中，但实际并行调用
     由 DispatchNode.run() 内部 asyncio.gather 完成，不通过图边触发。
   - build_graph_with_reflection_loop() 和 build_graph_with_parallel_experts()
-    已于 v2.2 清理删除（从未被生产代码调用，属调试占位代码）。
-  - create_tool_node() 已于 v2.2 清理删除（SupervisorGraph 使用手写 _dispatch_node）。
+    已清理删除（从未被生产代码调用，属调试占位代码）。
+  - create_tool_node() 已清理删除（SupervisorGraph 使用手写 _dispatch_node）。
 """
 
 from __future__ import annotations

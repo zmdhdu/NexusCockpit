@@ -18,7 +18,7 @@ tags:
 - 3DSpeaker
 widgets:
   - task: speaker-verification
-    model_revision: v1.0.0
+    model_revision: .0
     inputs:
       - type: audio
         name: input

@@ -7,7 +7,7 @@
 >
 > ---
 >
-> ## v2.3.0 多需求并行调度重构 + 空调控制全链路修复 + 全域车载交互加固
+> ## 多需求并行调度重构 + 空调控制全链路修复 + 全域车载交互加固
 >
 > 针对空调控制残留故障、多需求并行调度失效、全域车载交互隐性问题做根源化整改：
 > - **空调控制链路修复**: `climate_state.py` power_on/power_off 不再提前 return，温度/风量/模式参数正常生效
@@ -102,7 +102,7 @@
 | RAG 检索 | `backend_design/nexus/rag/` | ✅ | 三路融合+Rerank+CherryKB |
 | JWT 认证 | `backend_design/nexus/core/auth.py` | ✅ | JWT 令牌签发/验证/依赖注入 |
 | 限流器 | `backend_design/nexus/middleware/rate_limiter.py` | ✅ | Redis Lua 脚本原子化滑动窗口 |
-| ~~任务队列~~ | ~~`backend_design/nexus/middleware/task_queue.py`~~ | ✅ 已删除 | v2.3 死代码清理，记忆存储改为 reviewer_node.py 中直接 await |
+| ~~任务队列~~ | ~~`backend_design/nexus/middleware/task_queue.py`~~ | ✅ 已删除 | 死代码清理，记忆存储改为 reviewer_node.py 中直接 await |
 | 会话存储 | `backend_design/nexus/middleware/session_store.py` | ✅ | Redis 持久化 + 内存回退 |
 | 认证路由 | `backend_design/nexus/api/routes/auth.py` | ✅ | POST /auth/token 令牌签发 |
 | API 路由 | `backend_design/nexus/api/routes/` | ✅ | chat/vehicle/admin/health |
@@ -133,7 +133,7 @@
 | 座舱指标 | `backend_design/nexus/observability/cockpit_metrics.py` | ✅ | Prometheus Gauge/Counter/Histogram |
 | 数据保留策略 | `backend_design/nexus/observability/data_retention.py` | ✅ | 过期日志自动清理 |
 | 座舱数据模型 | `backend_design/nexus/models/cockpit.py` | ✅ | CockpitConfig/CockpitStatus Pydantic 模型 |
-| 数据库迁移 | `backend_design/scripts/v2.1_migration.sql` | ✅ | cockpits/users/audit_logs/subagent_logs 建表 |
+| 数据库迁移 | `backend_design/scripts/_migration.sql` | ✅ | cockpits/users/audit_logs/subagent_logs 建表 |
 | 混沌测试 | `backend_design/scripts/chaos_test.py` | ✅ | 随机故障注入 + 自愈能力验证 |
 | 单元测试 | `backend_design/tests/test_v21.py` | ✅ | CockpitManager 13 + TenantContext 8 测试 |
 | gRPC Proto | `backend_design/nexus_gate/proto/nexus.proto` | ✅ | gRPC 服务接口定义 (Phase 2 迁移) |
@@ -323,15 +323,15 @@ NexusCockpit/
 │   │   ├── app/                    # 页面 (dashboard/chat/vehicle/settings/dataplatform/middleware)
 │   │   ├── components/             # 组件 (ui/chat/vehicle/layout)
 │   │   ├── lib/                    # API 客户端 + 工具函数
-│   │   ├── stores/                 # Zustand 状态管理 (含 auth-store v2.1)
-│   │   ├── hooks/                  # 自定义 Hooks (useAsync + useSpeechRecognition v2.1)
+│   │   ├── stores/                 # Zustand 状态管理 (含 auth-store )
+│   │   ├── hooks/                  # 自定义 Hooks (useAsync + useSpeechRecognition )
 │   │   └── types/                  # TypeScript 类型定义 (统一管理)
 │   ├── package.json
 │   ├── next.config.js
 │   ├── tailwind.config.ts
 │   └── tsconfig.json
 │
-├── backend_design/nexus_gate/      # v2.1: Go 并发网关
+├── backend_design/nexus_gate/      # : Go 并发网关
 │   ├── cmd/main.go                 # Go 网关入口
 │   ├── internal/                   # 内部包
 │   │   ├── auth/                   # JWT 鉴权 + RBAC

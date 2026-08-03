@@ -66,9 +66,9 @@ for chunk in tts.synthesize_stream(text, speaker="中文女声"):
 
 ## 技能系统 (nexus/skills/)
 
-### base.py — 技能基类 + 装饰器注册 (v2.0)
+### base.py — 技能基类 + 装饰器注册 
 
-v2.0 变更:
+变更:
 - 新增 `@register_skill(name, group, has_side_effect, cache_ttl)` 装饰器，技能类标记后自动注册到全局 `_SKILL_REGISTRY` 表
 - 新增 `SkillGroup` 枚举，标识技能归属的专家 Agent (VEHICLE/NAVIGATION/LIFESTYLE/HEALTH/CHAT)
 - `BaseSkill` 新增 `has_side_effect` / `cache_ttl` 属性，用于缓存安全控制
@@ -81,24 +81,24 @@ class ClimateControlSkill(BaseSkill):
     ...
 ```
 
-### registry.py — 技能注册中心 (v2.0)
+### registry.py — 技能注册中心 
 
-v2.0 从硬编码改为装饰器自动发现 + 手动注册兼容:
+从硬编码改为装饰器自动发现 + 手动注册兼容:
 
 ```python
 from nexus.skills.registry import SkillRegistry
 
 registry = SkillRegistry(graph_store=gs, vehicle_adapter=va)
 # 自动扫描 _SKILL_REGISTRY 全局表，实例化所有 @register_skill 标记的技能
-# 同时兼容 v1.0 手动 register() 注册
+# 同时兼容 手动 register() 注册
 
 tools = registry.get_all_tools()  # → List[ToolSchema]
 result = await registry.execute("vehicle_climate", {"op": "set_temp", "target_temp": 24})
 
-# v2.0 新增: 按专家分组查询
+# 新增: 按专家分组查询
 vehicle_skills = registry.get_skills_by_group(SkillGroup.VEHICLE)
 
-# v2.0 新增: 获取有副作用的技能（供缓存层使用）
+# 新增: 获取有副作用的技能（供缓存层使用）
 side_effect_skills = registry.get_side_effect_skills()
 ```
 
@@ -138,7 +138,7 @@ side_effect_skills = registry.get_side_effect_skills()
 | query_reminder | `reminder.py` | 查询用户全部待办提醒 | LIFESTYLE |
 | cancel_reminder | `reminder.py` | 删除指定提醒 | LIFESTYLE |
 
-> **v2.2 精简**: `local_life.py` 中的 3 个本地生活推荐技能 (recommend_poi / multi_turn_refine / preference_filter) 已删除（调用的 `search_poi`/`add_habit` 方法在 graph_store 中不存在，为死代码）。
+> **精简**: `local_life.py` 中的 3 个本地生活推荐技能 (recommend_poi / multi_turn_refine / preference_filter) 已删除（调用的 `search_poi`/`add_habit` 方法在 graph_store 中不存在，为死代码）。
 
 ### 技能总数: 19 个 (基础 10 + 扩展 9)
 

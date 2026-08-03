@@ -14,7 +14,7 @@ NexusCockpit 后端基于 FastAPI 构建，提供 REST + SSE + WebSocket 三种 
 | 项目 | 值 |
 |------|-----|
 | Base URL | `http://localhost:8000` (直连) / `http://localhost:8080` (经 Go 网关) |
-| API 版本 | v2.2.0 |
+| API 版本 | .0 |
 | 认证方式 | Bearer Token (JWT) |
 | Content-Type | `application/json` |
 | 交互式文档 | `/docs` (Swagger) / `/redoc` (ReDoc) |

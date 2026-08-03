@@ -5,17 +5,17 @@
 
 ## 职责
 
-编排 Multi-Agent 工作流，v2.0 升级为 **Supervisor + 5 专家智能体** 架构：
+编排 Multi-Agent 工作流，升级为 **Supervisor + 5 专家智能体** 架构：
 - Supervisor 负责记忆召回、意图路由、专家分派决策
 - 5 个专家 Agent 并行执行各自领域的技能
 - Responder 汇总专家输出，生成最终回复
-- Reflection (v2.2) 对 LLM 输出做事实性/一致性/无幻觉检查
+- Reflection  对 LLM 输出做事实性/一致性/无幻觉检查
 - Reviewer 质量检查 + 记忆存储 + 延迟统计
 
-> **v2.2.5 更新**: 新增闲聊预校验（Pre-check）和幻觉兜底（Post-check），
+> ** 更新**: 新增闲聊预校验（Pre-check）和幻觉兜底（Post-check），
 > 防止 LLM 编造对话历史。流式模式改为"先生成完整回复 → 校验 → 再发送"。
 >
-> **v2.3.0 更新**: 多需求并行调度架构重构 + 空调控制全链路修复 + 全域车载交互加固
+> **更新**: 多需求并行调度架构重构 + 空调控制全链路修复 + 全域车载交互加固
 > - VehicleExpert 支持多动作并行执行（`asyncio.gather` + 互斥组串行）
 > - Supervisor 新增路由防漂移机制（车控指令强制路由 vehicle 专家，检测 Navigation_Action 误匹配）
 > - Sandbox 参数校验从「仅警告」升级为「阻断执行」，增加操作符枚举校验
@@ -24,7 +24,7 @@
 > - Responder B3 分支多专家回复分组聚合 + 空回复兜底
 > - 全部 mock state（climate/window/seat/media）增加操作符枚举校验，非法 op 直接返回错误
 
-## 工作流 (v2.0)
+## 工作流 
 
 ```
                     ┌──────────────────────────────────────┐
@@ -60,16 +60,16 @@
                    │  · 汇总专家输出    │
                    │  · LLM 回复生成    │
                    │  · 技能结果透传    │
-                   │  · v2.2.5: 预校验  │
+                   │  · 预校验  │
                    │    + 后校验        │
                    └─────────┬─────────┘
                              │
                    ┌─────────▼─────────┐
                    │   Reflection      │
-                   │  (v2.2 新增)       │
+                   │  (新增)       │
                    │  · 事实性检查      │
                    │  · 无幻觉检查      │
-                   │  · v2.2.5: 兜底    │
+                   │  · 兜底    │
                    │    幻觉检测        │
                    └─────────┬─────────┘
                              │
@@ -87,7 +87,7 @@
 
 ## 模块清单
 
-### supervisor_graph.py — v2.0 编排核心
+### supervisor_graph.py — 编排核心
 
 ```python
 from nexus.agent.supervisor_graph import SupervisorGraph
@@ -119,11 +119,11 @@ async for event in agent.stream_with_events(state):
 - 专家并行执行: `asyncio.gather` 同时调用所有活跃专家
 - `expert_results` 通过 `Annotated[list, add]` reducer 自动累加
 - 支持 `SqliteSaver` checkpoint 持久化（thread_id = session_id）
-- v2.2: Reflection 节点对工具/搜索类回复做 LLM 反思校验
-- v2.2.4: 系统提示词注入当前东八区时间（`current_time` 变量）
-- v2.2.5: 闲聊预校验（`_pre_check_chat_response`）拦截无历史的历史查询
-- v2.2.5: 闲聊后校验（`_post_check_chat_response`）检测编造对话历史
-- v2.2.5: 流式闲聊改为"先生成完整回复 → 校验 → 再发送"，防止未校验内容呈现给用户
+- : Reflection 节点对工具/搜索类回复做 LLM 反思校验
+- 系统提示词注入当前东八区时间（`current_time` 变量）
+- 闲聊预校验（`_pre_check_chat_response`）拦截无历史的历史查询
+- 闲聊后校验（`_post_check_chat_response`）检测编造对话历史
+- 流式闲聊改为"先生成完整回复 → 校验 → 再发送"，防止未校验内容呈现给用户
 
 ### experts/ — 5 个专家 Agent
 
@@ -141,7 +141,7 @@ async for event in agent.stream_with_events(state):
 3. 调用 `SkillRegistry` 执行技能
 4. 返回 partial state update（不修改原 state）
 
-#### VehicleExpert 多动作并行执行（v2.3.0）
+#### VehicleExpert 多动作并行执行
 
 VehicleExpert 支持单条指令内多个车控动作的并行执行：
 
@@ -191,25 +191,25 @@ class MyExpert(BaseExpertAgent):
         )
 ```
 
-### v1.0 模块迁移状态
+### 模块迁移状态
 
-v2.2 简化后，v1.0 的线性 Agent 模块已被清理：
+简化后，的线性 Agent 模块已被清理：
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
-| `graph.py` | ❌ 已删除 | v1.0 AgentGraph，已被 SupervisorGraph 完全替代 |
-| `planner.py` | ❌ 已删除 | v1.0 规划 Agent，职责已并入 Supervisor 节点 |
-| `executor.py` | ❌ 已删除 | v1.0 执行 Agent，职责已拆分到 5 个专家 |
-| `subagent_monitor.py` | ❌ 已删除 | v2.1 SubAgent 监控器（过度设计，v2.2 移除） |
-| `mainagent_confirm.py` | ❌ 已删除 | v2.1 MainAgent 确认层（过度设计，v2.2 移除） |
+| `graph.py` | ❌ 已删除 | AgentGraph，已被 SupervisorGraph 完全替代 |
+| `planner.py` | ❌ 已删除 | 规划 Agent，职责已并入 Supervisor 节点 |
+| `executor.py` | ❌ 已删除 | 执行 Agent，职责已拆分到 5 个专家 |
+| `subagent_monitor.py` | ❌ 已删除 | SubAgent 监控器（过度设计，移除） |
+| `mainagent_confirm.py` | ❌ 已删除 | MainAgent 确认层（过度设计，移除） |
 | `responder.py` | ⚠️ 部分复用 | 仅 `ContextCompressor` 被 SupervisorGraph 使用，`respond()`/`stream_respond()` 方法未被调用 |
 | `reviewer.py` | ⚠️ 部分复用 | 逻辑已内联到 `SupervisorGraph._reviewer_node`，`review()` 方法未被调用 |
 
-## Supervisor State (v2.0)
+## Supervisor State 
 
 ```python
 class SupervisorState(TypedDict, total=False):
-    """v2.0 Supervisor 多智能体工作流共享状态。"""
+    """Supervisor 多智能体工作流共享状态。"""
     # 输入
     user_input: str
     user_id: str
@@ -231,7 +231,7 @@ class SupervisorState(TypedDict, total=False):
     # 专家输出 (reducer: add — 并行累加)
     expert_results: Annotated[List[Dict[str, Any]], add]
 
-    # 兼容 v1.0 技能字段
+    # 兼容 技能字段
     skill_result: Any                   # DispatchResult
     skill_handled: bool
     skill_action: str
@@ -263,7 +263,7 @@ class SupervisorState(TypedDict, total=False):
 
 ## Prompt 模板 (nexus/prompts/)
 
-v2.0 新增外置 Prompt 模板管理：
+新增外置 Prompt 模板管理：
 
 ```python
 from nexus.prompts import PromptManager
@@ -274,7 +274,7 @@ system_msg = pm.render("chat", user_profile={}, memory="用户喜欢24度")
 
 | 模板文件 | 用途 |
 |----------|------|
-| `chat.md` | 闲聊系统提示词 (v2.3: 含 `current_time` + 记忆使用约束) |
+| `chat.md` | 闲聊系统提示词 (含 `current_time` + 记忆使用约束) |
 | `clarification.md` | 澄清追问提示词 |
 | `memory_extract.md` | 记忆提取提示词 |
 | `search.md` | 搜索结果组织提示词 |
