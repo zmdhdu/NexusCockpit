@@ -13,8 +13,7 @@ import json
 import re
 from typing import Any
 
-from openai import AsyncOpenAI
-
+from nexus.agent.llm_client_factory import get_chat_model
 from nexus.config import get_config
 from nexus.core.logger import get_logger
 
@@ -24,12 +23,9 @@ logger = get_logger(__name__)
 class ConflictDetector:
     """记忆冲突检测器"""
 
-    def __init__(self, llm_client: AsyncOpenAI | None = None):
+    def __init__(self, llm_client: Any = None):
         self.config = get_config().llm
-        self.client = llm_client or AsyncOpenAI(
-            api_key=self.config.ark_api_key,
-            base_url=self.config.ark_base_url,
-        )
+        self._chat_model = get_chat_model()
 
     async def detect_conflict(
         self,
@@ -77,12 +73,8 @@ class ConflictDetector:
         - 无操作: {{"action": "NONE"}}
         """
         try:
-            response = await self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-            )
-            content = response.choices[0].message.content.strip()
+            response = await self._chat_model.ainvoke([{"role": "user", "content": prompt}])
+            content = response.content.strip()
             match = re.search(r"\{.*\}", content, re.DOTALL)
             if match:
                 return json.loads(match.group())
@@ -105,12 +97,9 @@ class MemoryExtractor:
         "STATUS": "状态",
     }
 
-    def __init__(self, llm_client: AsyncOpenAI | None = None):
+    def __init__(self, llm_client: Any = None):
         self.config = get_config().llm
-        self.client = llm_client or AsyncOpenAI(
-            api_key=self.config.ark_api_key,
-            base_url=self.config.ark_base_url,
-        )
+        self._chat_model = get_chat_model()
 
     async def extract(self, user_text: str) -> list[dict[str, str]]:
         """
@@ -156,12 +145,8 @@ class MemoryExtractor:
         ### 你的输出 (仅JSON)
         """
         try:
-            response = await self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-            )
-            content = response.choices[0].message.content.strip()
+            response = await self._chat_model.ainvoke([{"role": "user", "content": prompt}])
+            content = response.content.strip()
 
             if "NONE" in content or "{" not in content:
                 return []

@@ -1,0 +1,294 @@
+# L4 Agent 层 (Multi-Agent)
+
+> 对应代码: `nexus/agent/` + `nexus/intent/`
+> 最后更新: 2026-08-03
+
+## 职责
+
+编排 Multi-Agent 工作流，v2.0 升级为 **Supervisor + 5 专家智能体** 架构：
+- Supervisor 负责记忆召回、意图路由、专家分派决策
+- 5 个专家 Agent 并行执行各自领域的技能
+- Responder 汇总专家输出，生成最终回复
+- Reflection (v2.2) 对 LLM 输出做事实性/一致性/无幻觉检查
+- Reviewer 质量检查 + 记忆存储 + 延迟统计
+
+> **v2.2.5 更新**: 新增闲聊预校验（Pre-check）和幻觉兜底（Post-check），
+> 防止 LLM 编造对话历史。流式模式改为"先生成完整回复 → 校验 → 再发送"。
+>
+> **v2.3.0 更新**: 多需求并行调度架构重构 + 空调控制全链路修复 + 全域车载交互加固
+> - VehicleExpert 支持多动作并行执行（`asyncio.gather` + 互斥组串行）
+> - Supervisor 新增路由防漂移机制（车控指令强制路由 vehicle 专家，检测 Navigation_Action 误匹配）
+> - Sandbox 参数校验从「仅警告」升级为「阻断执行」，增加操作符枚举校验
+> - Heuristic Router 新增文本分段解析（`_split_segments`），彻底解决跨域关键词误匹配
+> - Dispatch Node 多专家结果聚合优化（`tool_results` 列表收集 + `multi_actions` 追踪）
+> - Responder B3 分支多专家回复分组聚合 + 空回复兜底
+> - 全部 mock state（climate/window/seat/media）增加操作符枚举校验，非法 op 直接返回错误
+
+## 工作流 (v2.0)
+
+```
+                    ┌──────────────────────────────────────┐
+                    │          用户输入文本                  │
+                    └─────────────────┬────────────────────┘
+                                      │
+                            ┌─────────▼─────────┐
+                            │    Supervisor     │
+                            │  · 记忆召回        │
+                            │  · 意图路由        │
+                            │  · 澄清判断        │
+                            │  · 专家分派决策    │
+                            └─────────┬─────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    │                 │                 │
+            ┌───────▼──────┐  ┌───────▼──────┐  ┌───────▼──────┐
+            │Vehicle Expert│  │  Nav Expert  │  │Lifestyle Exp │
+            │(空调/车窗/座椅│  │(路线规划/POI) │  │(搜索/点餐/POI)│
+            │/媒体/状态)   │  │              │  │              │
+            └───────┬──────┘  └───────┬──────┘  └───────┬──────┘
+                    │                 │                 │
+            ┌───────▼──────┐  ┌───────▼──────┐
+            │ Health Expert│  │  Chat Expert │
+            │(诊断/故障码/ │  │(闲聊/知识库  │
+            │ 保养)        │  │  问答)       │
+            └───────┬──────┘  └───────┬──────┘
+                    │                 │
+                    └────────┬────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │    Responder      │
+                   │  · 汇总专家输出    │
+                   │  · LLM 回复生成    │
+                   │  · 技能结果透传    │
+                   │  · v2.2.5: 预校验  │
+                   │    + 后校验        │
+                   └─────────┬─────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │   Reflection      │
+                   │  (v2.2 新增)       │
+                   │  · 事实性检查      │
+                   │  · 无幻觉检查      │
+                   │  · v2.2.5: 兜底    │
+                   │    幻觉检测        │
+                   └─────────┬─────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │     Reviewer      │
+                   │  · 响应质量检查    │
+                   │  · 记忆存储        │
+                   │  · 延迟指标        │
+                   └─────────┬─────────┘
+                             │
+                   ┌─────────▼─────────┐
+                   │   返回给用户       │
+                   └───────────────────┘
+```
+
+## 模块清单
+
+### supervisor_graph.py — v2.0 编排核心
+
+```python
+from nexus.agent.supervisor_graph import SupervisorGraph
+from nexus.models.state import create_initial_state
+
+agent = SupervisorGraph(
+    intent_router=intent_router,
+    memory_manager=memory_manager,
+    skill_registry=skill_registry,
+    checkpoint_saver=checkpoint_saver,  # SqliteSaver (可选)
+)
+
+# 非流式
+state = create_initial_state(user_input="把空调调到24度", user_id="u1")
+result = await agent.invoke(state)
+
+# 流式 (纯文本)
+async for chunk in agent.stream(state):
+    print(chunk)
+
+# 流式 (结构化事件)
+async for event in agent.stream_with_events(state):
+    # event: {"type": "intent"/"experts"/"action"/"chunk"/"done", "data": {...}}
+    print(event)
+```
+
+- 基于 LangGraph `StateGraph`，TypedDict 状态管理
+- Supervisor 条件路由: 需要澄清直连 Responder / 否则分派专家
+- 专家并行执行: `asyncio.gather` 同时调用所有活跃专家
+- `expert_results` 通过 `Annotated[list, add]` reducer 自动累加
+- 支持 `SqliteSaver` checkpoint 持久化（thread_id = session_id）
+- v2.2: Reflection 节点对工具/搜索类回复做 LLM 反思校验
+- v2.2.4: 系统提示词注入当前东八区时间（`current_time` 变量）
+- v2.2.5: 闲聊预校验（`_pre_check_chat_response`）拦截无历史的历史查询
+- v2.2.5: 闲聊后校验（`_post_check_chat_response`）检测编造对话历史
+- v2.2.5: 流式闲聊改为"先生成完整回复 → 校验 → 再发送"，防止未校验内容呈现给用户
+
+### experts/ — 5 个专家 Agent
+
+| 专家 | 文件 | 技能分组 | 职责 |
+|------|------|----------|------|
+| VehicleExpert | `vehicle_expert.py` | VEHICLE | 空调/车窗/座椅/媒体/状态查询 |
+| NavExpert | `nav_expert.py` | NAVIGATION | 路线规划、兴趣点检索 |
+| LifestyleExpert | `lifestyle_expert.py` | LIFESTYLE | 搜索/点餐/本地生活/日程提醒 |
+| HealthExpert | `health_expert.py` | HEALTH | 车辆诊断/故障码翻译/保养建议 |
+| ChatExpert | `chat_expert.py` | CHAT | 闲聊/知识库问答/声纹注册 |
+
+每个专家继承 `BaseExpertAgent`，实现 `_execute()` 方法：
+1. 从 `active_experts` 检查是否被 Supervisor 分派
+2. 从 `intent` 提取对应动作字段
+3. 调用 `SkillRegistry` 执行技能
+4. 返回 partial state update（不修改原 state）
+
+#### VehicleExpert 多动作并行执行（v2.3.0）
+
+VehicleExpert 支持单条指令内多个车控动作的并行执行：
+
+```python
+# 用户输入: "打开音乐，关闭车窗，空调调到24度"
+# intent 中同时包含 Climate_Action / Window_Action / Media_Action
+
+# 1. 收集所有匹配动作
+pending_actions = [
+    {"intent_key": "Climate_Action", "tool_name": "vehicle_climate", "args": {...}},
+    {"intent_key": "Window_Action", "tool_name": "vehicle_window", "args": {...}},
+    {"intent_key": "Media_Action", "tool_name": "vehicle_media", "args": {...}},
+]
+
+# 2. 沙箱安全审查（逐个检查）
+# 3. 并行执行 — 无冲突动作 asyncio.gather，互斥组串行
+# 4. 结果聚合为统一回复
+```
+
+互斥组定义（`_MUTEX_GROUPS`）：同一组内的指令串行执行，避免硬件冲突。
+
+| 互斥组 | 技能 | 串行原因 |
+|--------|------|----------|
+| climate | vehicle_climate | 空调状态写入互斥 |
+| window | vehicle_window | 车窗电机控制互斥 |
+| seat | vehicle_seat | 座椅电机控制互斥 |
+| media | vehicle_media | 媒体播放器状态互斥 |
+
+异常兜底：`_execute_single` 内部通过 `asyncio.wait_for(timeout=10s)` 捕获通信超时、
+硬件无响应等异常，返回标准化错误提示，避免静默失败。
+
+### experts/base.py — 专家基类
+
+```python
+from nexus.agent.experts.base import BaseExpertAgent
+
+class MyExpert(BaseExpertAgent):
+    expert_name = "my_expert"
+    group = SkillGroup.LIFESTYLE
+
+    async def _execute(self, state: SupervisorState) -> Dict[str, Any]:
+        # 执行技能逻辑
+        return self._build_expert_result(
+            action="my_action",
+            reply="处理结果",
+            handled=True,
+        )
+```
+
+### v1.0 模块迁移状态
+
+v2.2 简化后，v1.0 的线性 Agent 模块已被清理：
+
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| `graph.py` | ❌ 已删除 | v1.0 AgentGraph，已被 SupervisorGraph 完全替代 |
+| `planner.py` | ❌ 已删除 | v1.0 规划 Agent，职责已并入 Supervisor 节点 |
+| `executor.py` | ❌ 已删除 | v1.0 执行 Agent，职责已拆分到 5 个专家 |
+| `subagent_monitor.py` | ❌ 已删除 | v2.1 SubAgent 监控器（过度设计，v2.2 移除） |
+| `mainagent_confirm.py` | ❌ 已删除 | v2.1 MainAgent 确认层（过度设计，v2.2 移除） |
+| `responder.py` | ⚠️ 部分复用 | 仅 `ContextCompressor` 被 SupervisorGraph 使用，`respond()`/`stream_respond()` 方法未被调用 |
+| `reviewer.py` | ⚠️ 部分复用 | 逻辑已内联到 `SupervisorGraph._reviewer_node`，`review()` 方法未被调用 |
+
+## Supervisor State (v2.0)
+
+```python
+class SupervisorState(TypedDict, total=False):
+    """v2.0 Supervisor 多智能体工作流共享状态。"""
+    # 输入
+    user_input: str
+    user_id: str
+    session_id: str
+
+    # 记忆召回 (reducer: add)
+    recalled_memories: Annotated[List[str], add]
+    memory_str: str
+    user_profile: Dict[str, Any]
+
+    # 意图路由 / Supervisor 分派
+    intent: Dict[str, Any]
+    intent_source: str
+    need_clarification: bool
+    clarification_prompt: str
+    active_experts: List[str]           # Supervisor 决定分派给哪些专家
+    query_type: str                     # memory / knowledge / hybrid
+
+    # 专家输出 (reducer: add — 并行累加)
+    expert_results: Annotated[List[Dict[str, Any]], add]
+
+    # 兼容 v1.0 技能字段
+    skill_result: Any                   # DispatchResult
+    skill_handled: bool
+    skill_action: str
+    search_context: str
+    # 副作用标记: 车控等操作会修改车辆状态，此类响应禁止写入语义缓存
+    has_side_effect: bool
+
+    # LLM 对话 (reducer: add)
+    history: Annotated[List[Dict[str, str]], add]
+    running_summary: str
+    llm_response: str
+
+    # 最终输出 (reducer: merge_dict)
+    final_response: str
+    metadata: Annotated[Dict[str, Any], merge_dict]
+
+    # 可观测性 (reducer: merge_dict)
+    trace_id: str
+    span_ids: Annotated[Dict[str, str], merge_dict]
+    latency_ms: float
+```
+
+> **reducer 说明**:
+> - `Annotated[list, add]`: 多节点并行写入时列表自动拼接（如 `expert_results`、`history`）
+> - `Annotated[dict, merge_dict]`: 多节点并行写入时字典自动合并（如 `metadata`、`span_ids`）
+> - 无 Annotated 的字段: 最后一个写入者覆盖（last writer wins）
+
+> **注意**: `has_side_effect` 字段是安全修复新增的关键标志。当专家执行车控指令时设为 `True`，chat.py 会据此跳过缓存写入，防止"打开空调"命中缓存后车控不执行的安全事故。
+
+## Prompt 模板 (nexus/prompts/)
+
+v2.0 新增外置 Prompt 模板管理：
+
+```python
+from nexus.prompts import PromptManager
+
+pm = PromptManager()
+system_msg = pm.render("chat", user_profile={}, memory="用户喜欢24度")
+```
+
+| 模板文件 | 用途 |
+|----------|------|
+| `chat.md` | 闲聊系统提示词 (v2.3: 含 `current_time` + 记忆使用约束) |
+| `clarification.md` | 澄清追问提示词 |
+| `memory_extract.md` | 记忆提取提示词 |
+| `search.md` | 搜索结果组织提示词 |
+| `vehicle.md` | 车控回复提示词 |
+
+## 设计原则
+
+1. **Supervisor 模式** — Supervisor 统一调度，专家各司其职
+2. **并行执行** — 多个专家通过 `asyncio.gather` 并行，`expert_results` 自动累加
+3. **路由防漂移** — 车控指令强制路由到 vehicle 专家，检测 Navigation_Action 误匹配并自动重路由
+4. **多动作并行** — VehicleExpert 支持单条指令内多动作并行执行，互斥组串行
+5. **参数强校验** — Sandbox 对温度/风量/百分比/操作符做值域校验和枚举校验，脏参数直接阻断
+6. **异常兜底** — 通信超时、硬件无响应、执行异常统一捕获并返回标准化提示
+7. **可观测** — 每个 Agent 的输入输出都被 Langfuse 追踪
+8. **可降级** — LLM 不可用时，技能结果可直通
+9. **可扩展** — 新增专家只需实现 `BaseExpertAgent` 并在 `SupervisorGraph.experts` 中注册
+6. **Checkpoint** — 支持 `SqliteSaver` 持久化，会话中断可恢复

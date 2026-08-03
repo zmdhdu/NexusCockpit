@@ -81,7 +81,10 @@ func SetupRouter(hub *ws.Hub, limiter *ratelimit.RateLimiter) *gin.Engine {
 					panic(err)
 				}
 				log.Printf("[Recovery] panic recovered: %v", err)
-				c.AbortWithStatus(http.StatusInternalServerError)
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+					"error":   "INTERNAL_ERROR",
+					"message": "服务器内部错误",
+				})
 			}
 		}()
 		c.Next()

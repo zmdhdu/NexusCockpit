@@ -204,7 +204,10 @@ func (c *Client) writePump() {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-			c.conn.WriteMessage(websocket.TextMessage, message)
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				log.Printf("WS write error for %s/%s: %v", c.cockpitID, c.userID, err)
+				return
+			}
 
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))

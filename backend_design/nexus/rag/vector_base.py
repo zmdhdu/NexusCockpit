@@ -39,8 +39,14 @@ class BaseVectorStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def insert_memory(self, text: str, user_id: str) -> int | None:
-        """插入一条用户记忆，返回主键 ID。"""
+    async def insert_memory(self, text: str, user_id: str, session_id: str = "") -> int | None:
+        """插入一条用户记忆，返回主键 ID。
+
+        Args:
+            text: 记忆文本
+            user_id: 用户 ID
+            session_id: 会话 ID（空字符串表示用户级记忆）
+        """
         raise NotImplementedError
 
     @abstractmethod

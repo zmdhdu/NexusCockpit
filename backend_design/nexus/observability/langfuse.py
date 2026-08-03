@@ -15,7 +15,8 @@ Langfuse Tracing — 可观测性追踪
 from __future__ import annotations
 
 import functools
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
@@ -41,7 +42,7 @@ except ImportError:
 
 
 def observe(name: str | None = None, as_type: str | None = None, **kwargs: Any) -> Callable:
-    """Langfuse observe 装饰器（兼容包装）。
+    """Langfuse observe 装饰器（降级包装）。
 
     当 Langfuse SDK 可用且已配置时，使用真实装饰器进行追踪；
     否则返回透传装饰器，函数正常执行但不做追踪。
@@ -61,7 +62,7 @@ def observe(name: str | None = None, as_type: str | None = None, **kwargs: Any) 
     config = get_config().langfuse
 
     # Langfuse SDK 可用且已配置 → 使用真实装饰器
-    if _langfuse_observe is not None and config.enabled:
+    if _langfuse_observe is not None and config.is_enabled:
         # as_type 参数映射: Langfuse v4 SDK 使用 as_type 参数
         if as_type:
             return _langfuse_observe(name=name, as_type=as_type, **kwargs)
@@ -100,7 +101,7 @@ def update_current_span(metadata: dict | None = None, **kwargs: Any) -> None:
     """
     config = get_config().langfuse
 
-    if _langfuse_update_current_span is not None and config.enabled:
+    if _langfuse_update_current_span is not None and config.is_enabled:
         try:
             if metadata:
                 _langfuse_update_current_span(metadata=metadata, **kwargs)
@@ -151,7 +152,7 @@ class LangfuseMonitor:
         self.service_name = service_name
         self._client = None
 
-        if self.config.enabled:
+        if self.config.is_enabled:
             try:
                 from langfuse import Langfuse
                 self._client = Langfuse(

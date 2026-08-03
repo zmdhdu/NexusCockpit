@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from typing import Any
 
 from nexus.core.db_manager import get_db_manager
 from nexus.core.logger import get_logger
@@ -94,7 +93,6 @@ class DataRetentionManager:
             logger.debug("MySQL not connected, skipping data retention cleanup")
             return
 
-        _total_deleted = 0
         timestamp_col_map = {
             "subagent_logs": "check_time",
             "mainagent_logs": "alert_time",
@@ -107,7 +105,7 @@ class DataRetentionManager:
         for table, retention_days in RETENTION_POLICY.items():
             ts_col = timestamp_col_map.get(table, "created_at")
             try:
-                _rows = await db.execute_query(
+                await db.execute_query(
                     f"DELETE FROM {table} "
                     f"WHERE {ts_col} < DATE_SUB(NOW(), INTERVAL %s DAY)",
                     (retention_days,),
@@ -128,34 +126,6 @@ class DataRetentionManager:
                 logger.error(f"Data retention: failed to clean {table}: {e}")
 
         logger.info(f"Data retention cleanup completed at {datetime.now()}")
-
-    async def get_retention_stats(self) -> dict[str, Any]:
-        """获取各表的数据量和保留策略信息。"""
-        db = get_db_manager()
-        if not db.is_connected:
-            return {}
-
-        stats = {}
-        for table, retention_days in RETENTION_POLICY.items():
-            try:
-                rows = await db.execute_query(
-                    f"SELECT COUNT(*) as total, "
-                    f"MIN(created_at) as oldest, "
-                    f"MAX(created_at) as newest "
-                    f"FROM {table}"
-                )
-                if rows:
-                    stats[table] = {
-                        "total_rows": int(rows[0].get("total", 0)),
-                        "retention_days": retention_days,
-                        "oldest_record": str(rows[0].get("oldest", "")),
-                        "newest_record": str(rows[0].get("newest", "")),
-                    }
-            except Exception as e:
-                logger.debug(f"Failed to get stats for {table}: {e}")
-                stats[table] = {"retention_days": retention_days, "error": str(e)}
-
-        return stats
 
 
 # 全局单例

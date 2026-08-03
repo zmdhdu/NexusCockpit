@@ -20,10 +20,20 @@ NexusCockpit FastAPI 应用入口
 
 from __future__ import annotations
 
+# 抑制第三方库弃用警告 —— 必须在所有其他 import 之前执行
+# 否则 langgraph / jieba 等模块在导入时就会触发警告，此时 setup_logging() 尚未执行
+import warnings as _warnings
+
+_warnings.filterwarnings("ignore", message=".*allowed_objects.*")
+_warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*", category=UserWarning)
+
+import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
@@ -46,13 +56,15 @@ from nexus.api.websocket import router as ws_router
 from nexus.config import get_config
 from nexus.core.exceptions import AuthError, NexusError, RateLimitError
 from nexus.core.logger import get_logger, setup_logging
+
+# Note: HTTPException and RequestValidationError imported above from fastapi
 from nexus.middleware.rate_limiter import RateLimiter
 from nexus.middleware.redis_cache import SemanticCache
 from nexus.middleware.session_store import SessionStore
 from nexus.observability.cockpit_metrics import CockpitMetrics
 from nexus.observability.langfuse import LangfuseMonitor
 from nexus.observability.metrics import REQUEST_COUNT, REQUEST_LATENCY, init_metrics
-from nexus.rag.embedding import EmbeddingService
+from nexus.rag.embedding_factory import build_embedding_service
 from nexus.rag.graph_factory import build_graph_store
 from nexus.rag.vector_factory import build_vector_store
 from nexus.vehicle.factory import build_vehicle_adapter
@@ -74,7 +86,13 @@ async def lifespan(app: FastAPI):
     setup_logging()       # 初始化结构化日志
     init_metrics()       # 初始化 Prometheus 指标
 
-    # 打印日志文件路径，方便查找
+    # 强制重置 LLM 客户端单例，确保 uvicorn --reload 后使用最新配置
+    from nexus.agent.llm_client_factory import reset_clients
+    reset_clients()
+
+    # 清除 get_config 的 lru_cache，确保重新读取 .env 文件
+    get_config.cache_clear()
+    config = get_config()
     from nexus.core.logger import get_log_file_path
     log_file = get_log_file_path()
     if log_file:
@@ -92,10 +110,11 @@ async def lifespan(app: FastAPI):
         logger.error("LLM API Key is EMPTY! Please check .env.local -> ARK_API_KEY")
 
     # --- 1. 初始化 Embedding 服务 (将文本转为向量) ---
-    embedding_service = EmbeddingService()
+    # 本地化降级: 通过工厂选择本地 bge-m3 或云端 API
+    embedding_service = build_embedding_service()
     app.state.embedding_service = embedding_service
 
-    # --- 2. 初始化向量存储 (本地 Milvus / 云端 Zilliz, 由 VECTOR_STORE_PROVIDER 决定) ---
+    # --- 2. 初始化向量存储 (本地 Milvus, 本地化降级后固定) ---
     vector_store = build_vector_store(embedding_service)
     try:
         vector_store.connect()
@@ -104,7 +123,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"Milvus connection failed (will continue): {e}")
     app.state.vector_store = vector_store
 
-    # --- 3. 初始化图谱存储 (本地 Neo4j / 云端 AuraDB, 由 GRAPH_STORE_PROVIDER 决定) ---
+    # --- 3. 初始化图谱存储 (本地 Neo4j, 本地化降级后固定) ---
     graph_store = build_graph_store()
     try:
         graph_store.connect()
@@ -143,7 +162,7 @@ async def lifespan(app: FastAPI):
     session_store = SessionStore()
     await session_store.connect()
     app.state.session_store = session_store
-    # 保留内存 dict 作为兼容 (部分代码仍直接引用)
+    # 内存会话历史 dict（部分接口的降级数据源，Redis 不可用时回退使用）
     app.state.session_histories: dict[str, list] = {}
 
     # --- 7.6. 初始化 Langfuse 追踪监控器 ---
@@ -172,21 +191,28 @@ async def lifespan(app: FastAPI):
         skill_registry = SkillRegistry(graph_store=graph_store, vehicle_adapter=vehicle_adapter)
         # 记忆管理器: 管理用户短期/长期记忆
         memory_manager = MemoryManager(vector_store, graph_store)
-        memory_manager.connect()
+        try:
+            memory_manager.connect()
+            # 启动记忆分层定时清理后台任务（每 6h 清理过期会话级向量）
+            memory_manager.start_cleanup_task()
+        except Exception as e:
+            # Milvus/Neo4j 不可用时不阻止 Agent 初始化，
+            # 记忆召回会在运行时降级处理（recall 已有 try/except）
+            logger.warning(f"Memory manager connect failed (non-fatal, recall will degrade): {e}")
         # 意图路由: 判断用户输入该交给哪个技能处理
         intent_router = IntentRouterService(
             tool_catalog=skill_registry.get_all_tools(),
         )
 
-        # SqliteSaver checkpoint 持久化
+        # SQLite 本地 checkpoint 持久化 (单节点)
         checkpoint_saver = None
         try:
-            import os
-
             import aiosqlite
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-            db_path = os.path.join(os.getcwd(), "data", "checkpoints", "nexus_checkpoints.db")
+        # 使用项目根目录而非 os.getcwd()，确保从任意目录启动路径一致
+            db_path = os.path.join(config.project_root, "data", "checkpoints", "nexus_checkpoints.db")
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
             # 使用 aiosqlite 异步连接执行 setup
             setup_conn = await aiosqlite.connect(db_path)
             try:
@@ -194,13 +220,14 @@ async def lifespan(app: FastAPI):
                 await checkpoint_saver.setup()
             finally:
                 await setup_conn.close()
+
             # 创建运行时持久连接（保持打开直到应用关闭）
             runtime_conn = await aiosqlite.connect(db_path)
             checkpoint_saver = AsyncSqliteSaver(runtime_conn)
             app.state._checkpoint_conn = runtime_conn  # 保持强引用防止 GC
             logger.info(f"AsyncSqliteSaver checkpoint initialized at {db_path}")
-        except ImportError:
-            logger.warning("langgraph-checkpoint-sqlite or aiosqlite not installed, checkpoint disabled")
+        except ImportError as e:
+            logger.warning(f"SQLite checkpoint not available ({e}), checkpoint disabled")
         except Exception as e:
             logger.warning(f"Checkpoint initialization failed (non-fatal): {e}")
             checkpoint_saver = None
@@ -217,7 +244,7 @@ async def lifespan(app: FastAPI):
         try:
             from nexus.rag.cherry_kb import CherryKnowledgeBase
             cherry_kb = CherryKnowledgeBase(embedding_service)
-            cherry_kb.connect(getattr(vector_store, "_connected", False) or vector_store)
+            cherry_kb.connect(vector_store._client if vector_store.is_connected else None)
             app.state.cherry_kb = cherry_kb
             logger.info("Cherry KnowledgeBase initialized")
         except Exception as e:
@@ -229,12 +256,26 @@ async def lifespan(app: FastAPI):
         app.state.agent_graph = agent_graph
         app.state.checkpoint_saver = checkpoint_saver
         logger.info("Supervisor graph initialized")
+
+        # --- 初始化 AI 生成任务池（脱离 SSE 连接生命周期托管 pipeline）---
+        # 底层修复: 原实现 SSE 连接直接绑定 pipeline，页面切换即中断生成。
+        # 现由 GenerationTaskPool 在后台 asyncio.Task 中运行 pipeline，
+        # SSE endpoint 仅从事件队列读取，客户端断连不终止 pipeline。
+        try:
+            from nexus.agent.generation_task_pool import GenerationTaskPool
+            task_pool = GenerationTaskPool(agent_graph)
+            task_pool.start_cleanup_loop()
+            app.state.task_pool = task_pool
+            logger.info("Generation task pool initialized (pipeline decoupled from SSE)")
+        except Exception as e:
+            logger.warning(f"Generation task pool init failed (non-fatal): {e}")
+            app.state.task_pool = None
     except Exception as e:
         # Agent 初始化失败不阻止服务启动，但聊天功能不可用
         logger.error(f"Agent graph initialization failed: {e}")
         app.state.agent_graph = None
 
-    # --- 会话历史存储 (内存兼容层，实际数据走 SessionStore) ---
+    # --- 会话历史存储 (内存降级层，实际数据走 SessionStore) ---
     # 已在上方初始化 session_store 和 session_histories
 
     # --- 8.5. 初始化 MySQL 数据库管理器（日志持久化 + 用户管理）---
@@ -273,16 +314,101 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"DataRetentionManager startup failed (non-fatal): {e}")
 
+    # --- 0.5. llama.cpp 子进程管理 (本地 LLM) ---
+    # LLM_PROVIDER=local 时：启动 llama-server 作为主 LLM
+    # LLM_PROVIDER=cloud 且 LLM_FALLBACK_ENABLED=true 时：启动作为降级备份
+    _need_llama = config.llm.is_local or config.llm.fallback_enabled
+    _llama_subprocess = os.getenv("LLAMA_CPP_SUBPROCESS", "true").strip().lower() in ("true", "1", "yes")
+    if _need_llama and _llama_subprocess:
+        try:
+            from nexus.core.llama_cpp_manager import LlamaCppProcessManager
+            llama_manager = LlamaCppProcessManager()
+            started = await llama_manager.start()
+            if started:
+                app.state.llama_manager = llama_manager
+                logger.info(f"llama.cpp subprocess running at {llama_manager.base_url}")
+            else:
+                logger.warning("llama.cpp subprocess failed to start, using external LLM")
+                app.state.llama_manager = None
+        except Exception as e:
+            logger.warning(f"llama.cpp subprocess init failed (non-fatal): {e}")
+            app.state.llama_manager = None
+    else:
+        app.state.llama_manager = None
+
+    # --- 10.5. 启动 MCP Server (标准化协同接口) ---
+    try:
+        from nexus.mcp.server import get_mcp_server
+        mcp_server = get_mcp_server()
+        await mcp_server.start()
+        app.state.mcp_server = mcp_server
+        logger.info("MCP Server started (task dispatch / state sync / heartbeat)")
+    except Exception as e:
+        logger.warning(f"MCP Server startup failed (non-fatal): {e}")
+
+    # --- 10.6. 启动提醒扫描后台任务 ---
+    try:
+        from nexus.skills.reminder_scanner import get_reminder_scanner
+        reminder_scanner = get_reminder_scanner()
+        await reminder_scanner.start()
+        app.state.reminder_scanner = reminder_scanner
+        logger.info("ReminderScanner started (30s interval)")
+    except Exception as e:
+        logger.warning(f"ReminderScanner startup failed (non-fatal): {e}")
+
     logger.info("NexusCockpit ready!")
+
+    # --- 11. ASR/TTS 模型后台预加载 (P4 修复: 不阻塞启动) ---
+    # ASR (FunASR SenseVoice) 和 TTS (CosyVoice) 模型体积大，
+    # 同步加载会阻塞 FastAPI 启动 10-30 秒。
+    # 改为 asyncio.create_task 后台预加载，服务先就绪，模型在后台加载完成。
+    # 首次 ASR 请求到达时如果模型已加载完毕则直接使用，否则按需加载。
+    async def _preload_asr_model():
+        """后台预加载 ASR 模型，不阻塞 FastAPI 启动。"""
+        try:
+            from nexus.asr.engine import ASREngine
+            asr_engine = ASREngine()
+            # 在线程池中执行模型加载（避免阻塞事件循环）
+            await asyncio.to_thread(asr_engine.load)
+            app.state.asr_engine = asr_engine
+            logger.info("ASR model preloaded in background (SenseVoice)")
+        except Exception as e:
+            logger.warning(f"ASR background preload failed (non-fatal): {e}")
+            app.state.asr_engine = None
+
+    # 启动后台预加载任务
+    _asr_preload_task = asyncio.create_task(_preload_asr_model())
+    app.state._asr_preload_task = _asr_preload_task  # 保持强引用防止 GC
+
     yield  # ← 应用运行期间在此暂停
 
     # ==================== 以下为关闭清理逻辑 ====================
 
     logger.info("NexusCockpit shutting down...")
 
+    # 停止 llama.cpp 子进程
+    if hasattr(app.state, "llama_manager") and app.state.llama_manager:
+        await app.state.llama_manager.stop()
+        logger.info("llama.cpp subprocess stopped")
+    # 停止提醒扫描器
+    if hasattr(app.state, "reminder_scanner") and app.state.reminder_scanner:
+        await app.state.reminder_scanner.stop()
+        logger.info("ReminderScanner stopped")
+    # 停止 MCP Server
+    if hasattr(app.state, "mcp_server") and app.state.mcp_server:
+        await app.state.mcp_server.stop()
+        logger.info("MCP Server stopped")
     # 停止数据保留管理器
     if hasattr(app.state, "retention_manager"):
         await app.state.retention_manager.stop()
+    # 停止 AI 生成任务池清理循环
+    if hasattr(app.state, "task_pool") and app.state.task_pool:
+        app.state.task_pool.stop_cleanup_loop()
+        logger.info("Generation task pool cleanup loop stopped")
+    # 关闭记忆管理器（停止清理任务 + 断开 Milvus/Neo4j）
+    if hasattr(app.state, "memory_manager") and app.state.memory_manager:
+        app.state.memory_manager.close()
+        logger.info("Memory manager closed (cleanup task stopped)")
     # 关闭指标 Redis
     if hasattr(app.state, "cockpit_metrics_redis"):
         await app.state.cockpit_metrics_redis.close()
@@ -328,7 +454,7 @@ def create_app() -> FastAPI:
     # CORS 跨域配置 — 允许前端 (localhost:3000) 访问后端 (localhost:8000)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=config.server.cors_origins,
+        allow_origins=config.server.cors_origins_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -414,6 +540,58 @@ def create_app() -> FastAPI:
                 "error": exc.code,
                 "message": exc.message,
                 "details": exc.details,
+            },
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        """统一 HTTPException 响应格式，使其与自定义异常的 {error, message, details} 格式一致。
+
+        FastAPI 默认返回 {"detail": "..."}，此处转换为统一格式，
+        前端只需处理一种错误结构。
+        """
+        logger.warning(f"HTTPException: {exc.status_code} - {exc.detail}")
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": f"HTTP_{exc.status_code}",
+                "message": str(exc.detail),
+                "details": {},
+            },
+            headers=getattr(exc, "headers", None),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        """请求参数校验失败时返回 422，统一错误格式。
+
+        FastAPI 默认返回 {"detail": [{"loc": [...], "msg": "...", "type": "..."}]}，
+        此处转换为统一格式，并保留原始校验详情供前端调试。
+        """
+        logger.warning(f"RequestValidationError: {exc.errors()}")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "VALIDATION_ERROR",
+                "message": "请求参数校验失败",
+                "details": {"errors": exc.errors()},
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        """全局兜底异常处理器 — 捕获所有未处理异常，防止泄露内部堆栈。
+
+        FastAPI 默认返回 {"detail": "Internal Server Error"}，
+        此处返回统一 JSON 格式，并记录完整堆栈供调试。
+        """
+        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "INTERNAL_ERROR",
+                "message": "服务器内部错误，请稍后重试",
+                "details": {},
             },
         )
 

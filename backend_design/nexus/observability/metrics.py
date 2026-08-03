@@ -95,11 +95,6 @@ ACTIVE_CONNECTIONS = Gauge(
     "Active WebSocket connections",
 )
 
-ACTIVE_USERS = Gauge(
-    "nexus_active_users",
-    "Active unique users in the last 5 minutes",
-)
-
 
 def init_metrics() -> None:
     """初始化指标"""

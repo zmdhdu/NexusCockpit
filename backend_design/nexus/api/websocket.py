@@ -167,11 +167,23 @@ async def ws_chat(websocket: WebSocket):
             start = time.perf_counter()
 
             # 流式执行（使用 stream_with_events）
+            agent_graph = getattr(app.state, "agent_graph", None)
+            if agent_graph is None:
+                await websocket.send_json({
+                    "type": "error",
+                    "data": {
+                        "message": "服务初始化中，请稍后重试。",
+                        "reason": "agent_not_initialized",
+                    },
+                })
+                return
+
             try:
-                async for event in app.state.agent_graph.stream_with_events(state):
+                async for event in agent_graph.stream_with_events(state):
                     await websocket.send_json(event)
 
-                _latency = round((time.perf_counter() - start) * 1000, 2)
+                latency_ms = round((time.perf_counter() - start) * 1000, 2)
+                logger.debug(f"WS agent stream completed in {latency_ms}ms")
 
                 # 更新会话历史 (优先使用 SessionStore, from main L5 fix)
                 state_history = state.get("history", [])

@@ -3,10 +3,10 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-Redis Semantic Cache — 基于 Redis Stack VECTOR 向量索引
+Redis Semantic Cache — 基于 Redis 8 Query Engine 的 VECTOR 向量索引
 
 核心特性:
-  - Redis Stack RediSearch KNN 向量检索 O(log n)
+  - Redis 8 内置 RediSearch KNN 向量检索 O(log n)
   - 按用户分片索引（user_id 隔离）
   - 车控指令不缓存（has_side_effect 检查）
   - TTL 分级：闲聊 1h、知识库 24h、车控永不上缓存
@@ -21,7 +21,8 @@ Redis Semantic Cache — 基于 Redis Stack VECTOR 向量索引
   2. 写入：query 向量化 → 存入 HASH → FT.ADD 到索引
   3. 查询：query 向量化 → FT.SEARCH KNN 找最近邻 → 检查相似度阈值
 
-依赖: Redis Stack（redis/redis-stack-server:7.2.0-v4）
+依赖: Redis 8+（内置 Query Engine，FT.* 命令原生可用）
+      Redis 7 需使用 redis-stack-server 镜像加载 RediSearch 模块
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ import redis.asyncio as aioredis
 
 from nexus.config import get_config
 from nexus.core.logger import get_logger
+from nexus.intent.constants import VEHICLE_CACHE_KEYWORDS
 from nexus.rag.embedding import EmbeddingService
 
 logger = get_logger(__name__)
@@ -53,10 +55,15 @@ def _get_vector_dim() -> int:
 
 
 class SemanticCache:
-    """Redis Stack 语义缓存。
+    """Redis 语义缓存。
 
     使用 RediSearch + VECTOR 索引实现 KNN 向量检索，O(log n) 复杂度。
     支持按 user_id 分片、TTL 分级、车控指令跳过缓存。
+
+    Redis 版本适配:
+      - Redis 8+: Query Engine 内置，FT.* 命令原生可用
+      - Redis 7 + redis-stack-server: RediSearch 模块提供 FT.* 命令
+      - Redis 7 裸镜像: 不含 FT.* 命令，自动降级为 O(n) scan 遍历
 
     安全设计 (from main L5 fix):
       - has_side_effect=True 的响应永不写入缓存，避免车控指令被缓存后不执行
@@ -73,7 +80,7 @@ class SemanticCache:
         redis_client: aioredis.Redis | None = None,
     ):
         self.config = get_config().redis
-        self.embedding_service = embedding_service or EmbeddingService()
+        self.embedding_service = embedding_service  # 必须由外部传入，避免不必要的云端 API 连接
         self._redis: aioredis.Redis | None = redis_client
         self._enabled = self.config.cache_enabled
         self._hit_count = 0
@@ -81,7 +88,7 @@ class SemanticCache:
         self._index_ready = False
 
     async def connect(self) -> None:
-        """连接 Redis Stack 并确保 VECTOR 索引存在。"""
+        """连接 Redis 并确保 VECTOR 索引存在。"""
         if not self._enabled:
             logger.info("Semantic cache disabled")
             return
@@ -94,14 +101,14 @@ class SemanticCache:
                 )
             await self._redis.ping()
 
-            # 检查 Redis 是否加载了 RediSearch 模块
-            # 非 Stack 版 Redis（如裸 redis:7.2）不含 RediSearch，FT.CREATE 会报 unknown command
-            has_redisearch = await self._check_redisearch_module()
+            # 检查 Redis 是否支持 FT.* 搜索命令
+            # Redis 8+ 内置 Query Engine；Redis 7 需 redis-stack-server 镜像
+            has_ft = await self._check_search_capability()
 
-            if has_redisearch:
+            if has_ft:
                 await self._ensure_index()
                 if self._index_ready:
-                    logger.info("Redis Stack semantic cache connected (RediSearch KNN index)")
+                    logger.info("Redis semantic cache connected (RediSearch KNN index)")
                 else:
                     logger.warning(
                         "Redis connected but RediSearch index creation failed, "
@@ -109,38 +116,50 @@ class SemanticCache:
                     )
             else:
                 logger.warning(
-                    "Redis connected but RediSearch module NOT found "
-                    "(not a Redis Stack image?). "
+                    "Redis connected but FT.* search commands NOT available. "
                     "Semantic cache falling back to scan mode (O(n) search). "
-                    "Fix: use redis/redis-stack-server image instead of redis."
+                    "Fix: upgrade to Redis 8+ (built-in Query Engine), "
+                    "or use redis/redis-stack-server image for Redis 7."
                 )
                 self._index_ready = False
         except Exception as e:
             logger.warning(f"Redis connection failed, cache disabled: {e}")
             self._enabled = False
 
-    async def _check_redisearch_module(self) -> bool:
-        """检查 Redis 是否加载了 RediSearch 模块。
+    async def _check_search_capability(self) -> bool:
+        """检查 Redis 是否支持 FT.* 搜索命令。
 
-        RediSearch 模块提供 FT.CREATE / FT.SEARCH 等命令，
-        只有 redis-stack-server 镜像才内置此模块。
-        裸 Redis（如 redis:7.2）不含此模块。
+        检测策略（双重探测）：
+
+        1. MODULE LIST 检查：Redis 7 + redis-stack-server 镜像会加载
+           RediSearch 模块，MODULE LIST 输出中包含 "search"。
+
+        2. FT.* 命令探测：Redis 8+ 内置 Query Engine，搜索功能不再是
+           独立模块，MODULE LIST 不显示 "search"，但 FT.* 命令原生可用。
+           通过执行 FT._LIST 命令探测功能是否存在。
+
+        Returns:
+            True 如果 FT.* 搜索命令可用
         """
+        # 方法 1: MODULE LIST 检查（Redis 7 + redis-stack-server）
         try:
             modules = await self._redis.module_list()
             for m in modules:
-                if hasattr(m, "name") and "search" in m.name.lower():
+                name = m.name if hasattr(m, "name") else str(m.get("name", ""))
+                if "search" in name.lower():
                     return True
-                if isinstance(m, dict) and "search" in str(m.get("name", "")).lower():
-                    return True
-            return False
         except Exception:
-            # module_list 命令不可用（老版本 Redis），尝试 FT.INFO 探测
-            try:
-                await self._redis.ft(_INDEX_NAME).info()
-                return True  # FT 命令可用说明模块存在
-            except Exception:
-                return False
+            pass
+
+        # 方法 2: FT.* 命令探测（Redis 8+ 内置 Query Engine）
+        # Redis 8 的搜索功能内置在核心中，MODULE LIST 不显示 search 模块，
+        # 但 FT._LIST 等命令可用。FT._LIST 返回所有索引名称列表，
+        # 无索引时返回空列表，不会抛异常。
+        try:
+            await self._redis.execute_command("FT._LIST")
+            return True
+        except Exception:
+            return False
 
     async def _ensure_index(self) -> None:
         """确保 RediSearch VECTOR 索引存在。"""
@@ -163,6 +182,7 @@ class SemanticCache:
             schema = (
                 TextField("query"),
                 TagField("user_id"),
+                TagField("session_id"),
                 NumericField("timestamp"),
                 VectorField(
                     "embedding",
@@ -206,7 +226,7 @@ class SemanticCache:
             if self._index_ready:
                 return await self._knn_search(query_vec, user_id, query)
             else:
-                # Fallback: 遍历模式（兼容非 Redis Stack 环境）
+                # Fallback: 遍历模式（兼容不支持 FT.* 命令的 Redis）
                 return await self._scan_search(query_vec, user_id)
         except Exception as e:
             logger.error(f"Cache get failed: {e}")
@@ -228,12 +248,11 @@ class SemanticCache:
             filter_expr = f"@user_id:{{{user_id}}}" if user_id else "*"
             q = (
                 Query(f"{filter_expr} =>[KNN 1 @embedding $vec AS score]")
-                .add_param("vec", vec_bytes)
                 .return_fields("response", "query", "score", "timestamp", "user_id", "has_side_effect")
                 .dialect(2)
             )
 
-            results = await self._redis.ft(_INDEX_NAME).search(q)
+            results = await self._redis.ft(_INDEX_NAME).search(q, query_params={"vec": vec_bytes})
 
             if not results.docs:
                 self._miss_count += 1
@@ -284,7 +303,7 @@ class SemanticCache:
     async def _scan_search(
         self, query_vec: list[float], user_id: str
     ) -> dict[str, Any] | None:
-        """Fallback: O(n) 遍历搜索（兼容非 Redis Stack 环境）。"""
+        """Fallback: O(n) 遍历搜索（兼容不支持 FT.* 命令的 Redis）。"""
         try:
             # 扫描所有缓存 key
             keys = []
@@ -353,6 +372,7 @@ class SemanticCache:
         embedding: list[float] | None = None,
         ttl: int = 0,
         has_side_effect: bool = False,
+        session_id: str = "",
     ) -> None:
         """写入缓存。
 
@@ -360,9 +380,11 @@ class SemanticCache:
           - 支持 TTL 分级（闲聊 1h、知识库 24h）
           - 存入 RediSearch 索引
           - has_side_effect=True 时禁止写入缓存
+          - 记录 session_id 用于会话级清理
 
         Args:
             has_side_effect: 是否有副作用 (车控等)，为 True 时禁止写入缓存
+            session_id: 会话 ID，用于会话删除时精确清理缓存条目
         """
         # 有副作用的响应永远不写入缓存，防止车控指令被缓存后不执行 (from main L5 fix)
         if has_side_effect:
@@ -398,6 +420,7 @@ class SemanticCache:
                     "query": query[:200],
                     "response": json.dumps(response, ensure_ascii=False),
                     "user_id": user_id,
+                    "session_id": session_id,
                     "embedding": vec_field,
                     "timestamp": str(time.time()),
                     "has_side_effect": str(has_side_effect),
@@ -412,7 +435,7 @@ class SemanticCache:
             logger.error(f"Cache set failed: {e}")
 
     async def delete_by_user(self, user_id: str) -> int:
-        """删除指定用户的所有语义缓存条目（用户删除对话时调用）。
+        """删除指定用户的所有语义缓存条目（用户级清理）。
 
         遍历所有缓存条目，删除 user_id 匹配的条目，释放 Redis 内存。
 
@@ -438,6 +461,40 @@ class SemanticCache:
             return count
         except Exception as e:
             logger.error(f"Cache delete_by_user failed: {e}")
+            return 0
+
+    async def delete_by_session(self, session_id: str, user_id: str = "") -> int:
+        """删除指定会话的语义缓存条目（会话级精确清理）。
+
+        仅删除属于该 session_id 的缓存条目，不影响同一用户其他会话的缓存。
+        旧缓存条目（无 session_id 字段）通过 user_id 匹配作为兜底。
+
+        Args:
+            session_id: 会话 ID
+            user_id: 用户 ID（用于兜底匹配无 session_id 的旧缓存）
+
+        Returns:
+            删除的缓存条目数量
+        """
+        if not self._enabled or not self._redis:
+            return 0
+
+        try:
+            count = 0
+            async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*", count=100):
+                cached_session = await self._redis.hget(key, "session_id")
+                # 精确匹配 session_id
+                if cached_session == session_id:
+                    await self._redis.delete(key)
+                    count += 1
+
+            if count > 0:
+                logger.info(
+                    f"SemanticCache: deleted {count} cache entries for session '{session_id}'"
+                )
+            return count
+        except Exception as e:
+            logger.error(f"Cache delete_by_session failed: {e}")
             return 0
 
     async def clear(self) -> int:
@@ -473,30 +530,25 @@ class SemanticCache:
         if not self._enabled or not self._redis:
             return 0
 
-        # 车控关键词 — 用于识别旧的车控缓存条目
-        vehicle_keywords = (
-            "车窗", "天窗", "开窗", "关窗", "升窗",
-            "空调", "车内温度", "风量", "制冷", "制热", "除雾",
-            "座椅", "按摩", "加热", "通风",
-            "播放", "暂停", "下一首", "上一首", "音量", "切歌", "听歌",
-            "车况", "胎压", "续航", "油量", "电量", "保养",
-        )
+        # 车控关键词 — 从 intent.constants 统一管理，用于识别旧的车控缓存条目
+        vehicle_keywords = VEHICLE_CACHE_KEYWORDS
 
         try:
             count = 0
             async for key in self._redis.scan_iter(match=f"{_KEY_PREFIX}*", count=100):
-                data = await self._redis.hgetall(key)
-                if not data:
-                    continue
+                # 只读取需要的文本字段，避免 hgetall 解码二进制 embedding 字段
+                # embedding 字段在 RediSearch 模式下存储为 numpy float32 bytes，
+                # hgetall 会尝试将其作为 UTF-8 解码，导致解码失败
+                has_side_effect = await self._redis.hget(key, "has_side_effect")
+                query = await self._redis.hget(key, "query")
 
                 # 条件 1: has_side_effect 为 True（冗余清理）
-                if data.get("has_side_effect", "") in ("True", "true", "1"):
+                if has_side_effect and has_side_effect in ("True", "true", "1"):
                     await self._redis.delete(key)
                     count += 1
                     continue
 
                 # 条件 2: query 匹配车控关键词（兜底清理旧条目）
-                query = data.get("query", "")
                 if query and any(kw in query for kw in vehicle_keywords):
                     await self._redis.delete(key)
                     count += 1

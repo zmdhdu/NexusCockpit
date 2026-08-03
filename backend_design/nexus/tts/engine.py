@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 
 from nexus.config import get_config
+from nexus.core.device import has_cuda
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,7 +47,7 @@ class TTSEngine:
                 model_path,
                 load_jit=True,
                 load_onnx=False,
-                fp16=_has_cuda(),
+                fp16=has_cuda(),
             )
             self._available_speakers = self._model.list_avaliable_spks() or []
             self._loaded = True
@@ -109,41 +110,6 @@ class TTSEngine:
             logger.error(f"TTS synthesis failed: {e}")
             return None
 
-    def synthesize_stream(self, text: str, speaker: str = ""):
-        """
-        流式合成语音
-        返回生成器，每次 yield 一个音频块
-        """
-        if not self._loaded or not self._model:
-            logger.error("TTS model not loaded")
-            return
-
-        try:
-            if not speaker and self._available_speakers:
-                speaker = self._available_speakers[0]
-
-            if speaker:
-                outputs = self._model.inference_sft(text, speaker, stream=True)
-            else:
-                outputs = self._model.inference_zero_shot(text, "", "", stream=True)
-
-            for chunk in outputs:
-                yield chunk["tts_speech"]
-        except Exception as e:
-            logger.error(f"TTS stream synthesis failed: {e}")
-
     @property
     def is_loaded(self) -> bool:
         return self._loaded
-
-    @property
-    def available_speakers(self) -> list[str]:
-        return self._available_speakers
-
-
-def _has_cuda() -> bool:
-    try:
-        import torch
-        return torch.cuda.is_available()
-    except ImportError:
-        return False

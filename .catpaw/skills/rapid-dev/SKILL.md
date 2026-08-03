@@ -286,15 +286,13 @@ class VectorStore:
         return results[0] if results else []
 ```
 
-### 8. Celery 异步任务模板
+### 8. asyncio 异步任务模板
 
 ```python
-"""Celery 异步任务 — 参照 nexus/middleware/task_queue.py。"""
-from celery_app import celery_app
+"""asyncio 异步任务 — 参照 nexus/agent/nodes/reviewer_node.py 中的记忆存储模式。"""
 import asyncio
 
-@celery_app.task(name="nexus.tasks.custom_task")
-def task_custom(param: str):
+async def custom_async_task(param: str) -> str:
     """自定义异步任务。
 
     Args:
@@ -303,15 +301,14 @@ def task_custom(param: str):
     Returns:
         任务执行结果
     """
-    async def _run():
-        # TODO: 实现异步逻辑
-        return f"Processed: {param}"
+    # TODO: 实现异步逻辑
+    return f"Processed: {param}"
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(_run())
-    finally:
-        loop.close()
+# 在异步上下文中直接 await 调用（推荐）
+# result = await custom_async_task("example")
+
+# 或使用 asyncio.create_task 在后台执行（不等待结果）
+# task = asyncio.create_task(custom_async_task("example"), name="custom_task")
 ```
 
 ### 9. Neo4j 图谱操作模板

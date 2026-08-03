@@ -1,4 +1,4 @@
-# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Copyright (c) 2026 zmdhdi (NexusCockpit)
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
@@ -24,29 +24,50 @@ logger = get_logger(__name__)
 class HealthExpert(BaseExpertAgent):
     """车辆健康专家：处理故障诊断、故障码翻译、保养建议。
 
-    初始阶段为骨架实现，
-    添加 diagnose_vehicle / decode_dtc / maintenance_advice 技能后自动生效。
+    根据 intent["Health_Action"]["skill"] 路由到具体技能：
+      - diagnose_vehicle: 车辆异常问题诊断
+      - decode_dtc: 故障码翻译
+      - maintenance_advice: 保养建议
     """
 
     expert_name = "health"
     group = SkillGroup.HEALTH
 
     async def _execute(self, state: SupervisorState) -> dict[str, Any]:
-        _intent = state.get("intent", {})
+        intent = state.get("intent", {})
+        health_action = intent.get("Health_Action") or {}
         user_input = state.get("user_input", "")
 
-        # 检查是否有车辆健康相关的技能可调用
-        # Phase 2 添加技能后，这里会检查 intent 中的健康相关字段
-        health_skill = self.registry.get_skill("diagnose_vehicle")
-        if health_skill:
-            result = await self.registry.execute("diagnose_vehicle", {"query": user_input})
-            return self._build_expert_result(
-                action="diagnose_vehicle",
-                reply=result.message,
-                search_context=result.search_context,
-                handled=result.handled,
-                skill_status=result.status,
-            )
+        if not health_action or not isinstance(health_action, dict):
+            return self._build_expert_result(action="", reply="", handled=False)
 
-        # Phase 1 骨架：无健康技能时返回未处理
-        return self._build_expert_result(action="", reply="", handled=False)
+        skill_name = health_action.get("skill", "diagnose_vehicle")
+
+        # 根据技能名构建参数
+        if skill_name == "diagnose_vehicle":
+            kwargs = {"query": health_action.get("query", user_input)}
+        elif skill_name == "decode_dtc":
+            dtc_code = health_action.get("dtc_code", "")
+            if not dtc_code:
+                return self._build_expert_result(
+                    action="", reply="请提供故障码。", handled=True
+                )
+            kwargs = {"dtc_code": dtc_code}
+        elif skill_name == "maintenance_advice":
+            kwargs = {
+                "mileage": health_action.get("mileage", 0),
+                "months": health_action.get("months", 0),
+            }
+        else:
+            # 未知健康技能，默认走诊断
+            skill_name = "diagnose_vehicle"
+            kwargs = {"query": user_input}
+
+        result = await self.registry.execute(skill_name, kwargs)
+        return self._build_expert_result(
+            action=skill_name,
+            reply=result.message,
+            search_context=result.search_context,
+            handled=result.handled,
+            skill_status=result.status,
+        )

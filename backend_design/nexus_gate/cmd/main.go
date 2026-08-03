@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -92,8 +93,12 @@ func main() {
 	}
 
 	// 日志文件输出 - 写入 NexusCockpit/logs/go_logs/ 文件夹
-	// 从 backend_design/nexus_gate/ 运行，上溯 2 级到项目根目录
-	logDir := filepath.Join("..", "..", "logs", "go_logs")
+	// 支持从环境变量 LOG_DIR 覆盖，默认从当前工作目录向上查找项目根目录
+	logDir := os.Getenv("LOG_DIR")
+	if logDir == "" {
+		// 从 backend_design/nexus_gate/ 运行，上溯 2 级到项目根目录
+		logDir = filepath.Join("..", "..", "logs", "go_logs")
+	}
 	os.MkdirAll(logDir, os.ModePerm)
 	logFile := filepath.Join(logDir, fmt.Sprintf("gateway_%s.log", time.Now().Format("20060102_150405")))
 	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
@@ -169,20 +174,20 @@ func loadEnvFile(path string) error {
 	}
 
 	lines := string(data)
-	for _, line := range splitLines(lines) {
-		line = trimSpace(line)
+	for _, line := range strings.Split(lines, "\n") {
+		line = strings.TrimSpace(line)
 		if line == "" || line[0] == '#' {
 			continue
 		}
 
 		// KEY=VALUE
-		idx := indexOf(line, '=')
+		idx := strings.IndexByte(line, '=')
 		if idx < 0 {
 			continue
 		}
 
-		key := trimSpace(line[:idx])
-		val := trimSpace(line[idx+1:])
+		key := strings.TrimSpace(line[:idx])
+		val := strings.TrimSpace(line[idx+1:])
 
 		// 去掉引号
 		if len(val) >= 2 && (val[0] == '"' && val[len(val)-1] == '"') {
@@ -193,62 +198,4 @@ func loadEnvFile(path string) error {
 	}
 
 	return nil
-}
-
-// splitLines 将字符串按 '\n' 分割为行切片。
-// 不依赖 strings.Split，避免引入额外包。
-//
-// 参数:
-//   - s: 原始字符串
-//
-// 返回值: 不含换行符的行字符串切片
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i, c := range s {
-		if c == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-// trimSpace 去除字符串首尾的空格、制表符和回车符。
-// 不依赖 strings.TrimSpace，避免引入额外包。
-//
-// 参数:
-//   - s: 原始字符串
-//
-// 返回值: 去除首尾空白字符后的字符串
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
-}
-
-// indexOf 查找字符 c 在字符串 s 中首次出现的索引。
-// 不依赖 strings.Index，避免引入额外包。
-//
-// 参数:
-//   - s: 源字符串
-//   - c: 要查找的字节字符
-//
-// 返回值: 首次出现的索引（从 0 开始），未找到返回 -1
-func indexOf(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
 }

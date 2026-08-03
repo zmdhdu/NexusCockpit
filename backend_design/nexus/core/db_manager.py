@@ -18,6 +18,7 @@ MySQL 数据库管理器 — 统一数据库访问层
 from __future__ import annotations
 
 import json
+import warnings
 from datetime import datetime
 from typing import Any
 
@@ -27,6 +28,13 @@ from nexus.config import get_config
 from nexus.core.logger import get_logger
 
 logger = get_logger(__name__)
+
+# 抑制 MySQL 'Table already exists' warning —— CREATE TABLE IF NOT EXISTS
+# 对已存在的表会发出 warning，aiomysql 将其转发到 Python warnings 模块，
+# 每次启动都会输出 12+ 条无用 warning。在模块级过滤，保持日志干净。
+warnings.filterwarnings(
+    "ignore", message=r"Table '.*' already exists", category=Warning,
+)
 
 
 class DatabaseManager:
@@ -76,19 +84,189 @@ class DatabaseManager:
             self._connected = False
 
     async def _auto_migrate_tables(self) -> None:
-        """启动时自动迁移 — 确保多会话相关表和列存在。
+        """启动时自动迁移 — 确保 v2.1 全部表和列存在。
 
-        检查并创建:
-        1. chat_sessions 表（多会话管理）
-        2. chat_logs 表的 session_id 列（会话消息关联）
-        3. user_habits 表（用户习惯记录）
+        自动创建以下表（IF NOT EXISTS）:
+        1. cockpits — 座舱表
+        2. users — 用户表（RBAC 四级角色）
+        3. chat_history — 对话历史表
+        4. cockpit_stats — 座舱使用统计表
+        5. subagent_logs — SubAgent 巡检日志
+        6. mainagent_logs — MainAgent 确认日志
+        7. audit_logs — 审计日志表
+        8. agent_feedback — 用户反馈表
+        9. llm_cost_tracking — LLM 成本追踪表
+        10. voiceprint_enrollments — 声纹注册记录表
+        11. chat_sessions — 多会话管理表
+        12. user_habits — 用户习惯记录表
+        13. chat_logs 表的 session_id 列（会话消息关联）
+        14. 插入默认座舱和用户数据
         """
         if not self.is_connected:
             return
         try:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
-                    # 1. 创建 chat_sessions 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS cockpits ("
+                        "  cockpit_id VARCHAR(32) PRIMARY KEY,"
+                        "  name VARCHAR(64) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  vehicle_adapter VARCHAR(32) DEFAULT 'mock',"
+                        "  redis_db INT DEFAULT 0,"
+                        "  milvus_prefix VARCHAR(64) DEFAULT '',"
+                        "  theme_color VARCHAR(16) DEFAULT '#4fc3f7',"
+                        "  is_active BOOLEAN DEFAULT TRUE,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+                        "  INDEX idx_active (is_active)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 2. 创建 users 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS users ("
+                        "  user_id VARCHAR(64) PRIMARY KEY,"
+                        "  username VARCHAR(64) NOT NULL,"
+                        "  password_hash VARCHAR(256),"
+                        "  cockpit_id VARCHAR(32),"
+                        "  role ENUM('super_admin', 'cockpit_admin', 'cockpit_user', 'cockpit_viewer')"
+                        "    DEFAULT 'cockpit_user',"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit (cockpit_id),"
+                        "  INDEX idx_role (role)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 3. 创建 chat_history 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS chat_history ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  session_id VARCHAR(128),"
+                        "  user_input TEXT NOT NULL,"
+                        "  assistant_reply TEXT,"
+                        "  intent VARCHAR(64),"
+                        "  experts_involved JSON,"
+                        "  latency_ms FLOAT DEFAULT 0,"
+                        "  cache_hit BOOLEAN DEFAULT FALSE,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit_time (cockpit_id, created_at),"
+                        "  INDEX idx_user_time (user_id, created_at),"
+                        "  INDEX idx_session (session_id)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 4. 创建 cockpit_stats 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS cockpit_stats ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  stat_time DATETIME NOT NULL,"
+                        "  chat_count INT DEFAULT 0,"
+                        "  vehicle_cmd_count INT DEFAULT 0,"
+                        "  cache_hits INT DEFAULT 0,"
+                        "  cache_misses INT DEFAULT 0,"
+                        "  avg_latency_ms FLOAT DEFAULT 0,"
+                        "  p95_latency_ms FLOAT DEFAULT 0,"
+                        "  error_count INT DEFAULT 0,"
+                        "  INDEX idx_cockpit_time (cockpit_id, stat_time)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 5. 创建 subagent_logs 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS subagent_logs ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  check_time DATETIME NOT NULL,"
+                        "  check_items JSON,"
+                        "  llm_judgment JSON,"
+                        "  decision_trace JSON,"
+                        "  is_anomaly BOOLEAN DEFAULT FALSE,"
+                        "  INDEX idx_cockpit_time (cockpit_id, check_time)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 6. 创建 mainagent_logs 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS mainagent_logs ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  alert_time DATETIME NOT NULL,"
+                        "  alert_type VARCHAR(64),"
+                        "  severity VARCHAR(16),"
+                        "  subagent_judgment JSON,"
+                        "  mainagent_judgment JSON,"
+                        "  action_taken VARCHAR(32),"
+                        "  confirm_time DATETIME,"
+                        "  INDEX idx_cockpit_time (cockpit_id, alert_time)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 7. 创建 audit_logs 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS audit_logs ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  action VARCHAR(64) NOT NULL,"
+                        "  detail JSON,"
+                        "  ip_address VARCHAR(45),"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit_time (cockpit_id, created_at),"
+                        "  INDEX idx_user_time (user_id, created_at)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 8. 创建 agent_feedback 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS agent_feedback ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  mainagent_log_id BIGINT,"
+                        "  feedback ENUM('positive', 'negative') NOT NULL,"
+                        "  comment TEXT,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit_time (cockpit_id, created_at)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 9. 创建 llm_cost_tracking 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS llm_cost_tracking ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  request_type VARCHAR(32) NOT NULL,"
+                        "  model_name VARCHAR(64) NOT NULL,"
+                        "  prompt_tokens INT DEFAULT 0,"
+                        "  completion_tokens INT DEFAULT 0,"
+                        "  cost_yuan DECIMAL(10, 6) DEFAULT 0,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit_time (cockpit_id, created_at),"
+                        "  INDEX idx_type_time (request_type, created_at)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 10. 创建 voiceprint_enrollments 表
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS voiceprint_enrollments ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  enroll_count INT DEFAULT 0,"
+                        "  required_count INT DEFAULT 3,"
+                        "  is_completed BOOLEAN DEFAULT FALSE,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+                        "  UNIQUE KEY uk_cockpit_user (cockpit_id, user_id),"
+                        "  INDEX idx_cockpit (cockpit_id)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+                    )
+
+                    # 11. 创建 chat_sessions 表
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS chat_sessions ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -104,7 +282,7 @@ class DatabaseManager:
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
                     )
 
-                    # 2. 创建 user_habits 表
+                    # 12. 创建 user_habits 表
                     await cur.execute(
                         "CREATE TABLE IF NOT EXISTS user_habits ("
                         "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
@@ -117,6 +295,26 @@ class DatabaseManager:
                         "  UNIQUE KEY uk_user_cockpit_habit (user_id, cockpit_id, habit_key),"
                         "  INDEX idx_user (user_id),"
                         "  INDEX idx_cockpit (cockpit_id)"
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+                    )
+
+                    # 11.5 创建 chat_logs 表（对话日志持久化 — 用户提问 + AI回复双向存储）
+                    await cur.execute(
+                        "CREATE TABLE IF NOT EXISTS chat_logs ("
+                        "  id BIGINT AUTO_INCREMENT PRIMARY KEY,"
+                        "  cockpit_id VARCHAR(32) NOT NULL,"
+                        "  user_id VARCHAR(64) NOT NULL,"
+                        "  session_id VARCHAR(128) DEFAULT '',"
+                        "  user_input TEXT NOT NULL,"
+                        "  assistant_response TEXT,"
+                        "  intent VARCHAR(64) DEFAULT '',"
+                        "  action VARCHAR(64) DEFAULT '',"
+                        "  latency_ms FLOAT DEFAULT 0,"
+                        "  cache_hit BOOLEAN DEFAULT FALSE,"
+                        "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+                        "  INDEX idx_cockpit_time (cockpit_id, created_at),"
+                        "  INDEX idx_session (session_id),"
+                        "  INDEX idx_user_time (user_id, created_at)"
                         ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
                     )
 
@@ -136,7 +334,25 @@ class DatabaseManager:
                         )
                         logger.info("Auto-migrate: added session_id column to chat_logs")
 
-                    logger.info("Auto-migrate: chat_sessions, user_habits, chat_logs.session_id verified")
+                    # 14. 插入默认座舱和用户数据（ON DUPLICATE KEY UPDATE）
+                    # MySQL 8.0+ 弃用了 VALUES(col) 语法，改用 AS alias + alias.col 语法
+                    await cur.execute(
+                        "INSERT INTO cockpits (cockpit_id, name, user_id, redis_db, milvus_prefix, theme_color) VALUES "
+                        "('cockpit-01', 'Cockpit One', 'user_01', 1, 'cockpit_01', '#4fc3f7'), "
+                        "('cockpit-02', 'Cockpit Two', 'user_02', 2, 'cockpit_02', '#66bb6a'), "
+                        "('cockpit-03', 'Cockpit Three', 'user_03', 3, 'cockpit_03', '#ab47bc') AS new "
+                        "ON DUPLICATE KEY UPDATE name=new.name"
+                    )
+                    await cur.execute(
+                        "INSERT INTO users (user_id, username, cockpit_id, role) VALUES "
+                        "('user_01', 'zhang_san', 'cockpit-01', 'cockpit_user'), "
+                        "('user_02', 'li_si', 'cockpit-02', 'cockpit_user'), "
+                        "('user_03', 'wang_wu', 'cockpit-03', 'cockpit_user'), "
+                        "('admin', 'admin', NULL, 'super_admin') AS new "
+                        "ON DUPLICATE KEY UPDATE username=new.username"
+                    )
+
+                    logger.info("Auto-migrate: all v2.1 tables verified + default data inserted")
         except Exception as e:
             logger.warning(f"Auto-migrate tables failed (non-fatal): {e}")
 
@@ -728,13 +944,16 @@ class DatabaseManager:
         try:
             async with self._get_conn() as conn:
                 async with conn.cursor() as cur:
+                    # MySQL 8.0+ 弃用了 VALUES(col) 语法，改用 AS new + new.col 语法
+                    # ON DUPLICATE KEY UPDATE 中 hit_count 必须用表名限定，
+                    # 否则 MySQL 无法区分是 existing 行还是 new 行的列（ambiguous 错误）
                     await cur.execute(
                         "INSERT INTO user_habits "
                         "(user_id, cockpit_id, habit_key, habit_value, hit_count, last_used_at) "
-                        "VALUES (%s, %s, %s, %s, 1, NOW()) "
+                        "VALUES (%s, %s, %s, %s, 1, NOW()) AS new "
                         "ON DUPLICATE KEY UPDATE "
-                        "habit_value=VALUES(habit_value), "
-                        "hit_count=hit_count+1, last_used_at=NOW()",
+                        "habit_value=new.habit_value, "
+                        "user_habits.hit_count=user_habits.hit_count+1, last_used_at=NOW()",
                         (user_id, cockpit_id, habit_key, habit_value),
                     )
         except Exception as e:

@@ -1,9 +1,10 @@
 # ============================================================
-# NexusCockpit v2.0 Infrastructure Stack
+# NexusCockpit v2.2 Infrastructure Stack
 # Cockpit Control + Operations Dashboard: Go Gateway + Python AI + TS Frontend
 # 简化: RabbitMQ/Celery 已移除（任务队列改为 asyncio.create_task）
 # Start all middleware: docker compose up -d
 # Start full stack: docker compose --profile app up -d
+# Dev mode (with debug ports): docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # ============================================================
 
 services:
@@ -58,7 +59,6 @@ services:
       - ./models:/app/models
       - ./data:/app/data
       - ./assets:/app/assets
-      - ./docs:/app/docs
     depends_on:
       redis:
         condition: service_healthy
@@ -116,7 +116,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
       - minio_data:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+    command: minio server /minio_data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -135,7 +135,6 @@ services:
       - milvus_data:/var/lib/milvus
     ports:
       - "19530:19530"
-      - "9201:9091"
     depends_on:
       - etcd
       - minio
@@ -156,22 +155,32 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      # 宿主机端口避让 Windows Hyper-V 保留范围 (7406-7505, 7681-7780)
+      - "17687:7687"
 
-  # --- Redis Stack (Cache + Vector Search + Rate Limit + PubSub) ---
-  # v2.0: redis-stack-server 支持 RediSearch + VECTOR 向量索引
+  # --- Redis 8 (Cache + Vector Search + Rate Limit + PubSub) ---
+  # Redis 8 内置 Query Engine（含 RediSearch FT.*命令 + VECTOR 索引）,
+  # 无需像 Redis 7 那样使用单独的 redis-stack-server 镜像。
   # v2.1: 多座舱 DB 分区隔离 (cockpit-01→DB1, cockpit-02→DB2, cockpit-03→DB3)
+  # Security: Enable password authentication and protected mode
   redis:
-    image: redis/redis-stack-server:7.2.0-v4
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --protected-mode no
+    image: redis:8-alpine
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-redis_secure_password_2026}
+      --appendonly yes
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --protected-mode yes
+      --io-threads 4
+      --io-threads-do-reads yes
     volumes:
       - redis_data:/data
     ports:
       # 宿主机 16379 → 容器 6379 (避开 Windows Hyper-V 6349-6448 端口保留范围)
       - "16379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--passwd", "${REDIS_PASSWORD:-redis_secure_password_2026}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -198,14 +207,50 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- Langfuse (LLM Tracing, self-hosted) ---
+  # 本地化降级: 从 cloud.langfuse.com 迁移到本地 Docker 部署
+  # 访问地址: http://localhost:3101
+  # 首次使用需要在 Web 控制台创建项目并获取 Public Key + Secret Key
+  langfuse-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:2
+    environment:
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3101
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-langfuse-secret}
+      SALT: ${LANGFUSE_SALT:-changeme-langfuse-salt}
+      TELEMETRY_ENABLED: "false"
+      # 禁用 ClickHouse (可选分析组件，本地化降级暂不需要)
+      CLICKHOUSE_URL: ""
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/publichealth"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   # --- Loki (Log Aggregation) ---
   loki:
     image: grafana/loki:2.9.5
     volumes:
       - ./config/loki/loki-config.yml:/etc/loki/local-config.yml
       - loki_data:/loki
-    ports:
-      - "3100:3100"
     command: -config.file=/etc/loki/local-config.yml
 
   # --- Prometheus (Metrics) ---
@@ -214,8 +259,6 @@ services:
     volumes:
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
-    ports:
-      - "9200:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -228,8 +271,6 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning
-    ports:
-      - "3001:3000"
     depends_on:
       - prometheus
       - loki
@@ -246,3 +287,5 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  # 本地化降级: Langfuse 数据卷
+  langfuse_db_data:

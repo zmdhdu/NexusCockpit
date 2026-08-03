@@ -4,7 +4,7 @@ NexusCockpit Test Suite
 
 import pytest
 
-from nexus.models.state import AgentState
+from nexus.models.state import SupervisorState
 from nexus.vehicle.mock import MockVehicleBus
 
 
@@ -130,22 +130,22 @@ class TestSkillRegistry:
         assert result.status == "error"
 
 
-class TestAgentState:
+class TestSupervisorState:
     """测试 Agent 状态"""
 
     def test_default_state(self):
-        state = AgentState()
-        assert state.user_input == ""
-        assert state.user_id == "default"
-        assert state.recalled_memories == []
-        assert state.intent == {}
-        assert state.skill_handled is False
+        state = SupervisorState()
+        assert state["user_input"] == ""
+        assert state["user_id"] == "default"
+        assert state["recalled_memories"] == []
+        assert state["intent"] == {}
+        assert state["skill_handled"] is False
 
     def test_custom_state(self):
-        state = AgentState(
+        state = SupervisorState(
             user_input="把空调调到24度",
             user_id="test_user",
             session_id="session_001",
         )
-        assert state.user_input == "把空调调到24度"
-        assert state.user_id == "test_user"
+        assert state["user_input"] == "把空调调到24度"
+        assert state["user_id"] == "test_user"

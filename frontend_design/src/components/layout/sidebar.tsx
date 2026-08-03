@@ -40,6 +40,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { getHealth, getCockpits, logout as apiLogout, listChatSessions, createChatSession, deleteChatSession } from "@/lib/api";
 import {
   useAuth,
@@ -171,14 +172,39 @@ export function Sidebar() {
   /** 删除会话 */
   const handleDeleteSession = async (e: React.MouseEvent, sid: string) => {
     e.stopPropagation();
-    try {
-      await deleteChatSession(sid);
-    } catch {
-      // 静默失败
+
+    // 前端-only 临时会话（后端不可达时创建），直接清理前端状态
+    if (sid.startsWith("temp_")) {
+      removeSession(sid);
+      window.dispatchEvent(new CustomEvent("session-deleted", { detail: { sessionId: sid } }));
+      toast.success("会话已删除");
+      return;
     }
+
+    try {
+      const resp = await deleteChatSession(sid);
+      // 检查后端返回的 success 字段，防止后端删除失败但前端仍清除数据
+      if (resp && resp.success === false) {
+        // "会话不存在"说明后端无此会话记录（创建时 INSERT 失败或已被删除），
+        // 视为已删除，直接清理前端状态，避免"幽灵会话"卡在侧边栏
+        if (resp.message?.includes("会话不存在")) {
+          removeSession(sid);
+          window.dispatchEvent(new CustomEvent("session-deleted", { detail: { sessionId: sid } }));
+          toast.success("会话已删除");
+          return;
+        }
+        toast.error(`删除失败: ${resp.message || "后端数据未清理"}`);
+        return;
+      }
+    } catch (err: any) {
+      // 网络错误或后端不可达 — 仍清理前端状态，避免会话无法删除
+      console.warn("[deleteChatSession] backend error, cleaning frontend anyway:", err?.message);
+    }
+    // 后端删除成功（或后端不可达时回退）后清理前端状态
     removeSession(sid);
     // 通知 Dashboard 等页面即时刷新指标数据
     window.dispatchEvent(new CustomEvent("session-deleted", { detail: { sessionId: sid } }));
+    toast.success("会话已删除");
   };
 
   const statusConfig = {

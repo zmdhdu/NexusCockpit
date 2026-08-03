@@ -128,8 +128,8 @@ def _parse_command_line(command_raw: str) -> list[str]:
             parsed = json.loads(command_raw)
             if isinstance(parsed, list):
                 return [str(item) for item in parsed if str(item).strip()]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"JSON parse failed for command, falling back to shlex: {e}")
     if " " in command_raw or "\t" in command_raw:
         return [part for part in shlex.split(command_raw, posix=False) if part]
     return [command_raw]
@@ -141,6 +141,6 @@ def _parse_args_list(args_raw: str) -> list[str]:
             parsed = json.loads(args_raw)
             if isinstance(parsed, list):
                 return [str(item) for item in parsed if str(item).strip()]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"JSON parse failed for args, falling back to shlex: {e}")
     return [part for part in shlex.split(args_raw, posix=False) if part]

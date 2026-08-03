@@ -58,15 +58,40 @@ class NavExpert(BaseExpertAgent):
                                 f"NavExpert: injected cached GPS coords "
                                 f"({lat}, {lon}) into location query"
                             )
+                        else:
+                            logger.warning(
+                                f"NavExpert: no cached GPS coords in adapter "
+                                f"(cockpit_id={cockpit_id}), will fall back to IP location"
+                            )
+                else:
+                    logger.warning("NavExpert: cockpit_id is empty, cannot get vehicle adapter for GPS coords")
             except Exception as e:
                 logger.debug(f"NavExpert: failed to get cached GPS coords: {e}")
 
         result = await self.registry.execute("vehicle_navigation", cleaned)
 
+        # 结果验证
+        verified_reply = self._verify_result(result, action="vehicle_navigation")
+
         return self._build_expert_result(
             action="vehicle_navigation",
-            reply=result.message,
+            reply=verified_reply,
             handled=result.handled,
             skill_status=result.status,
             skill_data=result.data,
         )
+
+    def _verify_result(self, result: Any, action: str = "") -> str:
+        """验证导航技能执行结果。
+
+        检查项:
+            - 执行状态是否为 ok
+            - 结果消息是否为空
+        """
+        if result.status == "error":
+            logger.warning(f"NavExpert verify: skill '{action}' returned error: {result.message}")
+            return result.message or "导航服务暂时不可用，请稍后重试。"
+        if not result.message or len(result.message.strip()) < 2:
+            logger.warning(f"NavExpert verify: skill '{action}' returned empty message")
+            return "导航指令已执行，但未返回详细信息。"
+        return result.message

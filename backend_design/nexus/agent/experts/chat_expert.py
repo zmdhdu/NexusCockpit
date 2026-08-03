@@ -31,6 +31,21 @@ class ChatExpert(BaseExpertAgent):
     expert_name = "chat"
     group = SkillGroup.CHAT
 
+    def _verify_result(self, result: Any, action: str = "") -> str:
+        """验证闲聊/声纹注册技能执行结果。
+
+        检查项:
+            - 执行状态是否为 error
+            - 结果消息是否为空
+        """
+        if result.status == "error":
+            logger.warning(f"ChatExpert verify: skill '{action}' returned error: {result.message}")
+            return result.message or "服务暂时不可用，请稍后重试。"
+        if not result.message or len(result.message.strip()) < 2:
+            logger.warning(f"ChatExpert verify: skill '{action}' returned empty message")
+            return "指令已执行。"
+        return result.message
+
     async def _execute(self, state: SupervisorState) -> dict[str, Any]:
         intent = state.get("intent", {})
 

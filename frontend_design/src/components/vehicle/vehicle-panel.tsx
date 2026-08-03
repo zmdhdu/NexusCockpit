@@ -51,6 +51,8 @@ import {
   Repeat,
   Repeat1,
   Shuffle,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -91,7 +93,7 @@ const CLIMATE_MODES = [
  * 后端将 media.track 从字符串改为对象
  * `{ title, filename, url, format }`，直接渲染对象会触发 React 错误：
  * "Objects are not valid as a React child"。
- * 此函数兼容三种形态：对象、字符串、空值。
+ * 此函数处理三种形态：对象、字符串、空值。
  */
 function getTrackTitle(track: unknown): string {
   if (!track) return "未播放";
@@ -259,6 +261,9 @@ useEffect(() => {
    * 支持多命令并行: 每个命令用 `command_args` 组合作为唯一 key，
    * 正在执行的命令会禁用对应按钮，但不阻塞其他按钮操作。
    *
+   * 命令成功后，先利用返回的 data 做乐观更新（立即反映到 UI），
+ * 再异步 fetchStatus 拉取完整状态做全量同步。
+   *
    * @param command - 命令名称，如 vehicle_climate / vehicle_media / vehicle_navigation
    * @param args - 命令参数，如 { op: "temp_up" } 或 { destination: "上海虹桥" }
    */
@@ -267,11 +272,26 @@ useEffect(() => {
     // 标记当前命令正在执行（不阻塞其他按钮）
     setExecutingCmds(prev => new Set(prev).add(cmdKey));
     try {
-      await sendVehicleCommand({ command, arguments: args });
-      // 命令发送成功后，异步刷新状态（不阻塞按钮）
+      const result = await sendVehicleCommand({ command, arguments: args });
+
+      // 检查后端返回的业务逻辑成功状态
+      if (result && result.success === false) {
+        toast.error("操作失败", {
+          description: result.message || "不支持的指令",
+        });
+        return;
+      }
+
+      // 利用返回的 data 做乐观更新 — 立即反映到 UI，无需等待 fetchStatus
+      if (result && result.data && status) {
+        setStatus(prev => prev ? { ...prev, ...result.data } : prev);
+      }
+
+      // 异步拉取完整状态做全量同步（不阻塞 UI）
       fetchStatus();
+
       toast.success("操作成功", {
-        description: getCommandDescription(command, args),
+        description: getCommandDescription(command, args, result?.data),
       });
     } catch (err) {
       toast.error("操作失败", {
@@ -290,13 +310,24 @@ useEffect(() => {
 /**
    * 生成命令执行成功后的 Toast 描述文案
    * 根据命令类型和参数返回用户可读的操作反馈
+   *
+   * 优先从命令返回的 data 中读取最新状态值，避免显示旧数据。
    */
-  const getCommandDescription = (command: string, args: Record<string, any>): string => {
+  const getCommandDescription = (command: string, args: Record<string, any>, responseData?: Record<string, any>): string => {
+    // 从返回数据中提取最新气候状态
+    const climateData = responseData?.climate;
+    const currentTemp = climateData?.temperature ?? status?.climate.temperature ?? 22;
+    const currentFan = climateData?.fan_speed ?? status?.climate.fan_speed ?? 3;
+    const currentMode = climateData?.mode ?? status?.climate.mode ?? "auto";
+
     if (command === "vehicle_climate") {
-      if (args.op === "temp_up") return `温度已调高至 ${status?.climate.temperature || 22}°C`;
-      if (args.op === "temp_down") return `温度已调低至 ${status?.climate.temperature || 22}°C`;
-      if (args.op === "set_fan") return `风量已设为 ${args.fan_speed} 档`;
-      if (args.op === "set_mode") return `模式已切换`;
+      if (args.op === "temp_up") return `温度已调高至 ${currentTemp}°C`;
+      if (args.op === "temp_down") return `温度已调低至 ${currentTemp}°C`;
+      if (args.op === "set_fan") return `风量已设为 ${currentFan} 档`;
+      if (args.op === "set_mode") {
+        const modeNames: Record<string, string> = { auto: "自动", cool: "制冷", heat: "制热", vent: "通风", defrost: "除霜", defog: "除雾" };
+        return `模式已切换至${modeNames[currentMode] || currentMode}`;
+      }
     }
     if (command === "vehicle_media") {
       if (args.op === "play") return "开始播放";
@@ -661,7 +692,7 @@ useEffect(() => {
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 <p className="text-xs text-muted-foreground">播放列表</p>
                 {((status.media as any).playlist as any[]).map((track, idx) => {
-                  // 兼容 dict 格式（含 title/url）和旧版字符串格式
+                  // 支持 dict 格式（含 title/url）和字符串格式
                   const trackTitle = typeof track === 'object' ? track.title : track;
                   return (
                   <Tooltip key={idx} content={`播放: ${trackTitle}`} side="right" className="w-full">
@@ -760,20 +791,44 @@ useEffect(() => {
             <CardTitle className="text-base">车窗</CardTitle>
             <Wind className="h-5 w-5 text-primary" />
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap justify-center gap-2 text-sm">
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
               {[
                 { key: "front_left", label: "左前" },
                 { key: "front_right", label: "右前" },
                 { key: "rear_left", label: "左后" },
                 { key: "rear_right", label: "右后" },
                 { key: "sunroof", label: "天窗" },
-              ].map((w) => (
-                <div key={w.key} className="flex flex-col items-center gap-1 rounded-lg bg-accent/30 py-2 w-[calc(33.333%-0.5rem)]">
-                  <span className="text-xs text-muted-foreground">{w.label}</span>
-                  <span className="font-medium text-sm">{status.windows[w.key] ?? 0}%</span>
-                </div>
-              ))}
+              ].map((w) => {
+                const windowValue = status.windows[w.key] ?? 0;
+                const isOpen = windowValue > 0;
+                const toggleCmd = { op: isOpen ? "close" : "open", position: w.key };
+                return (
+                  <Tooltip key={w.key} content={isOpen ? `关闭${w.label}车窗` : `打开${w.label}车窗`} side="top">
+                    <button
+                      onClick={() => handleCommand("vehicle_window", toggleCmd)}
+                      disabled={isCmdLoading("vehicle_window", toggleCmd)}
+                      className={cn(
+                        "flex flex-col items-center gap-1.5 rounded-lg py-4 transition-all",
+                        isOpen
+                          ? "bg-primary/20 text-primary ring-1 ring-primary/40"
+                          : "bg-accent/30 text-muted-foreground hover:bg-accent/60"
+                      )}
+                    >
+                      {isOpen
+                        ? <ChevronUp className="h-5 w-5" />
+                        : <ChevronDown className="h-5 w-5" />}
+                      <span className="text-xs">{w.label}</span>
+                      <span className="text-xl font-bold">{windowValue}%</span>
+                      <span className={cn("text-[10px]", isOpen ? "text-primary/70" : "opacity-50")}>
+                        {isOpen ? "已打开" : "已关闭"}
+                      </span>
+                    </button>
+                  </Tooltip>
+                );
+              })}
+              {/* 填充格 — 保持网格对齐 */}
+              <div />
             </div>
             <div className="flex gap-2">
               <Tooltip content="全部车窗打开" side="top" className="flex-1">
@@ -782,7 +837,7 @@ useEffect(() => {
                   variant="outline"
                   onClick={() => handleCommand("vehicle_window", { op: "open", position: "all" })}
                   disabled={isCmdLoading("vehicle_window", { op: "open", position: "all" })}
-                  className="w-full"
+                  className="w-full h-9"
                 >
                   全开
                 </Button>
@@ -793,7 +848,7 @@ useEffect(() => {
                   variant="outline"
                   onClick={() => handleCommand("vehicle_window", { op: "close", position: "all" })}
                   disabled={isCmdLoading("vehicle_window", { op: "close", position: "all" })}
-                  className="w-full"
+                  className="w-full h-9"
                 >
                   全关
                 </Button>

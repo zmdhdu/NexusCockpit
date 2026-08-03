@@ -102,9 +102,10 @@ async def _get_milvus_status() -> dict[str, Any]:
     """获取 Milvus 状态。"""
     config = get_config().milvus
     try:
-        from pymilvus import connections, utility
-        connections.connect(alias=config.alias, uri=config.uri, token=config.token)
-        collections = utility.list_collections(using=config.alias)
+        from pymilvus import MilvusClient
+        client = MilvusClient(uri=config.uri)
+        collections = client.list_collections()
+        client.close()
         return {
             "name": "Milvus",
             "status": "connected",

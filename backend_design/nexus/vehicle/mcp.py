@@ -3,17 +3,16 @@
 # Source: https://github.com/zmdhdu/NexusCockpit
 
 """
-MCP Vehicle Bus Adapter — 通过 MCP (Model Context Protocol) 对接车控服务
-使用 stdio JSON-RPC 传输层
+MCP Vehicle Bus Adapter — 通过 MCP SDK (Model Context Protocol) 对接车控服务
+
+使用 mcp.ClientSession + mcp.StdioServerParameters 与车控服务通信。
+保留 MCPStdioVehicleAdapter 同步接口不变，内部通过后台 asyncio 事件循环驱动 MCP SDK 异步调用。
 """
 
 from __future__ import annotations
 
+import asyncio
 import atexit
-import json
-import os
-import queue
-import subprocess
 import threading
 from typing import Any
 
@@ -23,161 +22,154 @@ from nexus.vehicle.base import BaseVehicleAdapter, VehicleCommandResult
 logger = get_logger(__name__)
 
 
-class StdioJsonRpcTransport:
-    """MCP stdio 传输层，使用 Content-Length framing"""
+class _MCPBackgroundRunner:
+    """在后台线程中运行 MCP SDK 的异步上下文。
 
-    def __init__(self, command: list[str], cwd: str | None = None, env: dict[str, str] | None = None):
+    MCP SDK (mcp.ClientSession) 是异步的，而 MCPStdioVehicleAdapter 暴露同步接口。
+    本类在后台 daemon 线程中运行一个 asyncio 事件循环，通过 run_coroutine_threadsafe
+    将同步调用桥接到异步 MCP SDK。
+
+    生命周期:
+        1. __init__ 启动后台线程 + 事件循环
+        2. 后台线程进入 stdio_client + ClientSession 上下文管理器
+        3. 调用 session.initialize() + session.list_tools()
+        4. 通过 asyncio.Event 保持上下文管理器存活
+        5. close() 设置 Event 退出上下文管理器
+    """
+
+    def __init__(
+        self,
+        command: list[str],
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        protocol_version: str = "2024-11-05",
+        client_name: str = "NexusCockpit",
+        client_version: str = "1.0.0",
+        tool_timeout: float = 10.0,
+    ):
         if not command:
             raise ValueError("MCP command is required")
 
-        self.command = command
-        self.cwd = cwd or os.getcwd()
-        self.env = env or os.environ.copy()
-        self.process = subprocess.Popen(
-            command, cwd=self.cwd, env=self.env,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            bufsize=0,
-        )
-        if not self.process.stdin or not self.process.stdout:
-            raise RuntimeError("Failed to start MCP stdio process")
+        self._command_str = command[0]
+        self._command_args = command[1:]
+        self._cwd = cwd
+        self._env = env
+        self._protocol_version = protocol_version
+        self._client_name = client_name
+        self._client_version = client_version
+        self._tool_timeout = tool_timeout
 
-        self._stdin = self.process.stdin
-        self._stdout = self.process.stdout
-        self._stderr = self.process.stderr
-        self._write_lock = threading.Lock()
-        self._pending: dict[int, queue.Queue] = {}
-        self._pending_lock = threading.Lock()
-        self._message_id = 0
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._session: Any | None = None  # mcp.ClientSession
+        self._available_tools: set[str] = set()
+        self._initialized = threading.Event()
+        self._init_error: Exception | None = None
+        self._stop_event: asyncio.Event | None = None
 
-        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
-        self._reader_thread.start()
-        self._stderr_thread = threading.Thread(target=self._stderr_loop, daemon=True)
-        self._stderr_thread.start()
         atexit.register(self.close)
 
-    def request(self, method: str, params: dict[str, Any] | None = None, timeout: float = 10.0) -> dict[str, Any]:
-        request_id = self._next_id()
-        response_queue: queue.Queue = queue.Queue(maxsize=1)
+        # 启动后台线程并等待初始化完成
+        self._thread = threading.Thread(target=self._run, daemon=True, name="mcp-sdk-bg")
+        self._thread.start()
 
-        with self._pending_lock:
-            self._pending[request_id] = response_queue
+        if not self._initialized.wait(timeout=30):
+            raise TimeoutError("MCP SDK initialization timed out (30s)")
+        if self._init_error:
+            raise RuntimeError(f"MCP SDK initialization failed: {self._init_error}")
 
-        self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params or {}})
-
+    def _run(self) -> None:
+        """后台线程入口：创建事件循环并运行 MCP SDK 异步上下文。"""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
         try:
-            response = response_queue.get(timeout=timeout)
-        except queue.Empty as exc:
-            with self._pending_lock:
-                self._pending.pop(request_id, None)
-            raise TimeoutError(f"MCP request timed out: {method}") from exc
+            self._loop.run_until_complete(self._main())
+        except Exception as e:
+            if not self._initialized.is_set():
+                self._init_error = e
+                self._initialized.set()
+            logger.debug(f"MCP background loop ended: {e}")
+        finally:
+            self._loop.close()
 
-        if isinstance(response, dict) and "error" in response:
-            error = response["error"]
-            if isinstance(error, dict):
-                raise RuntimeError(error.get("message") or str(error))
-            raise RuntimeError(str(error))
+    async def _main(self) -> None:
+        """MCP SDK 主协程：管理 stdio_client + ClientSession 生命周期。"""
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
 
-        return response
+        params = StdioServerParameters(
+            command=self._command_str,
+            args=self._command_args,
+            cwd=self._cwd,
+            env=self._env,
+        )
 
-    def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
-        self._send({"jsonrpc": "2.0", "method": method, "params": params or {}})
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(
+                read, write,
+                read_timeout_seconds=self._tool_timeout,
+            ) as session:
+                # 初始化 MCP 会话
+                await session.initialize()
+                self._session = session
+
+                # 列出可用工具
+                try:
+                    result = await session.list_tools()
+                    self._available_tools = {
+                        t.name for t in result.tools if hasattr(t, "name")
+                    }
+                    logger.info(
+                        f"MCP SDK initialized, available tools: "
+                        f"{self._available_tools or '(none)'}"
+                    )
+                except Exception as e:
+                    logger.warning(f"MCP list_tools failed: {e}")
+
+                # 通知初始化完成
+                self._initialized.set()
+
+                # 保持上下文管理器存活，直到 close() 被调用
+                self._stop_event = asyncio.Event()
+                await self._stop_event.wait()
+
+    def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        """同步调用 MCP 工具（通过后台事件循环桥接到异步 session.call_tool）。
+
+        Returns:
+            mcp.CallToolResult 对象
+        """
+        if self._session is None or self._loop is None:
+            raise RuntimeError("MCP session not initialized")
+
+        future = asyncio.run_coroutine_threadsafe(
+            self._session.call_tool(name, arguments),
+            self._loop,
+        )
+        return future.result(timeout=self._tool_timeout)
+
+    @property
+    def available_tools(self) -> set[str]:
+        return self._available_tools
 
     def close(self) -> None:
-        try:
-            if self.process and self.process.poll() is None:
-                try:
-                    self.process.terminate()
-                except Exception:
-                    pass
-        finally:
-            for stream in (self._stdin, self._stdout, self._stderr):
-                try:
-                    if stream:
-                        stream.close()
-                except Exception:
-                    pass
-
-    def _next_id(self) -> int:
-        self._message_id += 1
-        return self._message_id
-
-    def _send(self, payload: dict[str, Any]) -> None:
-        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        framed = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii") + raw
-        with self._write_lock:
-            self._stdin.write(framed)
-            self._stdin.flush()
-
-    def _read_loop(self) -> None:
-        buffer = b""
-        while True:
+        """关闭 MCP SDK 会话和后台线程。"""
+        if self._stop_event and self._loop:
             try:
-                chunk = self._stdout.read(4096)
-            except Exception:
-                break
-            if not chunk:
-                break
-            buffer += chunk
-            while True:
-                message, buffer = self._extract_message(buffer)
-                if message is None:
-                    break
-                request_id = message.get("id")
-                if request_id is None:
-                    continue
-                with self._pending_lock:
-                    response_queue = self._pending.pop(request_id, None)
-                if response_queue is not None:
-                    response_queue.put(message)
-
-    def _stderr_loop(self) -> None:
-        if not self._stderr:
-            return
-        while True:
-            try:
-                chunk = self._stderr.readline()
-            except Exception:
-                break
-            if not chunk:
-                break
-            text = chunk.decode("utf-8", errors="replace").rstrip()
-            if text:
-                logger.debug(f"[MCP STDERR] {text}")
-
-    def _extract_message(self, buffer: bytes) -> tuple[dict[str, Any] | None, bytes]:
-        header_end = buffer.find(b"\r\n\r\n")
-        if header_end < 0:
-            return None, buffer
-
-        header_blob = buffer[:header_end].decode("ascii", errors="replace")
-        content_length = None
-        for line in header_blob.split("\r\n"):
-            if line.lower().startswith("content-length:"):
-                try:
-                    content_length = int(line.split(":", 1)[1].strip())
-                except Exception:
-                    content_length = None
-                break
-
-        if content_length is None:
-            return None, buffer[header_end + 4:]
-
-        body_start = header_end + 4
-        body_end = body_start + content_length
-        if len(buffer) < body_end:
-            return None, buffer
-
-        body = buffer[body_start:body_end]
-        remainder = buffer[body_end:]
-        try:
-            message = json.loads(body.decode("utf-8", errors="replace"))
-        except Exception:
-            return None, remainder
-        return message, remainder
+                self._loop.call_soon_threadsafe(self._stop_event.set)
+            except RuntimeError:
+                pass  # loop already closed
+        if self._thread:
+            self._thread.join(timeout=5)
 
 
 class MCPStdioVehicleAdapter(BaseVehicleAdapter):
-    """MCP stdio 车控适配器"""
+    """MCP stdio 车控适配器。
+
+    使用 MCP SDK (mcp.ClientSession) 与车控服务通信，
+    公共接口（vehicle_climate / vehicle_window 等）保持不变。
+    """
 
     def __init__(
         self,
@@ -191,39 +183,17 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
         tool_timeout: float = 10.0,
         validate_tools: bool = True,
     ):
-        self.transport = StdioJsonRpcTransport(command=command, cwd=cwd, env=env)
-        self.protocol_version = protocol_version
-        self.client_name = client_name
-        self.client_version = client_version
-        self.tool_timeout = tool_timeout
-        self.available_tools: set[str] = set()
-        self._initialize()
-        if validate_tools:
-            self._refresh_tools()
-
-    def _initialize(self) -> None:
-        self.transport.request(
-            "initialize",
-            {
-                "protocolVersion": self.protocol_version,
-                "capabilities": {"roots": {"listChanged": False}, "sampling": {}, "experimental": {}},
-                "clientInfo": {"name": self.client_name, "version": self.client_version},
-            },
-            timeout=self.tool_timeout,
+        self._runner = _MCPBackgroundRunner(
+            command=command,
+            cwd=cwd,
+            env=env,
+            protocol_version=protocol_version,
+            client_name=client_name,
+            client_version=client_version,
+            tool_timeout=tool_timeout,
         )
-        try:
-            self.transport.notify("notifications/initialized", {})
-        except Exception:
-            pass
-
-    def _refresh_tools(self) -> None:
-        try:
-            response = self.transport.request("tools/list", {}, timeout=self.tool_timeout)
-            payload = response.get("result", response) if isinstance(response, dict) else {}
-            tools = payload.get("tools", []) if isinstance(payload, dict) else []
-            self.available_tools = {t.get("name") for t in tools if isinstance(t, dict) and t.get("name")}
-        except Exception as exc:
-            logger.warning(f"MCP tools/list failed: {exc}")
+        self.tool_timeout = tool_timeout
+        self.available_tools: set[str] = self._runner.available_tools if validate_tools else set()
 
     def vehicle_climate(
         self, op="status", target_temp=None, delta=None,
@@ -257,38 +227,49 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
             return VehicleCommandResult(False, f"MCP server 不暴露工具: {tool_name}", error="tool_not_exposed")
 
         try:
-            response = self.transport.request(
-                "tools/call",
-                {"name": tool_name, "arguments": {k: v for k, v in arguments.items() if v is not None}},
-                timeout=self.tool_timeout,
+            result = self._runner.call_tool(
+                tool_name,
+                {k: v for k, v in arguments.items() if v is not None},
             )
         except Exception as exc:
             return VehicleCommandResult(False, f"MCP 调用失败: {exc}", error="mcp_call_failed")
 
-        payload = response.get("result", response) if isinstance(response, dict) else response
-        return self._convert_result(payload, tool_name)
+        return self._convert_result(result, tool_name)
 
-    def _convert_result(self, response: dict[str, Any], tool_name: str) -> VehicleCommandResult:
-        if not isinstance(response, dict):
-            return VehicleCommandResult(True, str(response), data={"raw": response})
+    def _convert_result(self, result: Any, tool_name: str) -> VehicleCommandResult:
+        """将 MCP SDK 的 CallToolResult 转换为 VehicleCommandResult。
 
-        is_error = bool(response.get("isError", False))
-        content = response.get("content", [])
-        structured = response.get("structuredContent")
-        text_parts = []
-        for item in content:
-            if isinstance(item, dict) and item.get("text"):
-                text_parts.append(str(item.get("text")))
-            elif isinstance(item, str):
-                text_parts.append(item)
+        MCP SDK 的 CallToolResult 包含:
+            - content: list[TextContent | ImageContent | ...]  (每个 item 有 .text 属性)
+            - isError: bool
+            - structuredContent: dict | None
+        """
+        if result is None:
+            return VehicleCommandResult(True, f"MCP 工具 {tool_name} 已执行。")
+
+        is_error = bool(getattr(result, "isError", False))
+
+        # 提取文本内容
+        text_parts: list[str] = []
+        content = getattr(result, "content", [])
+        if content:
+            for item in content:
+                text = getattr(item, "text", None)
+                if text:
+                    text_parts.append(str(text))
+                elif isinstance(item, str):
+                    text_parts.append(item)
 
         message = "\n".join(p for p in text_parts if p).strip()
+
+        # 尝试从 structuredContent 获取消息
+        structured = getattr(result, "structuredContent", None)
         if not message and isinstance(structured, dict):
             message = structured.get("message") or structured.get("summary") or ""
         if not message:
             message = f"MCP 工具 {tool_name} 已执行。"
 
-        data: dict[str, Any] = {"raw": response}
+        data: dict[str, Any] = {"raw": result}
         if structured is not None:
             data["structuredContent"] = structured
 
@@ -297,3 +278,7 @@ class MCPStdioVehicleAdapter(BaseVehicleAdapter):
             success=not is_error, message=message,
             data=data, error=err,
         )
+
+    def close(self) -> None:
+        """关闭 MCP SDK 会话。"""
+        self._runner.close()

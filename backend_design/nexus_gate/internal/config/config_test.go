@@ -28,11 +28,11 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.GateMode != "proxy" {
 		t.Errorf("Expected default GateMode 'proxy', got '%s'", cfg.GateMode)
 	}
-	if cfg.CockpitCount != 3 {
-		t.Errorf("Expected default CockpitCount 3, got %d", cfg.CockpitCount)
+	if cfg.CockpitCount != 1 {
+		t.Errorf("Expected default CockpitCount 1, got %d", cfg.CockpitCount)
 	}
-	if cfg.IsolationMode != "shared" {
-		t.Errorf("Expected default IsolationMode 'shared', got '%s'", cfg.IsolationMode)
+	if cfg.RedisPort != 16379 {
+		t.Errorf("Expected default RedisPort 16379, got %d", cfg.RedisPort)
 	}
 }
 

@@ -145,6 +145,3 @@ class LocalReranker(BaseReranker):
             os.path.exists(self.model_path) and self._load_error == ""
         )
 
-
-# 向后兼容别名: 旧代码引用 RerankerService 仍可工作
-RerankerService = LocalReranker

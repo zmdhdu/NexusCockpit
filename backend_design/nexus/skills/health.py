@@ -1,4 +1,4 @@
-# Copyright (c) 2026 zhangmengdi (NexusCockpit)
+# Copyright (c) 2026 zmdhdu (NexusCockpit)
 # Licensed under the MIT License. See LICENSE in the project root for details.
 # Source: https://github.com/zmdhdu/NexusCockpit
 
@@ -10,17 +10,38 @@
   2. decode_dtc:          故障码释义，查询故障知识库
   3. maintenance_advice:  根据里程/时间生成保养建议
 
-依赖: Cherry 知识库（Phase 3 实现后生效），车辆状态适配器
+依赖: Cherry 知识库（规划中，[STUB] 当前未集成），车辆状态适配器
 """
 
 from __future__ import annotations
 
+import json
+import os
 from typing import Any
 
 from nexus.core.logger import get_logger
 from nexus.skills.base import BaseSkill, SkillGroup, SkillResult, register_skill
 
 logger = get_logger(__name__)
+
+# 故障码速查表数据文件路径 — 从 data/knowledge/dtc_codes.json 加载
+_DTC_DATA_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    "data", "knowledge", "dtc_codes.json"
+)
+
+
+def _load_dtc_table() -> dict[str, str]:
+    """从 JSON 数据文件加载故障码速查表。"""
+    try:
+        with open(_DTC_DATA_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        codes = data.get("codes", {})
+        logger.info(f"Loaded {len(codes)} DTC codes from {_DTC_DATA_FILE}")
+        return codes
+    except Exception as e:
+        logger.warning(f"Failed to load DTC table from {_DTC_DATA_FILE}: {e}")
+        return {}
 
 
 @register_skill(
@@ -58,7 +79,7 @@ class DiagnoseVehicleSkill(BaseSkill):
             except Exception as e:
                 logger.warning(f"Vehicle status query failed: {e}")
 
-        # 知识库检索（Phase 3 后接入 Cherry KB）
+        # 知识库检索（[STUB] Cherry KB 未集成，当前返回空）
         kb_answer = self._search_knowledge_base(query)
 
         # 组装诊断报告
@@ -81,8 +102,13 @@ class DiagnoseVehicleSkill(BaseSkill):
         )
 
     def _search_knowledge_base(self, query: str) -> str:
-        """搜索 Cherry 知识库（Phase 3 接入）。"""
-        # TODO: Phase 3 接入 Cherry KB 检索
+        """搜索 Cherry 知识库。
+
+        [STUB] Cherry KB 检索尚未集成（规划中），
+        当前返回空字符串，诊断逻辑仅依赖车辆实时状态数据 + 故障码速查表。
+        集成后此方法将调用 CherryKnowledgeBase.search() 实现语义检索。
+        """
+        logger.debug(f"[STUB] Cherry KB search not yet integrated, query='{query}'")
         return ""
 
 
@@ -105,15 +131,8 @@ class DecodeDtcSkill(BaseSkill):
         "dtc_code": {"type": "string", "description": "OBD-II 故障码，如 P0301"},
     }
 
-    # 常见故障码速查表（Phase 3 由 Cherry KB 替代）
-    _DTC_QUICK_REF = {
-        "P0301": "第1缸失火 — 可能原因：火花塞、点火线圈、燃油喷射器",
-        "P0300": "多缸随机失火 — 可能原因：进气系统漏气、燃油压力不足",
-        "P0171": "混合气过稀 — 可能原因：进气管漏气、MAF传感器故障",
-        "P0420": "催化效率低于阈值 — 可能原因：催化转换器老化",
-        "U0073": "CAN总线通信故障 — 可能原因：总线接线松动、模块故障",
-        "P0128": "冷却液温度低于节温器调节温度 — 可能原因：节温器故障",
-    }
+    # 故障码速查表从 data/knowledge/dtc_codes.json 动态加载
+    _DTC_QUICK_REF: dict[str, str] = _load_dtc_table()
 
     async def execute(self, dtc_code: str = "", **kwargs: Any) -> SkillResult:
         logger.info(f"DecodeDTC: code={dtc_code}")
@@ -130,7 +149,7 @@ class DecodeDtcSkill(BaseSkill):
         explanation = self._DTC_QUICK_REF.get(code, "")
 
         if not explanation:
-            # TODO: Phase 3 查询 Cherry KB
+            # [STUB] Cherry KB 检索尚未集成，当前仅依赖速查表
             explanation = f"故障码 {code} 未在速查表中找到，建议查询专业维修手册或前往4S店。"
 
         return SkillResult(

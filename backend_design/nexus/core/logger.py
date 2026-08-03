@@ -135,6 +135,29 @@ def setup_logging() -> None:
         force=True,
     )
 
+    # 抑制 redis-py 在 Redis 服务器不支持 MAINT_NOTIFICATIONS 子命令时的 DEBUG 警告
+    # 该警告无害（仅 client-side caching 维护通知功能不可用），但会刷屏日志
+    logging.getLogger("redis.asyncio.connection").setLevel(logging.INFO)
+
+    # 抑制 neo4j driver 的 DEBUG 日志（Bolt 协议握手、连接池管理等），每次启动产生 300+ 行噪音
+    logging.getLogger("neo4j").setLevel(logging.WARNING)
+    # neo4j.notifications 输出 schema 级别通知（如属性不存在），降级到 ERROR 避免刷屏
+    logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
+
+    # 抑制 aiosqlite 的 DEBUG 日志（SQLite 内部操作日志），无诊断价值
+    logging.getLogger("aiosqlite").setLevel(logging.INFO)
+
+    # 抑制 openai SDK 的 DEBUG 日志（请求 payload、HTTP 协议细节、重试 Traceback）
+    # 这些日志不仅刷屏（每次 LLM 调用 30+ 行），还会泄露完整 system prompt 和用户数据
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    # httpcore 记录 TCP 连接/TLS 握手/HTTP 协议 DEBUG 细节
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # python_multipart 解析器记录每个回调的 DEBUG 日志（on_part_begin/on_header_field 等）
+    logging.getLogger("python_multipart").setLevel(logging.WARNING)
+
+    # 注意: langgraph allowed_objects 和 jieba pkg_resources 的警告过滤器
+    # 已在 main.py 模块顶部设置（必须在所有 import 之前执行才能生效）
+
     # 显式为 uvicorn 的 logger 添加 FileHandler
     # uvicorn 启动时会用自己的 dictConfig 覆盖 root logger 的 handlers，
     # 导致 "INFO: 127.0.0.1:..." 等访问日志只输出到终端，不写入文件。

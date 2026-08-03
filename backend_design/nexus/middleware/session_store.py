@@ -34,8 +34,10 @@ _SESSION_PREFIX = "nexus:session:"
 _SUMMARY_PREFIX = "nexus:summary:"
 # 默认保留最近 20 条对话历史（实际值从 MemoryConfig.max_history_len 读取）
 _DEFAULT_MAX_HISTORY = 20
-# 会话过期时间 (秒)，默认 24 小时
-_SESSION_TTL = 86400
+# 会话过期时间 (秒)，默认 24 小时，可通过 .env SESSION_TTL_SECONDS 配置
+import os as _os
+
+_SESSION_TTL = int(_os.getenv("SESSION_TTL_SECONDS", "86400"))
 
 
 class SessionStore:
@@ -87,7 +89,7 @@ class SessionStore:
         return []  # Redis 模式下不应调用此方法
 
     async def async_get(self, session_key: str) -> list[dict[str, str]]:
-        """异步获取会话历史。
+        """异步获取会话历史。同时自动续期 TTL。
 
         Args:
             session_key: 会话标识 (session_id 或 user_id)
@@ -99,8 +101,11 @@ class SessionStore:
             return self._fallback.get(session_key, [])
 
         try:
-            data = await self._redis.get(_SESSION_PREFIX + session_key)
+            key = _SESSION_PREFIX + session_key
+            data = await self._redis.get(key)
             if data:
+                # 活跃会话自动续期 TTL
+                await self._redis.expire(key, _SESSION_TTL)
                 return json.loads(data)
             return []
         except Exception as e:
@@ -147,6 +152,8 @@ class SessionStore:
     async def async_set(self, session_key: str, history: list[dict[str, str]]) -> None:
         """异步保存会话历史 (只保留最近 max_history_len 条)。
 
+        每次保存时自动续期 TTL，确保活跃会话不会过期。
+
         Args:
             session_key: 会话标识
             history: 对话历史列表
@@ -167,6 +174,23 @@ class SessionStore:
         except Exception as e:
             logger.error(f"SessionStore set failed: {e}")
             self._fallback[session_key] = trimmed
+
+    async def async_touch(self, session_key: str) -> None:
+        """续期会话 TTL（活跃会话自动续期）。
+
+        在每次读取会话历史时调用，确保活跃对话不会因 TTL 过期而丢失。
+
+        Args:
+            session_key: 会话标识
+        """
+        if not self._redis:
+            return
+        try:
+            key = _SESSION_PREFIX + session_key
+            # 只有 key 存在时才续期
+            await self._redis.expire(key, _SESSION_TTL)
+        except Exception as e:
+            logger.debug(f"SessionStore touch failed: {e}")
 
     async def list_sessions(self) -> dict[str, dict]:
         """列出所有活跃会话 (用于管理接口)"""

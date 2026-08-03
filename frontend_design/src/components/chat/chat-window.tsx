@@ -31,7 +31,8 @@ import { useChatStore } from "@/stores/chat-store";
 import { useAuth } from "@/stores/auth-store";
 import { sendMessage, streamMessage, StreamError, transcribeAudio, createChatSession, listChatSessions, getSessionMessages, updateChatSessionTitle } from "@/lib/api";
 import { emitVehicleRefresh } from "@/lib/vehicle-events";
-import { speak } from "@/lib/tts";
+import { speakSentences, stopPlayback } from "@/lib/tts";
+import { TTSControls } from "@/components/chat/tts-controls";
 import { cn, formatTime } from "@/lib/utils";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
@@ -40,17 +41,39 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import type { Message } from "@/types";
 
+// ============================================================
+// 模块级流式状态 — 脱离组件生命周期管理
+// ============================================================
+// 设计目的: AI 生成任务的生命周期独立于前端组件
+// 当用户切换页面/视图时，组件卸载不应中断正在进行的 SSE 流式请求
+// 仅用户主动点击【暂停生成】按钮（handleStop）才可中断推理生成
+//
+// 这些变量在模块级持有，组件卸载后仍可被 setTimeout 回调和 SSE 迭代器访问
+// Zustand store 的 updateMessage 方法也是全局的，不依赖组件挂载
+
+/** 当前流式请求的 AbortController — 模块级持有，组件卸载不销毁 */
+let _abortController: AbortController | null = null;
+
+/** 流式内容缓存 — 累积 SSE chunk，节流写入 store */
+let _streamingContent = "";
+
+/** 当前正在生成的助手消息 ID */
+let _assistantId: string | null = null;
+
+/** 节流标记 — 防止高频 setTimeout 堆积 */
+let _streamingFlushScheduled = false;
+
+// ============================================================
+
 export function ChatWindow() {
   const [input, setInput] = useState("");
   const [asrLoading, setAsrLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // 流式内容缓存在 ref 中，节流渲染避免阻塞 UI
-  const streamingContentRef = useRef("");
-  const rafScheduledRef = useRef(false);
-  // 当前正在生成的助手消息 ID（用于 handleStop 时更新 loading 状态）
-  const assistantIdRef = useRef<string | null>(null);
+  // 流式状态提升到模块级，脱离组件生命周期管理
+  // 这样页面切换/组件卸载时 SSE 流不会被打断，AI 生成任务继续在后台运行
+  // abortController、streamingContent、assistantId 都在模块级变量中持有
+  // 前端组件仅做数据展示，无权销毁后台推理任务
 
   const { messages, addMessage, updateMessage, isStreaming, setStreaming, userId, cockpitId: chatCockpitId, setCockpitId, sessionId, setSessionId, newSession, setSessions, loadSessionMessages, sessionsByCockpit, updateSessionTitle } =
     useChatStore();
@@ -107,11 +130,12 @@ export function ChatWindow() {
           createChatSession("新对话", userId).then((sess) => {
             newSession(sess.session_id, sess.title);
           }).catch(() => {
-            // 后端未启动时静默失败
+            // 后端未启动时静默失败，不阻塞用户输入
           });
         }
       }).catch(() => {
-        // 后端未启动时静默失败
+        // 后端未启动时静默失败，避免阻塞用户交互
+        // 用户仍可输入消息，后端恢复后会话列表会自动加载
       });
     }
   }, [chatCockpitId]);
@@ -128,7 +152,8 @@ export function ChatWindow() {
           loadSessionMessages(sessionId, msgs);
         }
       }).catch(() => {
-        // 静默失败
+        // 会话消息加载失败，用户仍可发新消息
+        // 不弹 toast 避免频繁打扰（切换会话时可能频繁触发）
       });
     }
   }, [sessionId, chatCockpitId]);
@@ -156,31 +181,29 @@ export function ChatWindow() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 组件卸载时取消正在进行的流式请求
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-    };
-  }, []);
+  // 组件卸载时不中断 AI 生成任务
+  // 设计规则：仅用户主动点击【暂停生成】按钮才可中断推理生成
+  // 页面组件切换、视图跳转、侧边栏切换等界面操作，必须保留当前 AI 生成任务正常运行
+  // 流式状态已在模块级持有，组件卸载不影响后台 SSE 流
 
   /**
-   * 节流刷新流式内容到 UI — 使用 requestAnimationFrame 避免高频 setState 阻塞主线程
+   * 节流刷新流式内容到 UI — 使用时间戳节流而非 rAF
    *
-   * 流式 SSE 每秒可能产生数十个 chunk，直接 setState 会导致 UI 卡顿。
-   * 通过 rAF 合并多个 chunk 为一次渲染，保持 60fps 流畅度。
+   * 原实现使用 requestAnimationFrame，但 rAF 只在组件挂载时才触发回调。
+   * 页面切换导致组件卸载后 rAF 停止，流式内容无法继续更新到 store。
+   * 改用时间戳节流（每 50ms 最多一次 setState），不依赖组件生命周期。
    */
   const flushStreamingContent = useCallback((assistantId: string) => {
-    rafScheduledRef.current = false;
-    updateMessage(assistantId, { content: streamingContentRef.current, loading: false });
-  }, [updateMessage]);
+    _streamingFlushScheduled = false;
+    const store = useChatStore.getState();
+    store.updateMessage(assistantId, { content: _streamingContent, loading: false });
+  }, []);
 
   const scheduleFlush = useCallback((assistantId: string) => {
-    if (!rafScheduledRef.current) {
-      rafScheduledRef.current = true;
-      requestAnimationFrame(() => flushStreamingContent(assistantId));
+    if (!_streamingFlushScheduled) {
+      _streamingFlushScheduled = true;
+      // 使用 setTimeout 替代 rAF，确保组件卸载后仍能执行
+      setTimeout(() => flushStreamingContent(assistantId), 50);
     }
   }, [flushStreamingContent]);
 
@@ -199,15 +222,17 @@ export function ChatWindow() {
   const handleSend = async (overrideText?: string) => {
     const text = (overrideText || input).trim();
     if (!text) return;
+    // 无论是否在流式状态，都终止正在播放的 TTS，避免旧语音与新回复冲突
+    stopPlayback();
     // 如果正在流式处理，先取消旧请求再发新的（不阻塞用户）
-    if (isStreaming && abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    if (isStreaming && _abortController) {
+      _abortController.abort();
+      _abortController = null;
       setStreaming(false);
-      // 清除旧助手消息的 loading 状态，避免残留“思考中...”
-      if (assistantIdRef.current) {
-        const partialContent = streamingContentRef.current;
-        updateMessage(assistantIdRef.current, {
+      // 清除旧助手消息的 loading 状态，避免残留"思考中..."
+      if (_assistantId) {
+        const partialContent = _streamingContent;
+        updateMessage(_assistantId, {
           content: partialContent || "（已中断）",
           loading: false,
         });
@@ -234,7 +259,7 @@ export function ChatWindow() {
         const newTitle = text.length > 20 ? text.slice(0, 20) + "..." : text;
         updateSessionTitle(sessionId, newTitle);
         updateChatSessionTitle(sessionId, newTitle).catch(() => {
-          // 后端更新失败静默处理，本地已更新
+          // 后端更新失败静默处理，本地标题已更新不影响用户体验
         });
       }
     }
@@ -249,16 +274,16 @@ export function ChatWindow() {
       loading: true,
     };
     addMessage(assistantMsg);
-    assistantIdRef.current = assistantId;
+    _assistantId = assistantId;
     setStreaming(true);
-    streamingContentRef.current = "";
+    _streamingContent = "";
 
     // 取消上一次未完成的请求
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    if (_abortController) {
+      _abortController.abort();
     }
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    _abortController = controller;
 
     try {
       let fullContent = "";
@@ -275,7 +300,7 @@ export function ChatWindow() {
             updateMessage(assistantId, { content: "", loading: true });
           } else if (event.type === "chunk" && event.data?.chunk) {
             fullContent += event.data.chunk;
-            streamingContentRef.current = fullContent;
+            _streamingContent = fullContent;
             // 节流更新 UI，不阻塞其他操作
             scheduleFlush(assistantId);
           } else if (event.type === "intent") {
@@ -285,7 +310,7 @@ export function ChatWindow() {
           } else if (event.type === "done") {
             if (event.data?.response) {
               fullContent = event.data.response;
-              streamingContentRef.current = fullContent;
+              _streamingContent = fullContent;
             }
             if (event.data?.intent) intent = event.data.intent;
             if (event.data?.action) action = event.data.action;
@@ -302,8 +327,8 @@ export function ChatWindow() {
                 intent?.includes("音乐") || intent?.includes("media")) {
               emitVehicleRefresh();
             }
-            // TTS 语音合成朗读回复
-            speak(fullContent);
+            // TTS 语音合成朗读回复（分句播放，仅终审通过后播放）
+            speakSentences(fullContent, assistantId);
           } else if (event.type === "error") {
             const errMsg = event.data?.message || "未知错误";
             toast.error("流式响应错误", { description: errMsg });
@@ -319,7 +344,7 @@ export function ChatWindow() {
           (streamErr instanceof DOMException && streamErr.name === "AbortError") ||
           (streamErr instanceof Error && streamErr.name === "AbortError")
         ) {
-          const partialContent = streamingContentRef.current;
+          const partialContent = _streamingContent;
           updateMessage(assistantId, {
             content: partialContent || "（已停止生成）",
             loading: false,
@@ -371,22 +396,24 @@ export function ChatWindow() {
       });
     } finally {
       setStreaming(false);
-      abortControllerRef.current = null;
+      _abortController = null;
     }
   };
 
-  /** 停止正在进行的流式生成 — 调用 AbortController.abort() 中断 fetch 请求 */
+  /** 停止正在进行的流式生成 — 仅用户主动点击【暂停生成】按钮时调用 */
   const handleStop = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    if (_abortController) {
+      _abortController.abort();
+      _abortController = null;
       setStreaming(false);
-      // 立即更新助手消息的 loading 状态，让“思考中...”立即消失
-      if (assistantIdRef.current) {
-        const partialContent = streamingContentRef.current;
-        // 同步 ref 内容，防止 pending 的 rAF 回调用旧空内容覆盖
-        streamingContentRef.current = partialContent || "（已停止生成）";
-        updateMessage(assistantIdRef.current, {
+      // 终止正在播放的 TTS
+      stopPlayback();
+      // 立即更新助手消息的 loading 状态，让"思考中..."立即消失
+      if (_assistantId) {
+        const partialContent = _streamingContent;
+        // 同步内容，防止 pending 的 setTimeout 回调用旧空内容覆盖
+        _streamingContent = partialContent || "（已停止生成）";
+        updateMessage(_assistantId, {
           content: partialContent || "（已停止生成）",
           loading: false,
         });
@@ -505,6 +532,16 @@ export function ChatWindow() {
                   msg.content
                 )}
               </div>
+
+              {/* TTS 播放控制组件 — 仅助手消息显示 */}
+              {msg.role === "assistant" && (
+                <TTSControls
+                  messageId={msg.id}
+                  content={msg.content}
+                  loading={msg.loading}
+                />
+              )}
+
               <div className="flex items-center gap-2 px-1">
                 <span className="text-xs text-muted-foreground">
                   {formatTime(msg.timestamp)}

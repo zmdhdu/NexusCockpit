@@ -5,10 +5,11 @@
 """
 Reranker Factory — 重排服务工厂
 
-根据 .env 的 RERANKER_PROVIDER 选择重排后端:
+本地化降级改造后固定使用本地 BGE CrossEncoder 或跳过重排。
+
+可选模式:
   - local: 本地 BGE CrossEncoder (需下载模型)
-  - cloud: 硅基流动 Rerank API (免费 bge-reranker-v2-m3)
-  - none:  跳过重排 (省成本)
+  - none:  跳过重排 (省资源)
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ from nexus.config import get_config
 from nexus.core.logger import get_logger
 from nexus.rag.reranker import LocalReranker
 from nexus.rag.reranker_base import BaseReranker
-from nexus.rag.siliconflow_reranker import SiliconFlowReranker
 
 logger = get_logger(__name__)
 
@@ -43,20 +43,16 @@ class NoneReranker(BaseReranker):
 
 
 def build_reranker() -> BaseReranker | None:
-    """根据 RERANKER_PROVIDER 配置选择重排后端。
+    """构建重排服务实例。
 
     Returns:
-        BaseReranker 实例, 或 None (provider=none 时返回 NoneReranker, 不返回 None 以保持调用方简单)
+        BaseReranker 实例, 或 NoneReranker (provider=none)
     """
     provider = get_config().providers.normalized()["reranker"]
 
     if provider == "none":
         logger.info("Reranker provider: none (disabled)")
         return NoneReranker()
-    if provider == "cloud":
-        logger.info("Reranker provider: SiliconFlow API")
-        return SiliconFlowReranker()
 
-    # 默认 local
-    logger.info("Reranker provider: local BGE")
+    logger.info("Reranker provider: local BGE (固定本地)")
     return LocalReranker()

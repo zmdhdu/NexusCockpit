@@ -1,0 +1,48 @@
+# .dockerignore — 排除不需要的文件，减小构建上下文体积
+# P4 优化: 加快 Docker 构建，避免将模型/数据/日志打包进镜像
+
+# 模型文件 (体积大，通过 volume 挂载)
+../models/
+
+# 数据文件 (通过 volume 挂载)
+../data/
+./data/
+
+# 日志
+../logs/
+**/backend_logs/
+**/frontend_logs/
+**/go_logs/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 测试 (不需要打包进生产镜像)
+tests/
+**/test_*.py
+
+# IDE / 版本控制
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# 环境配置 (通过 env_file 或环境变量注入)
+.env
+.env.local
+.env.prod
+.env.example
+
+# Docker 自身
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# 文档 (不需要打包进镜像)
+../docs/
+*.md

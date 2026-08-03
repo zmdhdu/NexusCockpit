@@ -317,13 +317,7 @@ async def verify_voiceprint(
     cockpit_id: str = Form(...),
     audio: UploadFile = File(...),
 ) -> dict[str, Any]:
-    """声纹验证 — 验证成功后自动签发 JWT Token（N9）。
-
-    验证流程:
-    1. 提取音频声纹特征，与该座舱下已注册用户比对
-    2. 验证成功 → 自动签发包含 cockpit_id + user_id + role 的 JWT Token
-    3. 前端可直接使用该 Token 进行后续操作（无需再调用 /auth/token）
-    """
+    """声纹验证：作用：声纹比对→验证成功自动签发JWT Token；场景：用户声纹登录，前端直接使用Token无需再调用/auth/token。"""
     service = get_voiceprint_service()
     audio_data = await audio.read()
     audio_format = audio.filename.split(".")[-1] if audio.filename else "wav"
