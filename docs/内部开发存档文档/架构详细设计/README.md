@@ -1,13 +1,12 @@
 # architecture 目录索引
 
 > 本目录包含 NexusCockpit 项目的全部架构知识文档。
-> 最后更新：2026-07-18
+> 最后更新：2026-08-04
 
 ## 文件清单
 
 | 文件 | 说明 | 目标读者 |
 |------|------|----------|
-| `overview.md` | 7 层架构总览 | 架构师 / 新人 |
 | `L0-infrastructure.md` | Docker Compose 编排 | 运维 / 部署 |
 | `L1-core.md` | 配置/日志/异常/熔断/个性化服务 | 后端开发 |
 | `L2-data.md` | GraphRAG 三路检索 + Rerank + CherryKB + 记忆系统 | 后端开发 |
@@ -17,8 +16,9 @@
 | `L6-api.md` | REST/SSE/WebSocket + 知识库管理 + 座舱/数据中台/设置路由 | 后端开发 / 前端联调 |
 | `L7-observability.md` | Langfuse + Prometheus + Grafana + Loki | 运维 / 架构师 |
 | `degradation-strategy.md` | LLM 降级策略与 fallback 方案 | 架构师 / 运维 |
+| `NexusCockpit架构流程图.md` | 架构流程图汇总 | 架构师 / 新人 |
 
-> **阅读顺序建议**：先 `overview.md` 建立全景 → `L0-infrastructure.md` 了解基础设施 → `L1-core.md` 到 `L7-observability.md` 逐层深入。
+> **阅读顺序建议**：先阅读 `README.md` 建立全景 → `L0-infrastructure.md` 了解基础设施 → `L1-core.md` 到 `L7-observability.md` 逐层深入。也可参考 [系统架构总览](../../交付版文档包/08-系统架构总览.md) 获取概览。
 
 ## 架构核心
 
@@ -116,10 +116,10 @@ make monitor               # Grafana → http://localhost:3001
 API:        FastAPI │ Pydantic v2 │ JWT │ WebSocket │ SSE
 Agent:      LangGraph (多Agent状态图) │ LangChain │ Reflection 反思校验
 RAG:        GraphRAG (向量+图谱+BM25 三路融合) │ Reranker │ 语义缓存
-中间件:     Redis (语义缓存) │ asyncio.create_task (进程内异步) │ Nginx (反向代理)
+中间件:     Redis (语义缓存) │ asyncio.create_task (进程内异步)
 数据库:     Milvus (向量) │ Neo4j (图谱) │ MySQL (关系) │ Redis (KV)
-AI模型:     SenseVoice (ASR) │ CAM++ (声纹) │ DeepSeek-V3 (LLM API) │ Qwen3-4B (本地)
+AI模型:     SenseVoice (ASR) │ CAM++ (声纹) │ DeepSeek-V3 (LLM API) │ Qwen3.5-4B (本地)
 监控:       Langfuse (AI Trace) │ Prometheus (指标) │ Grafana (面板) │ Loki (日志)
-部署:       Docker │ Docker Compose │ Nginx │ GitHub Actions
+部署:       Docker │ Docker Compose │ GitHub Actions
 车控:       MCP协议 │ Mock/HTTP/MCP-stdio 适配器 │ 白名单/限流/审计
 ```

@@ -37,29 +37,29 @@ NexusCockpit 是一个企业级车载语音 Agent 系统，采用 **7 层分层�
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  L7  可观测层 (Observability)    →  docs/architecture/L7-observability.md
+│  L7  可观测层 (Observability)    →  docs/内部开发存档文档/架构详细设计/L7-observability.md
 │      Langfuse / Prometheus / Grafana / 结构化日志
 ├─────────────────────────────────────────────────────────────┤
-│  L6  API 层 (API Gateway)        →  docs/architecture/L6-api.md
+│  L6  API 层 (API Gateway)        →  docs/内部开发存档文档/架构详细设计/L6-api.md
 │      FastAPI REST / SSE / WebSocket / JWT 认证
 ├─────────────────────────────────────────────────────────────┤
-│  L5  中间件层 (Middleware)       →  docs/architecture/L5-middleware.md
+│  L5  中间件层 (Middleware)       →  docs/内部开发存档文档/架构详细设计/L5-middleware.md
 │      Redis 语义缓存 / 限流 / asyncio 任务队列 / 熔断器
 ├─────────────────────────────────────────────────────────────┤
-│  L4  Agent 层 (Multi-Agent)      →  docs/architecture/L4-agent.md
+│  L4  Agent 层 (Multi-Agent)      →  docs/内部开发存档文档/架构详细设计/L4-agent.md
 │      Supervisor → 5 Experts (并行) → Responder → Reflection → Reviewer
 ├─────────────────────────────────────────────────────────────┤
-│  L3  服务层 (Services)           →  docs/architecture/L3-service.md
+│  L3  服务层 (Services)           →  docs/内部开发存档文档/架构详细设计/L3-service.md
 │      ASR / TTS / Skills / Vehicle / Intent / MCP
 ├─────────────────────────────────────────────────────────────┤
-│  L2  数据层 (Data)               →  docs/architecture/L2-data.md
+│  L2  数据层 (Data)               →  docs/内部开发存档文档/架构详细设计/L2-data.md
 │      GraphRAG / Memory / Vector Store / Graph Store
 ├─────────────────────────────────────────────────────────────┤
-│  L1  核心层 (Core)               →  docs/architecture/L1-core.md
+│  L1  核心层 (Core)               →  docs/内部开发存档文档/架构详细设计/L1-core.md
 │      Config / Logger / Exceptions / Circuit Breaker / Personalization
 ├─────────────────────────────────────────────────────────────┤
-│  L0  基础设施层 (Infrastructure) →  docs/architecture/L0-infrastructure.md
-│      Docker Compose / Nginx / Prometheus / Grafana
+│  L0  基础设施层 (Infrastructure) →  docs/内部开发存档文档/架构详细设计/L0-infrastructure.md
+│      Docker Compose / Milvus / Neo4j / Redis / MySQL
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -71,7 +71,7 @@ NexusCockpit/
 ├── README.md                        # 项目介绍与快速开始
 ├── LICENSE                          # MIT 开源协议
 ├── .env                             # 环境变量 (后端共享，位于根目录)
-├── .env.example                     # 环境变量模板
+├── .env.local                       # 环境变量覆盖 (Go 网关优先加载)
 ├── docker-compose.yml               # 基础设施一键部署
 ├── Makefile                         # 工程化命令 (make dev/test/lint...)
 ├── .pre-commit-config.yaml          # 代码质量钩子
@@ -87,7 +87,8 @@ NexusCockpit/
 ├── backend_design/                  # ===== 后端代码 (Python + Go) =====
 │   ├── nexus/                       # 主 Python 包
 │   │   ├── main.py                  #   FastAPI 应用入口
-│   │   ├── config.py                #   配置中心 (自动定位 .env)
+│   │   ├── config.py                #   配置中心入口 (自动定位 .env)
+│   │   ├── config/                  #   配置子模块 (llm/cache/server/asr/vehicle/...)
 │   │   ├── core/                    #   L1 核心层 (日志/异常/熔断/个性化)
 │   │   │   ├── cockpit_manager.py   #   座舱管理器
 │   │   │   ├── tenant_context.py    #   多租户上下文
@@ -105,7 +106,8 @@ NexusCockpit/
 │   │   ├── intent/                  #   L3 服务层 (意图路由)
 │   │   ├── asr/                     #   L3 服务层 (语音识别)
 │   │   ├── tts/                     #   L3 服务层 (语音合成)
-│   │   ├── mcp/                     #   L3 服务层 (MCP 网关)
+│   │   ├── mcp/                     #   L3 服务层 (MCP Server)
+│   │   │   └── server.py            #   MCP 服务器 (任务分发/状态同步/结果回调)
 │   │   ├── middleware/              #   L5 中间件 (缓存/限流/队列)
 │   │   ├── api/                     #   L6 API 层 (REST/SSE/WS)
 │   │   │   └── routes/              #   路由 (chat/vehicle/cockpit/dataplatform/middleware_status/settings/asr)
@@ -152,17 +154,13 @@ NexusCockpit/
 │   └── post-code-guardian/          # 代码修改后自动编排守护 (code-review→code-doc→doc-sync)
 │
 ├── docs/                            # ===== 文档中心 =====
-│   ├── architecture/                # 架构文档 (L0-L7)
-│   ├── deployment/                  # 部署文档 (SETUP + VERIFICATION)
-│   ├── testing/                     # 测试文档 (TESTING)
-│   ├── voice/                       # 语音功能文档 (ASR/TTS/声纹)
-│   └── PROGRESS.md                  # 项目开发进展与架构图
+│   ├── 交付版文档包/                 #   交付文档 (部署/运维/API/配置/安全/硬件/CAN/架构/性能/降级)
+│   └── 内部开发存档文档/             #   内部文档 (架构详细设计 L0-L7/测试验证/开发记录/语音技术/选型分析)
 │
 ├── config/                          # ===== 基础设施配置 =====
 │   ├── prometheus/                  # Prometheus 监控
 │   ├── grafana/                     # Grafana 面板
-│   ├── loki/                        # Loki 日志
-│   └── nginx/                       # Nginx 反向代理
+│   └── loki/                        # Loki 日志
 │
 ├── models/                          # 模型文件 (需下载)
 ├── data/                            # 数据目录
@@ -187,19 +185,20 @@ NexusCockpit/
 
 | 文档 | 说明 |
 |------|------|
-| [项目进展与架构图](docs/PROGRESS.md) | 开发进度、架构图、目录结构、文档索引 |
-| [架构总览](docs/architecture/overview.md) | 7 层架构设计理念与数据流 |
-| [环境搭建指南](docs/deployment/SETUP.md) | 虚拟环境、模型下载、中间件部署 |
-| [前后端验证方案](docs/deployment/VERIFICATION.md) | 8 阶段逐步验证 |
-| [测试方案](docs/testing/TESTING.md) | 单元/集成/前端/API/性能测试详细说明 |
-| [L0 基础设施层](docs/architecture/L0-infrastructure.md) | Docker Compose 编排 |
-| [L1 核心层](docs/architecture/L1-core.md) | 配置、日志、异常、熔断器、个性化服务 |
-| [L2 数据层](docs/architecture/L2-data.md) | GraphRAG、记忆系统 |
-| [L3 服务层](docs/architecture/L3-service.md) | ASR/TTS/技能/车控/意图 |
-| [L4 Agent 层](docs/architecture/L4-agent.md) | Multi-Agent 工作流 |
-| [L5 中间件层](docs/architecture/L5-middleware.md) | 缓存/限流/队列 |
-| [L6 API 层](docs/architecture/L6-api.md) | REST/SSE/WebSocket |
-| [L7 可观测层](docs/architecture/L7-observability.md) | 追踪/指标/面板 |
+| [项目进展与架构图](docs/内部开发存档文档/开发过程记录/PROGRESS.md) | 开发进度、架构图、目录结构、文档索引 |
+| [系统架构总览](docs/交付版文档包/08-系统架构总览.md) | 7 层架构设计理念与数据流 |
+| [架构详细设计索引](docs/内部开发存档文档/架构详细设计/README.md) | L0-L7 架构详细文档索引 |
+| [部署安装手册](docs/交付版文档包/01-部署安装手册.md) | 虚拟环境、模型下载、中间件部署 |
+| [前后端验证方案](docs/内部开发存档文档/测试验证方案/VERIFICATION.md) | 8 阶段逐步验证 |
+| [测试方案](docs/内部开发存档文档/测试验证方案/TESTING.md) | 单元/集成/前端/API/性能测试详细说明 |
+| [L0 基础设施层](docs/内部开发存档文档/架构详细设计/L0-infrastructure.md) | Docker Compose 编排 |
+| [L1 核心层](docs/内部开发存档文档/架构详细设计/L1-core.md) | 配置、日志、异常、熔断器、个性化服务 |
+| [L2 数据层](docs/内部开发存档文档/架构详细设计/L2-data.md) | GraphRAG、记忆系统 |
+| [L3 服务层](docs/内部开发存档文档/架构详细设计/L3-service.md) | ASR/TTS/技能/车控/意图 |
+| [L4 Agent 层](docs/内部开发存档文档/架构详细设计/L4-agent.md) | Multi-Agent 工作流 |
+| [L5 中间件层](docs/内部开发存档文档/架构详细设计/L5-middleware.md) | 缓存/限流/队列 |
+| [L6 API 层](docs/内部开发存档文档/架构详细设计/L6-api.md) | REST/SSE/WebSocket |
+| [L7 可观测层](docs/内部开发存档文档/架构详细设计/L7-observability.md) | 追踪/指标/面板 |
 
 ## 图片资源说明
 
@@ -227,14 +226,14 @@ README.md 中引用的所有展示图片存放在 `images/` 目录下，按用�
 | 新增车控技能 | `backend_design/nexus/skills/vehicle/` |
 | 修改车控适配 | `backend_design/nexus/vehicle/` |
 | 修改意图路由 | `backend_design/nexus/intent/` |
-| 修改配置 | `backend_design/nexus/config.py` + `.env` (根目录) |
+| 修改配置 | `backend_design/nexus/config/__init__.py` + `.env` (根目录) |
 | 修改中间件 | `backend_design/nexus/middleware/` |
 | 修改前端页面 | `frontend_design/src/app/` |
 | 修改前端组件 | `frontend_design/src/components/` |
 | 修改前端 API | `frontend_design/src/lib/api.ts` |
 | 修改监控指标 | `backend_design/nexus/observability/` |
 | 修改 ASR/TTS | `backend_design/nexus/asr/engine.py` / `tts/engine.py` |
-| 修改 MCP 网关 | `backend_design/nexus/mcp/gateway.py` |
+| 修改 MCP 服务 | `backend_design/nexus/mcp/server.py` |
 | 修改基础设施 | `docker-compose.yml` + `config/` |
 | 修改 AI 技能 | `.catpaw/skills/` |
 | 座舱管理 | `backend_design/nexus/core/cockpit_manager.py` |

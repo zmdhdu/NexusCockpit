@@ -182,13 +182,13 @@ result = router.route("把空调调到24度")
 3. 默认兜底 — 返回 "unknown" 意图
 ```
 
-## MCP 网关 (nexus/mcp/gateway.py)
+## MCP 服务端 (nexus/mcp/server.py)
 
 ```python
-from nexus.mcp.gateway import MCPGateway
+from nexus.mcp.server import get_mcp_server
 
-gateway = MCPGateway()
-gateway.register_tool("climate", handler)
+mcp = get_mcp_server()
+mcp.register_tool("climate", handler)
 result = await gateway.invoke("climate", {"op": "set_temp"})
 ```
 

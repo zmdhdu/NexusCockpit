@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
 
     # --- 5. OSS 对象存储已移除（未集成） ---
     # 原第 110-114 行的 OSSStorage 初始化代码已删除
-    # 如需对象存储，可参考 docs/architecture/ 中的存储方案设计
+    # 如需对象存储，可参考 docs/内部开发存档文档/架构详细设计/ 中的存储方案设计
 
     # --- 6. 初始化 Redis 语义缓存 ---
     semantic_cache = SemanticCache(embedding_service)

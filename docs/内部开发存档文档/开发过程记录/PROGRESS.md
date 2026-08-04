@@ -1,7 +1,7 @@
 # NexusCockpit 项目开发进展与架构说明
 
 > **⚠️ 历史文档** — 本文件为开发过程流水账，信息价值随时间衰减。
-> 最新架构与完成度请参考 `README.md` 和 `docs/architecture/` 目录。
+> 最新架构与完成度请参考 `README.md` 和 `docs/内部开发存档文档/架构详细设计/` 目录。
 >
 > 最后更新 2026-08-01
 >
@@ -365,15 +365,14 @@ NexusCockpit/
 ├── config/                         # 基础设施配置
 │   ├── prometheus/                 # Prometheus 监控配置
 │   ├── grafana/                    # Grafana 面板配置
-│   ├── loki/                       # Loki 日志配置
-│   └── nginx/                      # Nginx 反向代理配置
+│   └── loki/                       # Loki 日志配置
 │
 ├── models/                         # 模型文件 (需下载)
 ├── data/                           # 数据文件
 ├── assets/                         # 音频资源
 │
 ├── .env                            # 环境变量 (后端共享)
-├── .env.example                    # 环境变量模板
+├── .env.local                      # 环境变量覆盖 (Go 网关优先加载)
 ├── .editorconfig                   # 编辑器配置 (强制 UTF-8)
 ├── docker-compose.yml              # 基础设施编排
 ├── Makefile                        # 工程化命令
@@ -390,16 +389,16 @@ NexusCockpit/
 | 文档 | 路径 | 用途 |
 |------|------|------|
 | 项目导航 | `Agent.md` | 代码修改时的查找入口 |
-| 环境搭建 | `docs/deployment/SETUP.md` | 虚拟环境、模型下载、Docker 部署 |
-| 前后端验证 | `docs/deployment/VERIFICATION.md` | 8 阶段逐步验证方案 |
-| 测试方案 | `docs/testing/TESTING.md` | 单元/集成/E2E 测试详细说明 |
-| 架构总览 | `docs/architecture/overview.md` | 7 层架构设计理念 |
-| L0 基础设施 | `docs/architecture/L0-infrastructure.md` | Docker Compose 编排 |
-| L1 核心层 | `docs/architecture/L1-core.md` | 配置/日志/异常/熔断 |
-| L2 数据层 | `docs/architecture/L2-data.md` | GraphRAG/记忆系统 |
-| L3 服务层 | `docs/architecture/L3-service.md` | ASR/TTS/技能/车控 |
-| L4 Agent 层 | `docs/architecture/L4-agent.md` | Multi-Agent 工作流 |
-| L5 中间件 | `docs/architecture/L5-middleware.md` | 缓存/限流/队列 |
-| L6 API 层 | `docs/architecture/L6-api.md` | REST/SSE/WebSocket |
-| L7 可观测 | `docs/architecture/L7-observability.md` | 追踪/指标/面板 |
-| 项目进展 | `docs/PROGRESS.md` | 本文档（历史文档，仅供归档参考） |
+| 部署安装 | `docs/交付版文档包/01-部署安装手册.md` | 虚拟环境、模型下载、Docker 部署 |
+| 前后端验证 | `docs/内部开发存档文档/测试验证方案/VERIFICATION.md` | 8 阶段逐步验证方案 |
+| 测试方案 | `docs/内部开发存档文档/测试验证方案/TESTING.md` | 单元/集成/E2E 测试详细说明 |
+| 架构总览 | `docs/交付版文档包/08-系统架构总览.md` | 7 层架构设计理念 |
+| L0 基础设施 | `docs/内部开发存档文档/架构详细设计/L0-infrastructure.md` | Docker Compose 编排 |
+| L1 核心层 | `docs/内部开发存档文档/架构详细设计/L1-core.md` | 配置/日志/异常/熔断 |
+| L2 数据层 | `docs/内部开发存档文档/架构详细设计/L2-data.md` | GraphRAG/记忆系统 |
+| L3 服务层 | `docs/内部开发存档文档/架构详细设计/L3-service.md` | ASR/TTS/技能/车控 |
+| L4 Agent 层 | `docs/内部开发存档文档/架构详细设计/L4-agent.md` | Multi-Agent 工作流 |
+| L5 中间件 | `docs/内部开发存档文档/架构详细设计/L5-middleware.md` | 缓存/限流/队列 |
+| L6 API 层 | `docs/内部开发存档文档/架构详细设计/L6-api.md` | REST/SSE/WebSocket |
+| L7 可观测 | `docs/内部开发存档文档/架构详细设计/L7-observability.md` | 追踪/指标/面板 |
+| 项目进展 | `docs/内部开发存档文档/开发过程记录/PROGRESS.md` | 本文档（历史文档，仅供归档参考） |

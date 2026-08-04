@@ -71,12 +71,12 @@
 
 ## MCP 服务层接口
 
-MCP (Model Context Protocol) 网关 (`nexus/mcp/gateway.py`) 提供统一工具调用入口，封装车控适配器，支持工具发现与调用：
+MCP (Model Context Protocol) 服务端 (`nexus/mcp/server.py`) 提供统一工具调用入口，封装车控适配器，支持工具发现与调用：
 
 ```python
-from nexus.mcp.gateway import MCPGateway
+from nexus.mcp.server import get_mcp_server
 
-gateway = MCPGateway(adapter=vehicle_adapter)
+mcp = get_mcp_server()
 gateway.list_tools()   # → [{"name": "vehicle_climate", "description": "..."}, ...]
 gateway.invoke("vehicle_climate", {"op": "set_temp", "target_temp": 24})
 ```

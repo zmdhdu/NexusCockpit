@@ -1,7 +1,7 @@
 # NexusCockpit 测试方案
 
 > 本文档详细说明项目各模块的测试方法、测试用例和验证步骤。
-> 配合 `docs/deployment/VERIFICATION.md`（逐步验证方案）使用。
+> 配合 `VERIFICATION.md`（逐步验证方案）使用。
 
 ---
 
@@ -21,10 +21,10 @@
 
 | 测试类型 | 文档位置 | 说明 |
 |----------|----------|------|
-| 逐步验证方案 | `docs/deployment/VERIFICATION.md` | 8 阶段从环境到全链路的验证 |
+| 逐步验证方案 | `VERIFICATION.md` (同目录) | 8 阶段从环境到全链路的验证 |
 | 单元测试代码 | `backend_design/tests/test_core.py` | 车控总线/意图路由/技能注册/Agent 状态 |
 | 集成测试代码 | `backend_design/tests/test_api.py` | API 接口端到端测试 |
-| 本文档 | `docs/testing/TESTING.md` | 测试用例详细说明 |
+| 本文档 | `TESTING.md` (同目录) | 测试用例详细说明 |
 
 ---
 

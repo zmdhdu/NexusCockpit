@@ -32,7 +32,7 @@
 |------|------|----------|
 | ① | `README.md` | 项目概述、技术栈速览、快速启动命令 |
 | ② | `Agent.md` | 项目总导航、目录结构全貌、修改代码时的查找路径 |
-| ③ | `docs/architecture/overview.md` | 7 层架构总览与数据流设计（先理解整体架构方向） |
+| ③ | `docs/交付版文档包/08-系统架构总览.md` | 7 层架构总览与数据流设计（先理解整体架构方向） |
 
 ### 1.2 理解 7 层架构 (30 分钟)
 
@@ -417,7 +417,7 @@ npm run dev
 | **Embedding** | 把文字转换成数字向量 | `nexus/rag/embedding.py` |
 | **ASR** | Automatic Speech Recognition，语音识别 | `nexus/asr/engine.py` |
 | **TTS** | Text-To-Speech，文字转语音 | `nexus/tts/engine.py` |
-| **MCP** | Model Context Protocol，AI 工具调用协议 | `nexus/mcp/gateway.py` |
+| **MCP** | Model Context Protocol，AI 工具调用协议 | `nexus/mcp/server.py` |
 | **RBAC** | Role-Based Access Control，基于角色的权限控制 | `nexus_gate/internal/auth/jwt.go` |
 | **Circuit Breaker** | 熔断器，防止故障扩散 | `nexus/core/circuit_breaker.py` |
 | **asyncio** | Python 异步任务处理 | `nexus/agent/nodes/reviewer_node.py`（记忆存储直接 await） |

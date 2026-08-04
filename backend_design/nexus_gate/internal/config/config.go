@@ -117,7 +117,7 @@ func Load() *Config {
 	return cfg
 }
 
-// validateProdSecurity 生产环境安全检查（与 Python 侧 config.py 对齐）：
+// validateProdSecurity 生产环境安全检查（与 Python 侧 config/__init__.py 对齐）：
 // APP_ENV=prod 时检测到默认弱密钥/弱口令/CORS 通配符直接拒绝启动。
 func validateProdSecurity(c *Config) {
 	if os.Getenv("APP_ENV") != "prod" {

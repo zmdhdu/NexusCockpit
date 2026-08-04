@@ -12,7 +12,7 @@
 - Prometheus (指标采集)
 - Grafana (可视化面板)
 
-> **双模式部署**: 所有中间件均可通过 `.env` 的 `*_PROVIDER` 开关切换为云端托管服务（Zilliz Cloud / AuraDB / 云 Redis / 硅基流动 Rerank），详见 `docs/deployment/dual_云端与本地部署.md`。
+> **本地化部署**: 所有中间件固定使用本地 Docker 部署（Milvus / Neo4j / Redis / MySQL），LLM 可选云端 ARK API 或本地 llama.cpp 降级。详见 [LLM 降级部署指南](../../交付版文档包/10-LLM降级部署指南.md) 和 [降级策略](degradation-strategy.md)。
 
 ## 组件清单
 

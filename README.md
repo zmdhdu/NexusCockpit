@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Go](https://img.shields.io/badge/Go-1.22+-00ADD8.svg)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://go.dev/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg)](https://fastapi.tiangolo.com/)
 
@@ -24,10 +24,10 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 | **GraphRAG** | Milvus (向量) + Neo4j (图谱) + BM25 (全文) 三路 RRF 融合 + Rerank 重排 |
 | **语义缓存** | Redis 8 RediSearch KNN 向量缓存 + 副作用隔离 |
 | **本地离线部署** | 本地 Docker 全栈 (Milvus/Neo4j/Redis/MySQL) + 云端 LLM API 可选降级 |
-| **LLM 降级** | 云端 DeepSeek-V3 → 本地 Qwen3.5-4B (llama.cpp) 自动降级 |
+| **LLM 降级** | 云端 DeepSeek-V3 → 本地 Qwen3.5-4B (llama.cpp GGUF) 自动降级 |
 | **限流** | Redis 滑动窗口限流 |
 | **车控总线** | Mock / HTTP / MCP stdio 三模式适配 |
-| **可观测性** | Langfuse Tracing + Prometheus Metrics + grafana |
+| **可观测性** | Langfuse Tracing + Prometheus Metrics + Grafana |
 | **API** | FastAPI REST + SSE + WebSocket |
 | **ASR/TTS** | FunASR (SenseVoice) + CosyVoice |
 
@@ -67,11 +67,11 @@ NexusCockpit 是一个独立的车载语音 Agent 项目，采用 **7 层分层�
 
 ![中间件监控看板](images/dashboard/middleware-monitor.png)
 
-### grafana 监控面板
+### Grafana 监控面板
 
-Prometheus 指标采集 + grafana 可视化看板，覆盖 API 延迟、Agent 执行耗时、缓存命中率等核心指标。
+Prometheus 指标采集 + Grafana 可视化看板，覆盖 API 延迟、Agent 执行耗时、缓存命中率等核心指标。
 
-![grafana 监控面板](images/dashboard/grafana.png)
+![Grafana 监控面板](images/dashboard/grafana.png)
 
 ### 设置中心
 
@@ -97,7 +97,8 @@ NexusCockpit/
 ├── Agent.md                     # 📋 项目总导航
 ├── README.md                    # 本文件
 ├── LICENSE                      # MIT 开源协议
-├── .env.example                 # 环境变量模板
+├── .env                         # 环境变量 (前后端共享)
+├── .env.local                   # 环境变量覆盖 (Go 网关优先加载)
 ├── docker-compose.yml           # 基础设施一键部署
 ├── Makefile                     # 工程化命令
 │
@@ -126,11 +127,8 @@ NexusCockpit/
 │
 ├── .catpaw/skills/              # 🤖 AI 开发技能 (9 个)
 ├── docs/                        # 📚 文档中心
-│   ├── architecture/            #   L0-L7 架构文档
-│   ├── deployment/              #   部署与验证文档
-│   ├── testing/                 #   测试文档
-│   ├── learning-roadmap.md      #   新人学习路线图
-│   └── PROGRESS.md              #   开发进度
+│   ├── 交付版文档包/             #   交付文档 (部署/运维/API/配置/安全/硬件/架构/性能)
+│   └── 内部开发存档文档/         #   内部文档 (架构详细设计/测试验证/开发记录/语音技术)
 ├── config/                      # 基础设施配置
 ├── models/                      # AI 模型文件 (需下载)
 ├── data/                        # 数据目录
@@ -175,7 +173,7 @@ docker compose ps
 
 预期输出：`milvus`、`neo4j`、`redis`、`mysql`、`prometheus`、`grafana`、`loki` 均为 `running` 状态。
 
-> **本地化部署**：已移除云端托管模式，固定使用本地 Docker 全栈中间件。LLM 仍可选云端 API（硅基流动/火山方舟）或本地 llama.cpp 降级。
+> **本地化部署**：已移除云端托管模式，固定使用本地 Docker 全栈中间件。LLM 仍可选云端 API（硅基流动）或本地 llama.cpp 降级。
 
 ### 3. 安装后端环境
 
@@ -198,7 +196,7 @@ make install
 ### 4. 下载 AI 模型
 
 > 模型文件较大 (CosyVoice 约 3.5GB)，请确保磁盘空间充足。
-> 详细步骤请参考 [SETUP.md 第 5 节](docs/deployment/SETUP.md#5-下载-ai-模型)
+> 详细步骤请参考 [部署安装手册](docs/交付版文档包/01-部署安装手册.md)
 
 ```bash
 pip install modelscope
@@ -216,10 +214,10 @@ modelscope download --model iic/CosyVoice-300M --local_dir ./models/tts/cosyvoic
 ### 5. 配置环境变量
 
 ```bash
-cp .env.example .env
+cp .env .env.local
 ```
 
-编辑 `.env` 文件，填入必要的 API Key：
+编辑 `.env`（或 `.env.local` 覆盖）文件，填入必要的 API Key：
 
 ```bash
 # === 必填项 ===
@@ -237,7 +235,7 @@ RERANKER_PROVIDER=local          # local=本地BGE | none=跳过
 EMBEDDING_PROVIDER=local         # local=本地bge-m3 | cloud=硅基流动API(过渡)
 ```
 
-> 完整环境变量说明请查看 [.env.example](.env.example)
+> 完整环境变量说明请查看 [.env](.env) 或 [参数配置说明](docs/交付版文档包/04-参数配置说明.md)
 
 ### 6. 启动后端服务
 
@@ -314,7 +312,7 @@ make dev-frontend
 | **API 文档** | http://localhost:8000/docs | FastAPI Swagger UI |
 | **健康检查** | http://localhost:8000/health | Python 后端健康状态 |
 | **网关健康** | http://localhost:8080/health | Go 网关健康状态 |
-| **grafana** | http://localhost:3001 | 监控面板 (admin/admin) |
+| **Grafana** | http://localhost:3001 | 监控面板 (admin/admin) |
 | **Prometheus** | http://localhost:9200 | 指标查询 |
 
 ---
@@ -371,7 +369,7 @@ ws.onmessage = (event) => console.log(JSON.parse(event.data));
 ### 7 层分层架构
 
 ```
-L7  可观测层    →  Langfuse / Prometheus / grafana
+L7  可观测层    →  Langfuse / Prometheus / Grafana
 L6  API 层      →  FastAPI REST / SSE / WebSocket / JWT
 L5  中间件层    →  Redis 语义缓存 / 限流 / 进程内异步任务 / 熔断器
 L4  Agent 层    →  Supervisor → 5 Expert Agents (并行) → Responder → Reflection → Reviewer
@@ -389,7 +387,7 @@ L0  基础设施层  →  Docker Compose / Milvus / Neo4j / Redis / MySQL
 |:---:|
 ![Multi-Agent 工作流图](images/architecture/multi-agent-flow.png) 
 
-> 详见 [架构总览](docs/architecture/overview.md)
+> 详见 [系统架构总览](docs/交付版文档包/08-系统架构总览.md) 或 [架构详细设计](docs/内部开发存档文档/架构详细设计/README.md)
 
 ### Multi-Agent 工作流 (Supervisor + 5 Experts)
 
@@ -453,7 +451,7 @@ Query
 | ASR | FunASR (SenseVoice) | 多语言、端侧 |
 | TTS | CosyVoice | 高质量、可克隆 |
 | 追踪 | Langfuse | LLM 专用 |
-| 指标 | Prometheus + grafana | 云原生标准 |
+| 指标 | Prometheus + Grafana | 云原生标准 |
 | Go 网关 | Gin + gorilla/websocket | 高并发、低内存 |
 | 前端框架 | Next.js 14 (App Router) | SSR/SSG、文件路由 |
 | 状态管理 | Zustand | 轻量级、持久化 |
@@ -466,12 +464,16 @@ Query
 | 文档 | 说明 |
 |------|------|
 | [Agent.md](Agent.md) | 项目总导航 |
-| **[学习路线图](docs/learning-roadmap.md)** | **新手 12-16 小时学习指南** |
-| [环境搭建指南](docs/deployment/SETUP.md) | 虚拟环境、模型下载、部署 |
-| [架构总览](docs/architecture/overview.md) | 7 层架构设计 |
-| [L0-L7 分层文档](docs/architecture/) | 各层详细说明 |
-| [项目进展](docs/PROGRESS.md) | 开发进度与架构图 |
-| [测试文档](docs/testing/TESTING.md) | 单元/集成/E2E 测试 |
+| **[学习路线图](docs/内部开发存档文档/审核与选型分析/learning-roadmap.md)** | **新手 12-16 小时学习指南** |
+| [部署安装手册](docs/交付版文档包/01-部署安装手册.md) | 环境搭建、模型下载、Docker 部署 |
+| [系统架构总览](docs/交付版文档包/08-系统架构总览.md) | 7 层架构设计概览 |
+| [架构详细设计](docs/内部开发存档文档/架构详细设计/README.md) | L0-L7 各层详细说明 |
+| [API 接口协议文档](docs/交付版文档包/03-API接口协议文档.md) | REST/SSE/WebSocket 接口说明 |
+| [参数配置说明](docs/交付版文档包/04-参数配置说明.md) | 环境变量与配置项详解 |
+| [LLM 降级部署指南](docs/交付版文档包/10-LLM降级部署指南.md) | 云端→本地 LLM 自动降级方案 |
+| [项目进展](docs/内部开发存档文档/开发过程记录/PROGRESS.md) | 开发进度与架构图 |
+| [测试文档](docs/内部开发存档文档/测试验证方案/TESTING.md) | 单元/集成/E2E 测试 |
+| [系统运维与故障排查手册](docs/交付版文档包/02-系统运维与故障排查手册.md) | 运维操作与故障排查 |
 
 ---
 
