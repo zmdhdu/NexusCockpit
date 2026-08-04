@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: data_knowledge_preferences
+title: 数据与知识库资源目录
+scope:
+    - data/
+source_files: []
+depends_on: []
+related_to:
+    - path: frontend_nextjs
+    - path: shared_models

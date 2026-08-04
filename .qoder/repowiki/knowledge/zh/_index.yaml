@@ -1,0 +1,91 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-08-03T17:03:49Z"
+modules:
+    "":
+        dir_name: NexusCockpit 车载 Multi-Agent 座舱系统根项目
+        title: NexusCockpit 车载 Multi-Agent 座舱系统根项目
+        scope:
+            - .editorconfig
+            - .env
+            - .gitignore
+            - .pre-commit-config.yaml
+            - Agent.md
+            - LICENSE
+            - Makefile
+            - README.md
+            - docker-compose.dev.yml
+            - docker-compose.yml
+        source_files: []
+        children:
+            - config_observability
+            - data_knowledge_preferences
+            - docs
+            - frontend_nextjs
+            - scripts_tooling
+            - shared_models
+        depends_on: []
+        related_to: []
+    config_observability:
+        dir_name: 可观测性基础设施配置（Prometheus _ Loki _ Grafana）
+        title: 可观测性基础设施配置（Prometheus / Loki / Grafana）
+        scope:
+            - config/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend_nextjs
+    data_knowledge_preferences:
+        dir_name: 数据与知识库资源目录
+        title: 数据与知识库资源目录
+        scope:
+            - data/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: frontend_nextjs
+            - path: shared_models
+    docs:
+        dir_name: NexusCockpit 项目文档体系
+        title: NexusCockpit 项目文档体系
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    frontend_nextjs:
+        dir_name: NexusCockpit 车载语音 Agent 前端控制台（Next.js）
+        title: NexusCockpit 车载语音 Agent 前端控制台（Next.js）
+        scope:
+            - frontend_design/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: config_observability
+            - path: data_knowledge_preferences
+    scripts_tooling:
+        dir_name: 项目构建与开发辅助脚本集
+        title: 项目构建与开发辅助脚本集
+        scope:
+            - scripts/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    shared_models:
+        dir_name: 预训练模型与推理二进制文件集合
+        title: 预训练模型与推理二进制文件集合
+        scope:
+            - models/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: data_knowledge_preferences

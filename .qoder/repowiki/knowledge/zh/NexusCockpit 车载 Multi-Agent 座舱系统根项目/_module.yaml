@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: NexusCockpit 车载 Multi-Agent 座舱系统根项目
+scope:
+    - .editorconfig
+    - .env
+    - .gitignore
+    - .pre-commit-config.yaml
+    - Agent.md
+    - LICENSE
+    - Makefile
+    - README.md
+    - docker-compose.dev.yml
+    - docker-compose.yml
+source_files: []
+depends_on: []
+related_to: []

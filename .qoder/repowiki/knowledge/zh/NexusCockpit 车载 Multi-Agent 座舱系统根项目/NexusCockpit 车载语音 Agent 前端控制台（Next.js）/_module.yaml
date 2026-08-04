@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: frontend_nextjs
+title: NexusCockpit 车载语音 Agent 前端控制台（Next.js）
+scope:
+    - frontend_design/
+source_files: []
+depends_on: []
+related_to:
+    - path: config_observability
+    - path: data_knowledge_preferences

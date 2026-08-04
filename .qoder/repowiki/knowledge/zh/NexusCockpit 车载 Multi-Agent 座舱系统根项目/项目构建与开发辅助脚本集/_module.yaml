@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: scripts_tooling
+title: 项目构建与开发辅助脚本集
+scope:
+    - scripts/
+source_files: []
+depends_on: []
+related_to: []
